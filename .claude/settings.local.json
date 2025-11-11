@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(forge clean:*)",
+      "Bash(tee:*)",
+      "Bash(cast send 0x0657eC919E0294a325a6e0e3778bf1d59f483fB9 \"setExecutorSigner(address)\" 0xDc45fE9fF7aF3522bB2B88a602670Ab4bE2C6f91 --rpc-url https://opbnb-testnet-rpc.bnbchain.org --private-key 0xb43112fd82593f95dea3ba1a25eed28a6a75d6763677a42560b5d7815fea7977)",
+      "mcp__serena__read_file",
+      "mcp__serena__activate_project",
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__find_symbol",
+      "Bash(forge build:*)",
+      "Bash(find:*)",
+      "Bash(forge test:*)",
+      "mcp__serena__insert_before_symbol",
+      "mcp__serena__replace_regex",
+      "mcp__serena__list_dir"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
