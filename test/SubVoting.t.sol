@@ -23,7 +23,7 @@ contract SubVotingTest is Test {
     );
 
     bytes32 public constant VOTE_RECORD_TYPEHASH = keccak256(
-        "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,string userId,string votingFor,string votedOn,uint256 votingAmt,uint256 nonce,uint256 deadline)"
+        "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,bytes32 userIdHash,bytes32 votingForHash,bytes32 votedOnHash,uint256 votingAmt,uint256 nonce,uint256 deadline)"
     );
 
     bytes32 public constant BATCH_TYPEHASH = keccak256(
@@ -90,33 +90,32 @@ contract SubVotingTest is Test {
         SubVoting.VoteRecord memory record,
         uint256 nonce
     ) internal view returns (bytes memory) {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                VOTE_RECORD_TYPEHASH,
-                record.timestamp,
-                record.missionId,
-                record.votingId,
-                record.userAddress,
-                keccak256(bytes(record.userId)),
-                keccak256(bytes(record.votingFor)),
-                keccak256(bytes(record.votedOn)),
-                record.votingAmt,
-                nonce,
-                record.deadline
-            )
-        );
-        bytes32 digest = _hashTypedDataV4(structHash);
+        bytes32 digest = voting.hashVoteRecordPreview(record, nonce);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
         return abi.encodePacked(r, s, v);
     }
 
+    function _buildItemDigests(
+        SubVoting.VoteRecord[] memory records,
+        uint256[] memory userNonces
+    ) internal view returns (bytes32[] memory) {
+        require(records.length == userNonces.length, "length mismatch");
+        bytes32[] memory digests = new bytes32[](records.length);
+        for (uint256 i; i < records.length; ++i) {
+            digests[i] = voting.hashVoteRecordPreview(records[i], userNonces[i]);
+        }
+        return digests;
+    }
+
     function _signExecutorBatch(
         uint256 privateKey,
         SubVoting.VoteRecord[] memory records,
+        uint256[] memory userNonces,
         uint256 batchNonce
     ) internal view returns (bytes memory) {
-        bytes32 itemsHash = keccak256(abi.encode(records));
+        bytes32[] memory itemDigests = _buildItemDigests(records, userNonces);
+        bytes32 itemsHash = keccak256(abi.encodePacked(itemDigests));
         bytes32 structHash = keccak256(
             abi.encode(BATCH_TYPEHASH, block.chainid, itemsHash, batchNonce)
         );
@@ -168,7 +167,7 @@ contract SubVotingTest is Test {
         bytes[] memory userSigs = new bytes[](1);
         userSigs[0] = _signVoteRecord(user1PrivateKey, records[0], userNonces[0]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, 0);
 
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, executorSig);
 
@@ -195,7 +194,7 @@ contract SubVotingTest is Test {
         userSigs[1] = _signVoteRecord(user2PrivateKey, records[1], userNonces[1]);
         userSigs[2] = _signVoteRecord(user3PrivateKey, records[2], userNonces[2]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, 0);
 
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, executorSig);
 
@@ -230,7 +229,7 @@ contract SubVotingTest is Test {
         userSigs[3] = _signVoteRecord(user1PrivateKey, records[3], userNonces[3]);
         userSigs[4] = _signVoteRecord(user2PrivateKey, records[4], userNonces[4]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, 0);
 
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, executorSig);
 
@@ -258,7 +257,7 @@ contract SubVotingTest is Test {
         userSigs[0] = _signVoteRecord(user1PrivateKey, records[0], userNonces[0]);
 
         // 잘못된 private key로 서명
-        bytes memory wrongExecutorSig = _signExecutorBatch(user1PrivateKey, records, 0);
+        bytes memory wrongExecutorSig = _signExecutorBatch(user1PrivateKey, records, userNonces, 0);
 
         vm.expectRevert(SubVoting.InvalidSignature.selector);
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, wrongExecutorSig);
@@ -275,7 +274,7 @@ contract SubVotingTest is Test {
         // 잘못된 private key로 서명
         userSigs[0] = _signVoteRecord(user2PrivateKey, records[0], userNonces[0]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, 0);
 
         vm.expectRevert(SubVoting.InvalidSignature.selector);
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, executorSig);
@@ -291,7 +290,7 @@ contract SubVotingTest is Test {
         bytes[] memory userSigs = new bytes[](1);
         userSigs[0] = _signVoteRecord(user1PrivateKey, records[0], userNonces[0]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, 0);
 
         // 첫 번째 제출 성공
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, executorSig);
@@ -299,7 +298,7 @@ contract SubVotingTest is Test {
         // 두 번째 제출 실패 (같은 user nonce)
         records[0] = _createVoteRecord(user1, "user1", 1, 2, "Question2", "AnswerB", 150);
         userSigs[0] = _signVoteRecord(user1PrivateKey, records[0], userNonces[0]); // 같은 nonce
-        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, records, 1);
+        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, records, userNonces, 1);
 
         vm.expectRevert(SubVoting.UserNonceAlreadyUsed.selector);
         voting.submitSubVoteBatch(records, userNonces, userSigs, 1, executorSig2);
@@ -315,7 +314,7 @@ contract SubVotingTest is Test {
         bytes[] memory userSigs = new bytes[](1);
         userSigs[0] = _signVoteRecord(user1PrivateKey, records[0], userNonces[0]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, 0);
 
         // 첫 번째 제출 성공
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, executorSig);
@@ -324,7 +323,7 @@ contract SubVotingTest is Test {
         records[0] = _createVoteRecord(user1, "user1", 1, 2, "Question2", "AnswerB", 150);
         userNonces[0] = 1;
         userSigs[0] = _signVoteRecord(user1PrivateKey, records[0], userNonces[0]);
-        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, records, 0); // 같은 batch nonce
+        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, records, userNonces, 0); // 같은 batch nonce
 
         vm.expectRevert(SubVoting.BatchNonceAlreadyUsed.selector);
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, executorSig2);
@@ -341,7 +340,7 @@ contract SubVotingTest is Test {
         // nonce 5로 서명했지만, userNonces에는 0으로 제출
         userSigs[0] = _signVoteRecord(user1PrivateKey, records[0], 5);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, 0);
 
         vm.expectRevert(SubVoting.InvalidSignature.selector);
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, executorSig);
@@ -364,7 +363,7 @@ contract SubVotingTest is Test {
         bytes[] memory userSigs = new bytes[](1);
         userSigs[0] = _signVoteRecord(user1PrivateKey, records[0], userNonces[0]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, 0);
 
         vm.expectRevert(SubVoting.ExpiredSignature.selector);
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, executorSig);
@@ -380,7 +379,7 @@ contract SubVotingTest is Test {
         bytes[] memory userSigs = new bytes[](1);
         userSigs[0] = _signVoteRecord(user1PrivateKey, records[0], userNonces[0]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, 0);
 
         vm.expectRevert(SubVoting.ZeroVotingAmt.selector);
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, executorSig);
@@ -398,11 +397,15 @@ contract SubVotingTest is Test {
         uint256[] memory userNonces = new uint256[](1); // 길이 불일치
         userNonces[0] = 0;
 
-        bytes[] memory userSigs = new bytes[](2);
-        userSigs[0] = _signVoteRecord(user1PrivateKey, records[0], userNonces[0]);
-        userSigs[1] = _signVoteRecord(user2PrivateKey, records[1], 0);
+        uint256[] memory signingUserNonces = new uint256[](2);
+        signingUserNonces[0] = 0;
+        signingUserNonces[1] = 0;
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes[] memory userSigs = new bytes[](2);
+        userSigs[0] = _signVoteRecord(user1PrivateKey, records[0], signingUserNonces[0]);
+        userSigs[1] = _signVoteRecord(user2PrivateKey, records[1], signingUserNonces[1]);
+
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, signingUserNonces, 0);
 
         vm.expectRevert(SubVoting.LengthMismatch.selector);
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, executorSig);
@@ -464,14 +467,21 @@ contract SubVotingTest is Test {
         userSigs[0] = _signVoteRecord(user1PrivateKey, records[0], userNonces[0]);
         userSigs[1] = _signVoteRecord(user2PrivateKey, records[1], userNonces[1]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, 0);
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, executorSig);
 
-        // 조회 및 검증
+        // 레거시 eventVotes 배열은 더 이상 push 하지 않으므로 빈 배열이어야 한다.
         SubVoting.VoteRecord[] memory votes = voting.getEventVotes(1);
-        assertEq(votes.length, 2);
-        assertEq(votes[0].votingAmt, 100);
-        assertEq(votes[1].votingAmt, 200);
+        assertEq(votes.length, 0);
+
+        // 대신 전역 카운트 및 votingId별 조회로 검증한다.
+        assertEq(voting.getVoteCount(1), 2);
+        SubVoting.VoteRecord[] memory votingId1 = voting.getVotesByVotingId(1, 1, 0, 10);
+        assertEq(votingId1.length, 1);
+        assertEq(votingId1[0].votingAmt, 100);
+        SubVoting.VoteRecord[] memory votingId2 = voting.getVotesByVotingId(1, 2, 0, 10);
+        assertEq(votingId2.length, 1);
+        assertEq(votingId2[0].votingAmt, 200);
     }
 
     function test_GetVotesByVotingId() public {
@@ -490,7 +500,7 @@ contract SubVotingTest is Test {
         userSigs[1] = _signVoteRecord(user2PrivateKey, records[1], userNonces[1]);
         userSigs[2] = _signVoteRecord(user3PrivateKey, records[2], userNonces[2]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, 0);
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, executorSig);
 
         // votingId 1로 조회 (offset=0, limit=100)
@@ -524,7 +534,7 @@ contract SubVotingTest is Test {
         userSigs[2] = _signVoteRecord(user3PrivateKey, records[2], userNonces[2]);
         userSigs[3] = _signVoteRecord(user1PrivateKey, records[3], userNonces[3]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, 0);
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, executorSig);
 
         // 개수 확인
@@ -573,7 +583,8 @@ contract SubVotingTest is Test {
 
         bytes32 hash = voting.hashBatchPreview(records, userNonces, 0);
 
-        bytes32 itemsHash = keccak256(abi.encode(records));
+        bytes32[] memory itemDigests = _buildItemDigests(records, userNonces);
+        bytes32 itemsHash = keccak256(abi.encodePacked(itemDigests));
         bytes32 expectedStructHash = keccak256(
             abi.encode(BATCH_TYPEHASH, block.chainid, itemsHash, 0)
         );
@@ -603,16 +614,19 @@ contract SubVotingTest is Test {
         userSigs[1] = _signVoteRecord(user2PrivateKey, records[1], userNonces[1]);
         userSigs[2] = _signVoteRecord(user3PrivateKey, records[2], userNonces[2]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, 0);
 
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, executorSig);
 
-        // 검증
-        SubVoting.VoteRecord[] memory votes = voting.getEventVotes(1);
-        assertEq(votes.length, 3);
-        assertEq(votes[0].votingFor, "QuestionA");
-        assertEq(votes[1].votingFor, "QuestionB");
-        assertEq(votes[2].votingFor, "QuestionC");
+        // 검증: 총 3건, 각 votingId별로 한 건씩 저장
+        assertEq(voting.getVoteCount(1), 3);
+        for (uint256 i = 0; i < 3; i++) {
+            SubVoting.VoteRecord[] memory result = voting.getVotesByVotingId(1, i + 1, 0, 10);
+            assertEq(result.length, 1);
+        }
+        assertEq(voting.getVotesByVotingId(1, 1, 0, 10)[0].votingFor, "QuestionA");
+        assertEq(voting.getVotesByVotingId(1, 2, 0, 10)[0].votingFor, "QuestionB");
+        assertEq(voting.getVotesByVotingId(1, 3, 0, 10)[0].votingFor, "QuestionC");
     }
 
     function test_SequentialBatches() public {
@@ -634,7 +648,7 @@ contract SubVotingTest is Test {
             userSigs[0] = _signVoteRecord(user1PrivateKey, records[0], userNonces[0]);
             userSigs[1] = _signVoteRecord(user2PrivateKey, records[1], userNonces[1]);
 
-            bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, batchIdx);
+            bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, batchIdx);
 
             voting.submitSubVoteBatch(records, userNonces, userSigs, batchIdx, executorSig);
         }
@@ -663,7 +677,7 @@ contract SubVotingTest is Test {
         userSigs[1] = _signVoteRecord(user2PrivateKey, records[1], userNonces[1]);
         userSigs[2] = _signVoteRecord(user3PrivateKey, records[2], userNonces[2]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, 0);
 
         voting.submitSubVoteBatch(records, userNonces, userSigs, 0, executorSig);
 

@@ -7,3 +7,39 @@ optimizer_runs = 200
 via_ir = true
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+
+[[profile.default.fs_permissions]]
+access = "read"
+path = "."
+
+[[profile.default.fs_permissions]]
+access = "read"
+path = "broadcast/stress-artifacts"
+
+[[profile.default.fs_permissions]]
+access = "write"
+path = "broadcast"
+
+[[profile.default.fs_permissions]]
+access = "write"
+path = "broadcast/stress-artifacts"
+
+[[profile.default.fs_permissions]]
+access = "write"
+path = "stress-artifacts"
+
+[[profile.default.fs_permissions]]
+access = "write"
+path = "stress-artifacts"
+
+[[profile.default.fs_permissions]]
+access = "read"
+path = "broadcast"
+
+[[profile.default.fs_permissions]]
+access = "read"
+path = "broadcast/stress-artifacts"
+
+[[profile.default.fs_permissions]]
+access = "read"
+path = "stress-artifacts"

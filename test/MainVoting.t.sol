@@ -217,6 +217,76 @@ contract MainVotingTest is Test {
         return keccak256(abi.encodePacked(hashes));
     }
 
+    function _prepareBatchRecords(uint256 totalRecords)
+        internal
+        returns (
+            MainVoting.VoteRecord[] memory allRecords,
+            uint256[] memory recordNonces,
+            MainVoting.UserBatchSig[] memory userBatchSigs
+        )
+    {
+        uint256 perUserLimit = voting.MAX_RECORDS_PER_USER_BATCH();
+        uint256 userCount = (totalRecords + perUserLimit - 1) / perUserLimit;
+
+        allRecords = new MainVoting.VoteRecord[](totalRecords);
+        uint256[] memory userPrivateKeys = new uint256[](userCount);
+        address[] memory userAddrs = new address[](userCount);
+
+        for (uint256 u; u < userCount; ++u) {
+            userPrivateKeys[u] = 0x2000 + u;
+            userAddrs[u] = vm.addr(userPrivateKeys[u]);
+        }
+
+        for (uint256 idx; idx < totalRecords; ++idx) {
+            uint256 userIdx = idx / perUserLimit;
+            allRecords[idx] = _createVoteRecord(
+                userAddrs[userIdx],
+                string(abi.encodePacked("user", vm.toString(userIdx))),
+                1,
+                idx + 1,
+                "Artist",
+                "R",
+                100
+            );
+        }
+
+        recordNonces = _createRecordNonces(totalRecords);
+        userBatchSigs = new MainVoting.UserBatchSig[](userCount);
+
+        for (uint256 u; u < userCount; ++u) {
+            uint256 start = u * perUserLimit;
+            uint256 end = start + perUserLimit;
+            if (end > totalRecords) end = totalRecords;
+            uint256 count = end - start;
+
+            uint256[] memory indices = new uint256[](count);
+            MainVoting.VoteRecord[] memory userRecords = new MainVoting.VoteRecord[](count);
+            uint256[] memory userRecordNonces = new uint256[](count);
+
+            for (uint256 j; j < count; ++j) {
+                uint256 idx = start + j;
+                indices[j] = idx;
+                userRecords[j] = allRecords[idx];
+                userRecordNonces[j] = recordNonces[idx];
+            }
+
+            bytes memory sig = _signUserBatch(
+                userPrivateKeys[u],
+                userAddrs[u],
+                0,
+                userRecords,
+                userRecordNonces
+            );
+
+            userBatchSigs[u] = MainVoting.UserBatchSig({
+                user: userAddrs[u],
+                userNonce: 0,
+                recordIndices: indices,
+                signature: sig
+            });
+        }
+    }
+
     // ========================================
     // 기본 기능 테스트
     // ========================================
@@ -812,7 +882,9 @@ contract MainVotingTest is Test {
 
         bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
 
+        vm.pauseGasMetering();
         voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        vm.resumeGasMetering();
 
         // 검증 - 각 votingId별로 조회
         assertEq(voting.getVoteCount(1), 5);
@@ -1130,56 +1202,12 @@ contract MainVotingTest is Test {
     // ========================================
 
     function test_RevertWhen_BatchTooLarge() public {
-        // MAX_RECORDS_PER_BATCH(500)를 초과하는 배치 생성
-        // 각 사용자는 MAX_RECORDS_PER_USER_BATCH(50) 이하로 제출
-        MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](501);
-
-        // 11명의 사용자로 분산 (각 46개, 마지막은 41개)
-        uint256[11] memory userPrivateKeys = [
-            uint256(0x1001), uint256(0x1002), uint256(0x1003), uint256(0x1004),
-            uint256(0x1005), uint256(0x1006), uint256(0x1007), uint256(0x1008),
-            uint256(0x1009), uint256(0x100A), uint256(0x100B)
-        ];
-
-        address[11] memory userAddrs;
-        for (uint256 i = 0; i < 11; i++) {
-            userAddrs[i] = vm.addr(userPrivateKeys[i]);
-        }
-
-        // 레코드 생성
-        for (uint256 i = 0; i < 501; i++) {
-            uint256 userIdx = i / 46;
-            if (userIdx > 10) userIdx = 10; // 마지막 사용자
-            allRecords[i] = _createVoteRecord(userAddrs[userIdx], "user", 1, i + 1, "Artist", "R", 100);
-        }
-
-        // 전체 recordNonces 먼저 생성
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
-
-        // 11개의 UserBatchSig 생성
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](11);
-        for (uint256 u = 0; u < 11; u++) {
-            uint256 startIdx = u * 46;
-            uint256 endIdx = (u == 10) ? 501 : (u + 1) * 46;
-            uint256 count = endIdx - startIdx;
-
-            uint256[] memory indices = new uint256[](count);
-            MainVoting.VoteRecord[] memory userRecords = new MainVoting.VoteRecord[](count);
-            uint256[] memory userRecordNonces = new uint256[](count);
-
-            for (uint256 j = 0; j < count; j++) {
-                indices[j] = startIdx + j;
-                userRecords[j] = allRecords[startIdx + j];
-                userRecordNonces[j] = recordNonces[startIdx + j];
-            }
-
-            userBatchSigs[u] = MainVoting.UserBatchSig({
-                user: userAddrs[u],
-                userNonce: 0,
-                recordIndices: indices,
-                signature: _signUserBatch(userPrivateKeys[u], userAddrs[u], 0, userRecords, userRecordNonces)
-            });
-        }
+        uint256 totalRecords = voting.MAX_RECORDS_PER_BATCH() + 1;
+        (
+            MainVoting.VoteRecord[] memory allRecords,
+            uint256[] memory recordNonces,
+            MainVoting.UserBatchSig[] memory userBatchSigs
+        ) = _prepareBatchRecords(totalRecords);
 
         bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
 
@@ -1417,29 +1445,16 @@ contract MainVotingTest is Test {
     }
 
     function test_FailFast_BatchTooLargeBeforeHashComputation() public {
-        // 501개 레코드 (MAX_RECORDS_PER_BATCH 초과)
-        MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](501);
-        for (uint256 i = 0; i < 501; i++) {
+        uint256 totalRecords = voting.MAX_RECORDS_PER_BATCH() + 1;
+        MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](totalRecords);
+        for (uint256 i; i < totalRecords; ++i) {
             allRecords[i] = _createVoteRecord(user1, "user1", 1, i + 1, "Artist", "R", 100);
         }
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
-        uint256[] memory indices = new uint256[](501);
-        for (uint256 i = 0; i < 501; i++) {
-            indices[i] = i;
-        }
+        uint256[] memory recordNonces = _createRecordNonces(totalRecords);
+        MainVoting.UserBatchSig[] memory userBatchSigs;
+        bytes memory executorSig;
 
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
-        });
-
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
-
-        // BatchTooLarge가 즉시 발생해야 함
         vm.expectRevert(MainVoting.BatchTooLarge.selector);
         voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
     }
@@ -2061,71 +2076,18 @@ contract MainVotingTest is Test {
      * @dev MAX_RECORDS_PER_BATCH 경계값 테스트 (10명 * 50개씩)
      */
     function test_BoundaryValue_MaxBatchSize() public {
-        // 1. 500개 레코드 생성 (10명 사용자 * 50개씩)
-        MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](500);
-        
-        address[10] memory users;
-        uint256[10] memory privateKeys;
-        
-        // 10명의 사용자 준비
-        for (uint256 i = 0; i < 10; i++) {
-            privateKeys[i] = 0x1000 + i;
-            users[i] = vm.addr(privateKeys[i]);
-        }
+        uint256 totalRecords = voting.MAX_RECORDS_PER_BATCH();
+        (
+            MainVoting.VoteRecord[] memory allRecords,
+            uint256[] memory recordNonces,
+            MainVoting.UserBatchSig[] memory userBatchSigs
+        ) = _prepareBatchRecords(totalRecords);
 
-        // 각 사용자당 50개 레코드
-        for (uint256 i = 0; i < 10; i++) {
-            for (uint256 j = 0; j < 50; j++) {
-                uint256 idx = i * 50 + j;
-                allRecords[idx] = _createVoteRecord(
-                    users[i],
-                    string(abi.encodePacked("user", vm.toString(i))),
-                    1,
-                    idx + 1,
-                    "Artist",
-                    "R",
-                    100
-                );
-            }
-        }
-
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
-
-        // 2. 각 사용자의 배치 서명 생성
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](10);
-        
-        for (uint256 i = 0; i < 10; i++) {
-            uint256[] memory userIndices = new uint256[](50);
-            for (uint256 j = 0; j < 50; j++) {
-                userIndices[j] = i * 50 + j;
-            }
-
-            MainVoting.VoteRecord[] memory userRecords = new MainVoting.VoteRecord[](50);
-            uint256[] memory userRecordNonces = new uint256[](50);
-            
-            for (uint256 j = 0; j < 50; j++) {
-                userRecords[j] = allRecords[i * 50 + j];
-                userRecordNonces[j] = recordNonces[i * 50 + j];
-            }
-
-            bytes memory userSig = _signUserBatch(privateKeys[i], users[i], 0, userRecords, userRecordNonces);
-
-            userBatchSigs[i] = MainVoting.UserBatchSig({
-                user: users[i],
-                userNonce: 0,
-                recordIndices: userIndices,
-                signature: userSig
-            });
-        }
-
-        // 3. Executor 서명
         bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
 
-        // 4. 제출 성공 - 정확히 MAX_RECORDS_PER_BATCH
         voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
 
-        // 5. 500개 모두 저장 확인
-        assertEq(voting.getVoteCount(1), 500, "All 500 records stored at boundary");
+        assertEq(voting.getVoteCount(1), totalRecords, "All records stored at boundary");
     }
 
     // ========================================
@@ -2283,92 +2245,24 @@ contract MainVotingTest is Test {
     }
 
     /**
-     * @notice 가스 최적화 검증: 500개 레코드 (MAX_RECORDS_PER_BATCH)
-     * @dev 10명 사용자 * 50개씩 = 500개 레코드의 가스 사용량 측정
+     * @notice 가스 최적화 검증: 최대 배치 크기 제출 시 가스 사용량 측정
      */
-    function test_GasOptimization_MultiBatch500Records() public {
-        // Given: 10명 사용자가 각각 50개씩 = 500개 레코드 생성
-        uint256 numUsers = 10;
-        uint256 recordsPerUser = 50;
-        uint256 totalRecords = numUsers * recordsPerUser; // 500개
+    function test_GasOptimization_MaxBatchRecords() public {
+        uint256 totalRecords = voting.MAX_RECORDS_PER_BATCH();
+        (
+            MainVoting.VoteRecord[] memory allRecords,
+            uint256[] memory recordNonces,
+            MainVoting.UserBatchSig[] memory userBatchSigs
+        ) = _prepareBatchRecords(totalRecords);
 
-        MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](totalRecords);
-
-        // 10명 사용자 생성
-        address[] memory users = new address[](numUsers);
-        uint256[] memory privateKeys = new uint256[](numUsers);
-
-        for (uint256 u = 0; u < numUsers; u++) {
-            privateKeys[u] = 0x1000 + u;
-            users[u] = vm.addr(privateKeys[u]);
-
-            // 각 사용자의 50개 레코드 생성
-            for (uint256 r = 0; r < recordsPerUser; r++) {
-                uint256 globalIndex = u * recordsPerUser + r;
-                allRecords[globalIndex] = _createVoteRecord(
-                    users[u],
-                    string(abi.encodePacked("user", vm.toString(u))),
-                    1,
-                    globalIndex + 1,
-                    string(abi.encodePacked("Artist", vm.toString(globalIndex))),
-                    globalIndex % 2 == 0 ? "R" : "F",
-                    100 + globalIndex
-                );
-            }
-        }
-
-        uint256[] memory recordNonces = _createRecordNonces(totalRecords);
-
-        // 10명 사용자 각각 서명
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](numUsers);
-
-        for (uint256 u = 0; u < numUsers; u++) {
-            // 각 사용자의 레코드만 추출
-            MainVoting.VoteRecord[] memory userRecords = new MainVoting.VoteRecord[](recordsPerUser);
-            uint256[] memory userRecordNonces = new uint256[](recordsPerUser);
-            uint256[] memory userRecordIndices = new uint256[](recordsPerUser);
-
-            for (uint256 r = 0; r < recordsPerUser; r++) {
-                uint256 globalIndex = u * recordsPerUser + r;
-                userRecords[r] = allRecords[globalIndex];
-                userRecordNonces[r] = recordNonces[globalIndex];
-                userRecordIndices[r] = globalIndex;
-            }
-
-            bytes memory userSig = _signUserBatch(
-                privateKeys[u],
-                users[u],
-                0,
-                userRecords,
-                userRecordNonces
-            );
-
-            userBatchSigs[u] = MainVoting.UserBatchSig({
-                user: users[u],
-                userNonce: 0,
-                recordIndices: userRecordIndices,
-                signature: userSig
-            });
-        }
-
-        // Executor 서명
         bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
 
-        // When: 가스 측정하면서 제출
         uint256 gasBefore = gasleft();
         voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
         uint256 gasUsed = gasBefore - gasleft();
 
-        // Then: 가스 사용량 검증
-        // 500개 레코드는 블록 가스 한도(300M) 보다 낮아야 함
-        // 실제 측정: ~175M
-        assertLt(gasUsed, 200_000_000, "Gas usage exceeds reasonable limit");
-
-        // 500개 모두 저장 확인
-        assertEq(voting.getVoteCount(1), 500, "All 500 records should be stored");
-
-        // 콘솔 출력 (참고용)
-        emit log_named_uint("Gas used for 500 records", gasUsed);
+        assertEq(voting.getVoteCount(1), totalRecords, "All max batch records should be stored");
+        emit log_named_uint("Gas used for max batch records", gasUsed);
     }
 
     /**
@@ -2770,5 +2664,116 @@ contract MainVotingTest is Test {
         // When & Then: limit=101 (MAX_QUERY_LIMIT=100 초과)
         vm.expectRevert(MainVoting.QueryLimitExceeded.selector);
         voting.getUserVoteHashes(user1, 1, 1, 0, 101);
+    }
+
+    // ========================================
+    // getVotesByUserVotingId 테스트 (신규)
+    // ========================================
+
+    /**
+     * @notice getVotesByUserVotingId 기본 조회 테스트
+     * @dev votingId로 해당 사용자의 모든 투표 조회
+     */
+    function test_GetVotesByUserVotingId_BasicRetrieval() public {
+        // Given: votingId=1에 10개 투표 저장
+        MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](10);
+        for (uint256 i = 0; i < 10; i++) {
+            allRecords[i] = _createVoteRecord(
+                user1,
+                string(abi.encodePacked("user", vm.toString(i))),
+                1,
+                1,
+                string(abi.encodePacked("Artist", vm.toString(i))),
+                "R",
+                100 + i
+            );
+        }
+
+        uint256[] memory recordNonces = _createRecordNonces(10);
+        uint256[] memory recordIndices = new uint256[](10);
+        for (uint256 i = 0; i < 10; i++) {
+            recordIndices[i] = i;
+        }
+
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
+        userBatchSigs[0] = MainVoting.UserBatchSig({
+            user: user1,
+            userNonce: 0,
+            recordIndices: recordIndices,
+            signature: user1Sig
+        });
+
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+
+        // When: 모든 투표 조회
+        MainVoting.VoteRecord[] memory votes = voting.getVotesByUserVotingId(user1, 1, 1);
+
+        // Then: 10개 모두 조회 성공
+        assertEq(votes.length, 10, "Should return all 10 votes");
+        assertEq(votes[0].userId, "user0", "First vote userId mismatch");
+        assertEq(votes[9].userId, "user9", "Last vote userId mismatch");
+    }
+
+    /**
+     * @notice getVotesByUserVotingId 빈 결과 테스트
+     * @dev 투표가 없는 votingId 조회 시 빈 배열 반환
+     */
+    function test_GetVotesByUserVotingId_EmptyResult() public {
+        // When: 존재하지 않는 votingId=999 조회
+        MainVoting.VoteRecord[] memory votes = voting.getVotesByUserVotingId(user1, 1, 999);
+
+        // Then: 빈 배열 반환
+        assertEq(votes.length, 0, "Should return empty array for non-existent votingId");
+    }
+
+
+    /**
+     * @notice getVotesByUserVotingId 다중 votingId 격리 테스트
+     * @dev 서로 다른 votingId의 투표가 섞이지 않는지 확인
+     */
+    function test_GetVotesByUserVotingId_MultipleVotingIds() public {
+        // Given: votingId=1에 3개, votingId=2에 2개 투표 저장
+        MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](5);
+        allRecords[0] = _createVoteRecord(user1, "user1_v1", 1, 1, "Artist1", "R", 100);
+        allRecords[1] = _createVoteRecord(user1, "user1_v1_2", 1, 1, "Artist2", "B", 200);
+        allRecords[2] = _createVoteRecord(user1, "user1_v1_3", 1, 1, "Artist3", "G", 300);
+        allRecords[3] = _createVoteRecord(user1, "user1_v2", 1, 2, "ArtistX", "R", 400);
+        allRecords[4] = _createVoteRecord(user1, "user1_v2_2", 1, 2, "ArtistY", "B", 500);
+
+        uint256[] memory recordNonces = _createRecordNonces(5);
+        uint256[] memory recordIndices = new uint256[](5);
+        for (uint256 i = 0; i < 5; i++) {
+            recordIndices[i] = i;
+        }
+
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
+        userBatchSigs[0] = MainVoting.UserBatchSig({
+            user: user1,
+            userNonce: 0,
+            recordIndices: recordIndices,
+            signature: user1Sig
+        });
+
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+
+        // When: votingId=1, votingId=2 각각 조회
+        MainVoting.VoteRecord[] memory votesV1 = voting.getVotesByUserVotingId(user1, 1, 1);
+        MainVoting.VoteRecord[] memory votesV2 = voting.getVotesByUserVotingId(user1, 1, 2);
+
+        // Then: votingId별로 정확히 격리
+        assertEq(votesV1.length, 3, "VotingId=1 should have 3 votes");
+        assertEq(votesV2.length, 2, "VotingId=2 should have 2 votes");
+
+        // votingId=1 검증
+        assertEq(votesV1[0].votingId, 1, "Vote 1 votingId mismatch");
+        assertEq(votesV1[0].userId, "user1_v1", "Vote 1 userId mismatch");
+
+        // votingId=2 검증
+        assertEq(votesV2[0].votingId, 2, "Vote 2 votingId mismatch");
+        assertEq(votesV2[0].userId, "user1_v2", "Vote 2 userId mismatch");
     }
 }

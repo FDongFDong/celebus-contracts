@@ -1,0 +1,13 @@
+{
+  "name": "celebus-stress-tools",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "stress:viem": "node scripts/stress-viem.mjs",
+    "stress:submit": "node scripts/submit-stress-viem.mjs",
+    "stress:burst": "node scripts/burst-stress.mjs"
+  },
+  "dependencies": {
+    "viem": "^2.39.0"
+  }
+}

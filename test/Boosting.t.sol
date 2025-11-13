@@ -111,12 +111,29 @@ contract BoostingTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
+    function _buildItemDigests(
+        Boosting.BoostRecord[] memory records,
+        uint256[] memory userNonces,
+        uint256[] memory deadlines
+    ) internal view returns (bytes32[] memory) {
+        require(records.length == userNonces.length, "length mismatch");
+        require(records.length == deadlines.length, "length mismatch");
+        bytes32[] memory digests = new bytes32[](records.length);
+        for (uint256 i; i < records.length; ++i) {
+            digests[i] = boosting.hashBoostRecordPreview(records[i], userNonces[i], deadlines[i]);
+        }
+        return digests;
+    }
+
     function _signExecutorBatch(
         uint256 privateKey,
         Boosting.BoostRecord[] memory records,
+        uint256[] memory userNonces,
+        uint256[] memory deadlines,
         uint256 batchNonce
     ) internal view returns (bytes memory) {
-        bytes32 itemsHash = keccak256(abi.encode(records));
+        bytes32[] memory itemDigests = _buildItemDigests(records, userNonces, deadlines);
+        bytes32 itemsHash = keccak256(abi.encodePacked(itemDigests));
         bytes32 structHash = keccak256(
             abi.encode(BATCH_TYPEHASH, block.chainid, itemsHash, batchNonce)
         );
@@ -171,7 +188,7 @@ contract BoostingTest is Test {
         bytes[] memory userSigs = new bytes[](1);
         userSigs[0] = _signBoostRecord(user1PrivateKey, records[0], userNonces[0], deadlines[0]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, deadlines, 0);
 
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 0, executorSig);
 
@@ -203,7 +220,7 @@ contract BoostingTest is Test {
         userSigs[1] = _signBoostRecord(user2PrivateKey, records[1], userNonces[1], deadlines[1]);
         userSigs[2] = _signBoostRecord(user3PrivateKey, records[2], userNonces[2], deadlines[2]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, deadlines, 0);
 
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 0, executorSig);
 
@@ -244,7 +261,7 @@ contract BoostingTest is Test {
         userSigs[3] = _signBoostRecord(user1PrivateKey, records[3], userNonces[3], deadlines[3]);
         userSigs[4] = _signBoostRecord(user2PrivateKey, records[4], userNonces[4], deadlines[4]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, deadlines, 0);
 
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 0, executorSig);
 
@@ -275,7 +292,7 @@ contract BoostingTest is Test {
         userSigs[0] = _signBoostRecord(user1PrivateKey, records[0], userNonces[0], deadlines[0]);
 
         // 잘못된 private key로 서명
-        bytes memory wrongExecutorSig = _signExecutorBatch(user1PrivateKey, records, 0);
+        bytes memory wrongExecutorSig = _signExecutorBatch(user1PrivateKey, records, userNonces, deadlines, 0);
 
         vm.expectRevert(Boosting.InvalidSignature.selector);
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 0, wrongExecutorSig);
@@ -295,7 +312,7 @@ contract BoostingTest is Test {
         // 잘못된 private key로 서명
         userSigs[0] = _signBoostRecord(user2PrivateKey, records[0], userNonces[0], deadlines[0]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, deadlines, 0);
 
         vm.expectRevert(Boosting.InvalidSignature.selector);
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 0, executorSig);
@@ -314,7 +331,7 @@ contract BoostingTest is Test {
         bytes[] memory userSigs = new bytes[](1);
         userSigs[0] = _signBoostRecord(user1PrivateKey, records[0], userNonces[0], deadlines[0]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, deadlines, 0);
 
         // 첫 번째 제출 성공
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 0, executorSig);
@@ -323,7 +340,7 @@ contract BoostingTest is Test {
         records[0] = _createBoostRecord(user1, "user1", 1, 2, "Artist2", "Item2", 150);
         deadlines[0] = block.timestamp + 1 hours;
         userSigs[0] = _signBoostRecord(user1PrivateKey, records[0], userNonces[0], deadlines[0]); // 같은 nonce
-        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, records, 1);
+        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, records, userNonces, deadlines, 1);
 
         vm.expectRevert(Boosting.UserNonceAlreadyUsed.selector);
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 1, executorSig2);
@@ -342,7 +359,7 @@ contract BoostingTest is Test {
         bytes[] memory userSigs = new bytes[](1);
         userSigs[0] = _signBoostRecord(user1PrivateKey, records[0], userNonces[0], deadlines[0]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, deadlines, 0);
 
         // 첫 번째 제출 성공
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 0, executorSig);
@@ -352,7 +369,7 @@ contract BoostingTest is Test {
         userNonces[0] = 1;
         deadlines[0] = block.timestamp + 1 hours;
         userSigs[0] = _signBoostRecord(user1PrivateKey, records[0], userNonces[0], deadlines[0]);
-        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, records, 0); // 같은 batch nonce
+        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, records, userNonces, deadlines, 0); // 같은 batch nonce
 
         vm.expectRevert(Boosting.BatchNonceAlreadyUsed.selector);
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 0, executorSig2);
@@ -378,7 +395,7 @@ contract BoostingTest is Test {
         // deadline 지나게 만들기
         vm.warp(block.timestamp + 2 hours);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, deadlines, 0);
 
         vm.expectRevert(Boosting.ExpiredSignature.selector);
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 0, executorSig);
@@ -397,7 +414,7 @@ contract BoostingTest is Test {
         bytes[] memory userSigs = new bytes[](1);
         userSigs[0] = _signBoostRecord(user1PrivateKey, records[0], userNonces[0], deadlines[0]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, deadlines, 0);
 
         vm.expectRevert(Boosting.ZeroAmt.selector);
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 0, executorSig);
@@ -415,11 +432,15 @@ contract BoostingTest is Test {
         deadlines[0] = block.timestamp + 1 hours;
         deadlines[1] = block.timestamp + 1 hours;
 
-        bytes[] memory userSigs = new bytes[](2);
-        userSigs[0] = _signBoostRecord(user1PrivateKey, records[0], userNonces[0], deadlines[0]);
-        userSigs[1] = _signBoostRecord(user2PrivateKey, records[1], 0, deadlines[1]);
+        uint256[] memory signingUserNonces = new uint256[](2);
+        signingUserNonces[0] = 0;
+        signingUserNonces[1] = 0;
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes[] memory userSigs = new bytes[](2);
+        userSigs[0] = _signBoostRecord(user1PrivateKey, records[0], signingUserNonces[0], deadlines[0]);
+        userSigs[1] = _signBoostRecord(user2PrivateKey, records[1], signingUserNonces[1], deadlines[1]);
+
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, signingUserNonces, deadlines, 0);
 
         vm.expectRevert(Boosting.LengthMismatch.selector);
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 0, executorSig);
@@ -485,14 +506,21 @@ contract BoostingTest is Test {
         userSigs[0] = _signBoostRecord(user1PrivateKey, records[0], userNonces[0], deadlines[0]);
         userSigs[1] = _signBoostRecord(user2PrivateKey, records[1], userNonces[1], deadlines[1]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, deadlines, 0);
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 0, executorSig);
 
-        // 조회 및 검증
+        // 레거시 eventBoosts 배열은 더 이상 사용되지 않으므로 빈 배열이어야 한다.
         Boosting.BoostRecord[] memory boosts = boosting.getEventBoosts(1);
-        assertEq(boosts.length, 2);
-        assertEq(boosts[0].amt, 100);
-        assertEq(boosts[1].amt, 200);
+        assertEq(boosts.length, 0);
+
+        // 대신 전역 카운트와 per boosting 조회로 검증한다.
+        assertEq(boosting.getBoostCount(1), 2);
+        Boosting.BoostRecord[] memory boostingId1 = boosting.getBoostsByBoostingId(1, 1, 0, 10);
+        assertEq(boostingId1.length, 1);
+        assertEq(boostingId1[0].amt, 100);
+        Boosting.BoostRecord[] memory boostingId2 = boosting.getBoostsByBoostingId(1, 2, 0, 10);
+        assertEq(boostingId2.length, 1);
+        assertEq(boostingId2[0].amt, 200);
     }
 
     function test_GetBoostsByBoostingId() public {
@@ -517,7 +545,7 @@ contract BoostingTest is Test {
         userSigs[1] = _signBoostRecord(user2PrivateKey, records[1], userNonces[1], deadlines[1]);
         userSigs[2] = _signBoostRecord(user3PrivateKey, records[2], userNonces[2], deadlines[2]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, deadlines, 0);
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 0, executorSig);
 
         // boostingId 1로 조회 (offset=0, limit=100)
@@ -557,7 +585,7 @@ contract BoostingTest is Test {
         userSigs[2] = _signBoostRecord(user3PrivateKey, records[2], userNonces[2], deadlines[2]);
         userSigs[3] = _signBoostRecord(user1PrivateKey, records[3], userNonces[3], deadlines[3]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, deadlines, 0);
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 0, executorSig);
 
         // 개수 확인
@@ -609,7 +637,8 @@ contract BoostingTest is Test {
 
         bytes32 hash = boosting.hashBatchPreview(records, userNonces, deadlines, 0);
 
-        bytes32 itemsHash = keccak256(abi.encode(records));
+        bytes32[] memory itemDigests = _buildItemDigests(records, userNonces, deadlines);
+        bytes32 itemsHash = keccak256(abi.encodePacked(itemDigests));
         bytes32 expectedStructHash = keccak256(
             abi.encode(BATCH_TYPEHASH, block.chainid, itemsHash, 0)
         );
@@ -645,16 +674,19 @@ contract BoostingTest is Test {
         userSigs[1] = _signBoostRecord(user2PrivateKey, records[1], userNonces[1], deadlines[1]);
         userSigs[2] = _signBoostRecord(user3PrivateKey, records[2], userNonces[2], deadlines[2]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, deadlines, 0);
 
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 0, executorSig);
 
-        // 검증
-        Boosting.BoostRecord[] memory boosts = boosting.getEventBoosts(1);
-        assertEq(boosts.length, 3);
-        assertEq(boosts[0].boostingFor, "ArtistA");
-        assertEq(boosts[1].boostingFor, "ArtistB");
-        assertEq(boosts[2].boostingFor, "ArtistC");
+        // 검증: 총 3건, 각 boostingId에 정확히 1건씩 저장
+        assertEq(boosting.getBoostCount(1), 3);
+        for (uint256 i = 0; i < 3; i++) {
+            Boosting.BoostRecord[] memory result = boosting.getBoostsByBoostingId(1, i + 1, 0, 10);
+            assertEq(result.length, 1);
+        }
+        assertEq(boosting.getBoostsByBoostingId(1, 1, 0, 10)[0].boostingFor, "ArtistA");
+        assertEq(boosting.getBoostsByBoostingId(1, 2, 0, 10)[0].boostingFor, "ArtistB");
+        assertEq(boosting.getBoostsByBoostingId(1, 3, 0, 10)[0].boostingFor, "ArtistC");
     }
 
     function test_SequentialBatches() public {
@@ -681,7 +713,7 @@ contract BoostingTest is Test {
             userSigs[0] = _signBoostRecord(user1PrivateKey, records[0], userNonces[0], deadlines[0]);
             userSigs[1] = _signBoostRecord(user2PrivateKey, records[1], userNonces[1], deadlines[1]);
 
-            bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, batchIdx);
+            bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, deadlines, batchIdx);
 
             boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, batchIdx, executorSig);
         }
@@ -716,7 +748,7 @@ contract BoostingTest is Test {
         userSigs[1] = _signBoostRecord(user2PrivateKey, records[1], userNonces[1], deadlines[1]);
         userSigs[2] = _signBoostRecord(user3PrivateKey, records[2], userNonces[2], deadlines[2]);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, records, userNonces, deadlines, 0);
 
         boosting.submitBoostBatch(records, userNonces, deadlines, userSigs, 0, executorSig);
 

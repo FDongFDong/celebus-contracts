@@ -5,7 +5,7 @@ import {Script, console} from "forge-std/Script.sol";
 import {MainVoting} from "../src/vote/MainVoting.sol";
 
 contract TestVoting is Script {
-    MainVoting public voting = MainVoting(0x0b26e96bf1FA058BdAd6ff3186B8c46055dCDa0e);
+    MainVoting public voting = MainVoting(0x72855Fc38ACf74b3C0AbC2c7089edfffF1560FeA);
 
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
@@ -121,7 +121,8 @@ contract TestVoting is Script {
         voting.submitMultiUserBatch(records, userBatchSigs, 1, executorSig, recordNonces);
 
         console.log("Votes submitted successfully!");
-        console.log("Total votes for mission 1:", voting.getVoteCount(1));
+        MainVoting.VoteRecord[] memory missionVotes = voting.getVotesByMissionVotingId(1, 1);
+        console.log("Mission 1 / votingId 1 count:", missionVotes.length);
 
         vm.stopBroadcast();
     }

@@ -25,7 +25,7 @@ contract MainVoting is Ownable2Step, EIP712 {
     // ========================================
     bytes4 private constant ERC1271_MAGICVALUE = 0x1626ba7e;
 
-    uint256 public constant MAX_RECORDS_PER_BATCH = 500;
+    uint256 public constant MAX_RECORDS_PER_BATCH = 5000;
     uint256 public constant MAX_RECORDS_PER_USER_BATCH = 50;
     uint256 public constant MAX_QUERY_LIMIT = 100;
     uint256 public constant MAX_STRING_LENGTH = 100;
@@ -90,22 +90,16 @@ contract MainVoting is Ownable2Step, EIP712 {
         bytes signature;
     }
 
-    struct UserAgg {
-        uint256 totalAmt;
-        uint256 count;
-    }
-
     // ========================================
     // Storage
     // ========================================
     mapping(bytes32 => VoteRecord) public votes;
-    mapping(address => mapping(uint256 => mapping(uint256 => UserAgg)))
-        public userAgg;
-    mapping(address => mapping(uint256 => mapping(uint256 => bytes32[])))
-        private userVoteHashes;
 
-    mapping(uint256 => mapping(uint256 => uint256)) public voteCount;
-    mapping(uint256 => uint256) public voteCountByMission;
+    // (missionId, votingId) 조합으로 직접 조회하기 위한 전역 인덱스
+    mapping(uint256 => mapping(uint256 => bytes32[]))
+        private voteHashesByMissionVotingId;
+    mapping(uint256 => uint256[]) private missionVotingIds;
+    mapping(uint256 => mapping(uint256 => bool)) private missionVotingIdExists;
 
     mapping(address => mapping(uint256 => bool)) public userNonceUsed;
     mapping(address => uint256) public minUserNonce;
@@ -191,10 +185,12 @@ contract MainVoting is Ownable2Step, EIP712 {
     }
 
     function cancelAllBatchNonceUpTo(uint256 newMinBatchNonce) external {
-        if (msg.sender != owner() && msg.sender != executorSigner)
+        if (msg.sender != owner() && msg.sender != executorSigner) {
             revert InvalidSignature();
-        if (newMinBatchNonce <= minBatchNonce[executorSigner])
+        }
+        if (newMinBatchNonce <= minBatchNonce[executorSigner]) {
             revert BatchNonceTooLow();
+        }
         minBatchNonce[executorSigner] = newMinBatchNonce;
         emit CancelBatchNonceUpTo(executorSigner, newMinBatchNonce);
     }
@@ -250,12 +246,7 @@ contract MainVoting is Ownable2Step, EIP712 {
         return
             _hashTypedDataV4(
                 keccak256(
-                    abi.encode(
-                        BATCH_TYPEHASH,
-                        block.chainid,
-                        itemsHash,
-                        batchNonce
-                    )
+                    abi.encode(BATCH_TYPEHASH, CHAIN_ID, itemsHash, batchNonce)
                 )
             );
     }
@@ -263,23 +254,31 @@ contract MainVoting is Ownable2Step, EIP712 {
     // ========================================
     // Internal: Signature Verification
     // ========================================
+    function _isValidSig(
+        address signer,
+        bytes32 digest,
+        bytes calldata sig
+    ) internal view returns (bool) {
+        if (signer.code.length == 0) {
+            return ECDSA.recover(digest, sig) == signer;
+        }
+
+        (bool ok, bytes memory ret) = signer.staticcall(
+            abi.encodeWithSelector(
+                IERC1271.isValidSignature.selector,
+                digest,
+                sig
+            )
+        );
+        return ok && ret.length == 4 && bytes4(ret) == ERC1271_MAGICVALUE;
+    }
+
     function _isValidUserSig(
         address user,
         bytes32 digest,
         bytes calldata sig
     ) internal view returns (bool) {
-        if (user.code.length == 0) {
-            return ECDSA.recover(digest, sig) == user;
-        } else {
-            (bool ok, bytes memory ret) = user.staticcall(
-                abi.encodeWithSelector(
-                    IERC1271.isValidSignature.selector,
-                    digest,
-                    sig
-                )
-            );
-            return ok && ret.length == 4 && bytes4(ret) == ERC1271_MAGICVALUE;
-        }
+        return _isValidSig(user, digest, sig);
     }
 
     function _isValidExecSig(
@@ -287,18 +286,7 @@ contract MainVoting is Ownable2Step, EIP712 {
         bytes32 digest,
         bytes calldata sig
     ) internal view returns (bool) {
-        if (signer.code.length == 0) {
-            return ECDSA.recover(digest, sig) == signer;
-        } else {
-            (bool ok, bytes memory ret) = signer.staticcall(
-                abi.encodeWithSelector(
-                    IERC1271.isValidSignature.selector,
-                    digest,
-                    sig
-                )
-            );
-            return ok && ret.length == 4 && bytes4(ret) == ERC1271_MAGICVALUE;
-        }
+        return _isValidSig(signer, digest, sig);
     }
 
     // ========================================
@@ -314,6 +302,35 @@ contract MainVoting is Ownable2Step, EIP712 {
         if (nonce_ < minBatchNonce[signer]) revert BatchNonceTooLow();
         if (batchNonceUsed[signer][nonce_]) revert BatchNonceAlreadyUsed();
         batchNonceUsed[signer][nonce_] = true;
+    }
+
+    function _validateStrings(VoteRecord calldata record) internal pure {
+        if (bytes(record.userId).length > MAX_STRING_LENGTH) {
+            revert StringTooLong();
+        }
+        if (bytes(record.votingFor).length > MAX_STRING_LENGTH) {
+            revert StringTooLong();
+        }
+        if (bytes(record.votedOn).length > MAX_STRING_LENGTH) {
+            revert StringTooLong();
+        }
+    }
+
+    function _buildRecordDigests(
+        VoteRecord[] calldata records,
+        uint256[] calldata recordNonces
+    ) internal pure returns (bytes32[] memory recordDigests) {
+        uint256 len = records.length;
+        if (len != recordNonces.length) revert InvalidRecordIndices();
+
+        recordDigests = new bytes32[](len);
+        for (uint256 i; i < len; ) {
+            _validateStrings(records[i]);
+            recordDigests[i] = _hashVoteRecord(records[i], recordNonces[i]);
+            unchecked {
+                ++i;
+            }
+        }
     }
 
     // ========================================
@@ -366,6 +383,48 @@ contract MainVoting is Ownable2Step, EIP712 {
         _consumeUserNonce(userBatch.user, userBatch.userNonce);
     }
 
+    function _verifyBatchSignature(
+        bytes32[] memory recordDigests,
+        uint256 batchNonce,
+        bytes calldata executorSig
+    ) internal returns (bytes32 batchDigest) {
+        bytes32 itemsHash = keccak256(abi.encodePacked(recordDigests));
+        batchDigest = _hashBatch(itemsHash, batchNonce);
+        if (!_isValidExecSig(executorSigner, batchDigest, executorSig)) {
+            revert InvalidSignature();
+        }
+
+        _consumeBatchNonce(executorSigner, batchNonce);
+    }
+
+    function _verifyAllUserCoverage(
+        VoteRecord[] calldata records,
+        UserBatchSig[] calldata userBatchSigs,
+        bool[] memory covered,
+        bytes32[] memory recordDigests
+    ) internal {
+        uint256 userBatchLen = userBatchSigs.length;
+        for (uint256 i; i < userBatchLen; ) {
+            _verifyUserBatchSignature(
+                records,
+                userBatchSigs[i],
+                covered,
+                recordDigests
+            );
+            unchecked {
+                ++i;
+            }
+        }
+
+        uint256 len = records.length;
+        for (uint256 k; k < len; ) {
+            if (!covered[k]) revert UncoveredRecord(k);
+            unchecked {
+                ++k;
+            }
+        }
+    }
+
     // ========================================
     // Internal: Store (부분 처리 지원)
     // ========================================
@@ -407,19 +466,14 @@ contract MainVoting is Ownable2Step, EIP712 {
 
             votes[voteHash] = record;
 
-            UserAgg storage agg = userAgg[record.userAddress][record.missionId][
-                record.votingId
-            ];
-            unchecked {
-                agg.totalAmt += record.votingAmt;
-                agg.count += 1;
+            // 미션/보팅ID 조합별 인덱스 (전역)
+            voteHashesByMissionVotingId[record.missionId][record.votingId].push(
+                voteHash
+            );
+            if (!missionVotingIdExists[record.missionId][record.votingId]) {
+                missionVotingIdExists[record.missionId][record.votingId] = true;
+                missionVotingIds[record.missionId].push(record.votingId);
             }
-            userVoteHashes[record.userAddress][record.missionId][
-                record.votingId
-            ].push(voteHash);
-
-            voteCount[record.missionId][record.votingId] += 1;
-            voteCountByMission[record.missionId] += 1;
 
             emit VoteRecordAdded(
                 voteHash,
@@ -445,67 +499,37 @@ contract MainVoting is Ownable2Step, EIP712 {
     // Main: Submit Multi-User Batch
     // ========================================
     function submitMultiUserBatch(
-        VoteRecord[] calldata records, // ① 이번에 올릴 모든 투표 레코드 원본
-        UserBatchSig[] calldata userBatchSigs, // ② 유저별 "내 표 묶음"에 대한 서명 패킷들
-        uint256 batchNonce, // ③ 배치 재사용(리플레이) 방지용 논스
-        bytes calldata executorSig, // ④ 백엔드(Executor) 서명
-        uint256[] calldata recordNonces // ⑤ 레코드별 고유 논스(레코드 식별 강제)
+        VoteRecord[] calldata records,
+        UserBatchSig[] calldata userBatchSigs,
+        uint256 batchNonce,
+        bytes calldata executorSig,
+        uint256[] calldata recordNonces
     ) external {
-        uint256 len = records.length; // 배치 레코드 개수
-        if (len > MAX_RECORDS_PER_BATCH) revert BatchTooLarge(); // 과대 배치 방어(DoS 가드)
-        if (len != recordNonces.length) revert InvalidRecordIndices(); // 레코드:논스 개수 1:1 검증
-        if (executorSigner == address(0)) revert ZeroAddress(); // executorSigner 미설정 방지
-        if (block.chainid != CHAIN_ID) revert BadChain(); // 체인 고정(리플레이 방지)
+        uint256 len = records.length;
+        if (len > MAX_RECORDS_PER_BATCH) revert BatchTooLarge();
+        if (executorSigner == address(0)) revert ZeroAddress();
+        if (block.chainid != CHAIN_ID) revert BadChain();
 
         // 1) 각 레코드 다이제스트 산출 + 문자열 길이 검증
-        bytes32[] memory recordDigests = new bytes32[](len); // 온체인에서 재계산할 다이제스트 배열
-        for (uint256 i; i < len; ) {
-            if (bytes(records[i].userId).length > MAX_STRING_LENGTH)
-                revert StringTooLong();
-            if (bytes(records[i].votingFor).length > MAX_STRING_LENGTH)
-                revert StringTooLong();
-            if (bytes(records[i].votedOn).length > MAX_STRING_LENGTH)
-                revert StringTooLong();
-            recordDigests[i] = _hashVoteRecord(records[i], recordNonces[i]); // EIP-712 타입 고정 + 문자열 해시 + recordNonce 포함
-            unchecked {
-                ++i;
-            } // 가스 미세 최적화
-        }
+        bytes32[] memory recordDigests = _buildRecordDigests(
+            records,
+            recordNonces
+        );
 
-        // 2) itemsHash 계산 → 배치 서명 검증
-        bytes32 itemsHash = keccak256(abi.encodePacked(recordDigests)); // 모든 레코드 해시를 순서대로 이어붙여 요약
-        bytes32 batchDigest = _hashBatch(itemsHash, batchNonce); // (chainId, itemsHash, batchNonce)로 EIP-712 다이제스트
-        if (!_isValidExecSig(executorSigner, batchDigest, executorSig))
-            revert InvalidSignature(); // executor 서명 진짜인지 확인(EOA/1271 지원)
-
-        _consumeBatchNonce(executorSigner, batchNonce); // 배치 논스 소모(재사용 금지)
+        // 2) itemsHash → 배치 서명 검증 및 nonce 소비
+        bytes32 batchDigest = _verifyBatchSignature(
+            recordDigests,
+            batchNonce,
+            executorSig
+        );
 
         // 3) 유저 서명 검증(커버리지 강제)
-        bool[] memory covered = new bool[](len); // 레코드별 “유저 서명으로 커버됐는지” 체크 플래그
-        uint256 userBatchLen = userBatchSigs.length; // 유저 패킷 개수
-        for (uint256 i; i < userBatchLen; ) {
-            // 유저별로: 인덱스 유효성, 소유자 일치, EIP-712 서명, userNonce 소모
-            _verifyUserBatchSignature(
-                records,
-                userBatchSigs[i],
-                covered,
-                recordDigests
-            );
-            unchecked {
-                ++i;
-            }
-        }
-        for (uint256 k; k < len; ) {
-            // 커버리지 강제: 한 개라도 미커버면 전체 revert
-            if (!covered[k]) revert UncoveredRecord(k);
-            unchecked {
-                ++k;
-            }
-        }
+        bool[] memory covered = new bool[](len);
+        _verifyAllUserCoverage(records, userBatchSigs, covered, recordDigests);
+        uint256 userBatchLen = userBatchSigs.length;
 
         // 4) 저장
-
-        uint256 stored = _storeVoteRecords(records, batchDigest, recordDigests); // 만료/0/이미 처리된 건 스킵, 유효분만 상태 반영
+        uint256 stored = _storeVoteRecords(records, batchDigest, recordDigests);
         emit BatchProcessed(
             batchDigest,
             executorSigner,
@@ -522,15 +546,52 @@ contract MainVoting is Ownable2Step, EIP712 {
         return _domainSeparatorV4();
     }
 
+    function getVoteByHash(
+        bytes32 voteHash
+    ) external view returns (VoteRecord memory) {
+        return votes[voteHash];
+    }
+
+    function getVoteCount(
+        uint256 missionId
+    ) external view returns (uint256 total) {
+        uint256[] storage ids = missionVotingIds[missionId];
+        for (uint256 i; i < ids.length; ) {
+            total += voteHashesByMissionVotingId[missionId][ids[i]].length;
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function getVoteCountByVotingId(
+        uint256 missionId,
+        uint256 votingId
+    ) external view returns (uint256) {
+        return voteHashesByMissionVotingId[missionId][votingId].length;
+    }
+
     function getUserVotingStat(
         address user,
         uint256 missionId,
         uint256 votingId
     ) external view returns (bool hasVoted, uint256 totalAmt, uint256 count) {
-        UserAgg memory agg = userAgg[user][missionId][votingId];
-        hasVoted = (agg.count > 0);
-        totalAmt = agg.totalAmt;
-        count = agg.count;
+        bytes32[] storage allHashes = voteHashesByMissionVotingId[missionId][
+            votingId
+        ];
+        for (uint256 i; i < allHashes.length; ) {
+            VoteRecord storage record = votes[allHashes[i]];
+            if (record.userAddress == user) {
+                totalAmt += record.votingAmt;
+                unchecked {
+                    ++count;
+                }
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        hasVoted = count > 0;
     }
 
     function getUserVoteHashes(
@@ -541,43 +602,155 @@ contract MainVoting is Ownable2Step, EIP712 {
         uint256 limit
     ) external view returns (bytes32[] memory) {
         if (limit > MAX_QUERY_LIMIT) revert QueryLimitExceeded();
+        bytes32[] storage allHashes = voteHashesByMissionVotingId[missionId][
+            votingId
+        ];
 
-        bytes32[] storage allHashes = userVoteHashes[user][missionId][votingId];
-        uint256 totalCount = allHashes.length;
-
-        if (offset >= totalCount) {
-            return new bytes32[](0);
-        }
-
-        uint256 end = offset + limit;
-        if (end > totalCount) end = totalCount;
-
-        uint256 resultLength = end - offset;
-        bytes32[] memory result = new bytes32[](resultLength);
-        for (uint256 i; i < resultLength; ) {
-            result[i] = allHashes[offset + i];
+        uint256 matchCount;
+        for (uint256 i; i < allHashes.length; ) {
+            if (votes[allHashes[i]].userAddress == user) {
+                unchecked {
+                    ++matchCount;
+                }
+            }
             unchecked {
                 ++i;
             }
         }
+
+        if (offset >= matchCount) {
+            return new bytes32[](0);
+        }
+
+        uint256 end = offset + limit;
+        if (end > matchCount) end = matchCount;
+        uint256 resultLength = end - offset;
+        bytes32[] memory result = new bytes32[](resultLength);
+
+        uint256 matchIndex;
+        uint256 writeIndex;
+        for (uint256 i; i < allHashes.length && writeIndex < resultLength; ) {
+            if (votes[allHashes[i]].userAddress == user) {
+                if (matchIndex >= offset) {
+                    result[writeIndex] = allHashes[i];
+                    unchecked {
+                        ++writeIndex;
+                    }
+                }
+                unchecked {
+                    ++matchIndex;
+                }
+            }
+            unchecked {
+                ++i;
+            }
+        }
+
         return result;
     }
 
-    function getVoteByHash(
-        bytes32 voteHash
-    ) external view returns (VoteRecord memory) {
-        return votes[voteHash];
-    }
-
-    function getVoteCount(uint256 missionId) external view returns (uint256) {
-        return voteCountByMission[missionId];
-    }
-
-    function getVoteCountByVotingId(
+    function getVotesByUserVotingId(
+        address user,
         uint256 missionId,
         uint256 votingId
-    ) external view returns (uint256) {
-        return voteCount[missionId][votingId];
+    ) external view returns (VoteRecord[] memory) {
+        bytes32[] storage allHashes = voteHashesByMissionVotingId[missionId][
+            votingId
+        ];
+        uint256 matchCount;
+        for (uint256 i; i < allHashes.length; ) {
+            if (votes[allHashes[i]].userAddress == user) {
+                unchecked {
+                    ++matchCount;
+                }
+            }
+            unchecked {
+                ++i;
+            }
+        }
+
+        VoteRecord[] memory result = new VoteRecord[](matchCount);
+        uint256 writeIndex;
+        for (uint256 i; i < allHashes.length && writeIndex < matchCount; ) {
+            VoteRecord storage record = votes[allHashes[i]];
+            if (record.userAddress == user) {
+                result[writeIndex] = record;
+                unchecked {
+                    ++writeIndex;
+                }
+            }
+            unchecked {
+                ++i;
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * @notice 유저 주소 없이 missionId + votingId 조합으로 모든 투표 기록 조회
+     */
+    function getVotesByMissionVotingId(
+        uint256 missionId,
+        uint256 votingId
+    ) external view returns (VoteRecord[] memory) {
+        bytes32[] storage allHashes = voteHashesByMissionVotingId[missionId][
+            votingId
+        ];
+        uint256 totalCount = allHashes.length;
+        VoteRecord[] memory result = new VoteRecord[](totalCount);
+
+        for (uint256 i; i < totalCount; ) {
+            bytes32 voteHash = allHashes[i];
+            result[i] = votes[voteHash];
+            unchecked {
+                ++i;
+            }
+        }
+
+        return result;
+    }
+
+    struct VoteRecordSummary {
+        uint256 timestamp;
+        uint256 missionId;
+        uint256 votingId;
+        string userId;
+        string votingFor;
+        string votedOn;
+        uint256 votingAmt;
+    }
+
+    /**
+     * @notice 개인정보 최소화를 위해 userAddress 없이 요약 데이터만 반환
+     */
+    function getVoteSummariesByMissionVotingId(
+        uint256 missionId,
+        uint256 votingId
+    ) external view returns (VoteRecordSummary[] memory) {
+        bytes32[] storage allHashes = voteHashesByMissionVotingId[missionId][
+            votingId
+        ];
+        uint256 totalCount = allHashes.length;
+        VoteRecordSummary[] memory result = new VoteRecordSummary[](totalCount);
+
+        for (uint256 i; i < totalCount; ) {
+            VoteRecord storage record = votes[allHashes[i]];
+            result[i] = VoteRecordSummary({
+                timestamp: record.timestamp,
+                missionId: record.missionId,
+                votingId: record.votingId,
+                userId: record.userId,
+                votingFor: record.votingFor,
+                votedOn: record.votedOn,
+                votingAmt: record.votingAmt
+            });
+            unchecked {
+                ++i;
+            }
+        }
+
+        return result;
     }
 
     // === 프리뷰 유틸 ===
@@ -594,10 +767,12 @@ contract MainVoting is Ownable2Step, EIP712 {
         VoteRecord[] calldata userRecords,
         uint256[] calldata userRecordNonces
     ) external view returns (bytes32) {
-        if (userRecords.length != userRecordNonces.length)
+        if (userRecords.length != userRecordNonces.length) {
             revert LengthMismatch();
+        }
         bytes32[] memory hashes = new bytes32[](userRecords.length);
         for (uint256 i; i < hashes.length; ) {
+            _validateStrings(userRecords[i]);
             hashes[i] = _hashVoteRecord(userRecords[i], userRecordNonces[i]);
             unchecked {
                 ++i;
@@ -620,6 +795,7 @@ contract MainVoting is Ownable2Step, EIP712 {
         if (records.length != recordNonces.length) revert LengthMismatch();
         bytes32[] memory hashes = new bytes32[](records.length);
         for (uint256 i; i < hashes.length; ) {
+            _validateStrings(records[i]);
             hashes[i] = _hashVoteRecord(records[i], recordNonces[i]);
             unchecked {
                 ++i;

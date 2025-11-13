@@ -13,7 +13,13 @@
       "Bash(forge test:*)",
       "mcp__serena__insert_before_symbol",
       "mcp__serena__replace_regex",
-      "mcp__serena__list_dir"
+      "mcp__serena__list_dir",
+      "Bash(forge verify-contract:*)",
+      "Bash(0x98a113EDF51cA29Ccc12783AdFF33987bfFe5503 )",
+      "Bash(src/vote/MainVoting.sol:MainVoting )",
+      "Bash(standard-json-input.json)",
+      "Bash(__NEW_LINE__ echo \"파일 생성 완료!\")",
+      "mcp__serena__search_for_pattern"
     ],
     "deny": [],
     "ask": []
