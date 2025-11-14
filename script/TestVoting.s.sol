@@ -83,7 +83,7 @@ contract TestVoting is Script {
 
         // 4. User batch signature 생성
         bytes32 recordsHash = keccak256(abi.encode(records));
-        bytes32 userBatchDigest = voting.hashUserBatchPreview(deployer, 1, records, recordNonces);
+        bytes32 userBatchDigest = voting.hashUserBatchPreview(deployer, 1, records);
 
         console.log("Records hash:");
         console.logBytes32(recordsHash);
@@ -109,7 +109,7 @@ contract TestVoting is Script {
         });
 
         // 6. Executor batch signature 생성
-        bytes32 batchDigest = voting.hashBatchPreview(records, recordNonces, 1);
+        bytes32 batchDigest = voting.hashBatchPreview(1);
         console.log("Batch digest:");
         console.logBytes32(batchDigest);
 
@@ -118,7 +118,7 @@ contract TestVoting is Script {
 
         // 7. 투표 제출
         console.log("Submitting votes...");
-        voting.submitMultiUserBatch(records, userBatchSigs, 1, executorSig, recordNonces);
+        voting.submitMultiUserBatch(records, userBatchSigs, 1, executorSig);
 
         console.log("Votes submitted successfully!");
         MainVoting.VoteRecord[] memory missionVotes = voting.getVotesByMissionVotingId(1, 1);
@@ -136,7 +136,7 @@ contract TestVoting is Script {
     ) internal view returns (bytes32) {
         bytes32[] memory hashes = new bytes32[](records.length);
         for (uint256 i; i < records.length; ) {
-            hashes[i] = voting.hashVoteRecord(records[i], recordNonces[i]);
+            hashes[i] = voting.hashVoteRecord(records[i]);
             unchecked { ++i; }
         }
         return keccak256(abi.encodePacked(hashes));

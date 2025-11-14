@@ -5,7 +5,8 @@
   "scripts": {
     "stress:viem": "node scripts/stress-viem.mjs",
     "stress:submit": "node scripts/submit-stress-viem.mjs",
-    "stress:burst": "node scripts/burst-stress.mjs"
+    "stress:burst": "node scripts/burst-stress.mjs",
+    "mint:parallel": "node scripts/mint-parallel.mjs"
   },
   "dependencies": {
     "viem": "^2.39.0"

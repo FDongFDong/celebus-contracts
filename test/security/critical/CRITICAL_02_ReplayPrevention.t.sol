@@ -57,7 +57,7 @@ contract CRITICAL_02_ReplayPrevention is SecurityTestBase {
 
         // 3. 재제출 시도 → 스킵 처리 (에러 발생 안함)
         uint256 countBefore = voting.getVoteCountByVotingId(1, 1);
-        voting.submitMultiUserBatch(records2, sigs2, 1, batchSig2, recordNonces2);
+        voting.submitMultiUserBatch(records2, sigs2, 1, batchSig2);
         uint256 countAfter = voting.getVoteCountByVotingId(1, 1);
 
         // 4. 검증: count가 증가하지 않음 (스킵됨)
@@ -102,7 +102,7 @@ contract CRITICAL_02_ReplayPrevention is SecurityTestBase {
         sigs[0] = userBatch;
 
         // 2. 제출 → 두 번째 record는 스킵됨
-        voting.submitMultiUserBatch(records, sigs, 0, batchSig, recordNonces);
+        voting.submitMultiUserBatch(records, sigs, 0, batchSig);
 
         // 3. 검증: 1개만 저장됨 (중복은 스킵)
         uint256 count = voting.getVoteCountByVotingId(1, 1);
@@ -143,7 +143,7 @@ contract CRITICAL_02_ReplayPrevention is SecurityTestBase {
         MainVoting.UserBatchSig[] memory sigs1 = new MainVoting.UserBatchSig[](1);
         sigs1[0] = userBatch1;
 
-        voting.submitMultiUserBatch(records1, sigs1, 0, batchSig1, recordNonces1);
+        voting.submitMultiUserBatch(records1, sigs1, 0, batchSig1);
 
         // 2. 두 번째 제출: 같은 내용이지만 recordNonce = 1
         MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
@@ -169,7 +169,7 @@ contract CRITICAL_02_ReplayPrevention is SecurityTestBase {
         sigs2[0] = userBatch2;
 
         // 3. 제출 → 성공 (digest가 다름)
-        voting.submitMultiUserBatch(records2, sigs2, 1, batchSig2, recordNonces2);
+        voting.submitMultiUserBatch(records2, sigs2, 1, batchSig2);
 
         // 4. 검증: 같은 votingId에 2개 투표 저장됨
         assertEq(voting.getVoteCountByVotingId(1, 1), 2);
@@ -213,7 +213,7 @@ contract CRITICAL_02_ReplayPrevention is SecurityTestBase {
         sigs[0] = userBatch;
 
         // 2. 제출 → 성공
-        voting.submitMultiUserBatch(records, sigs, 0, batchSig, recordNonces);
+        voting.submitMultiUserBatch(records, sigs, 0, batchSig);
 
         // 3. 검증
         assertEq(voting.getVoteCountByVotingId(1, 1), 1);
@@ -255,7 +255,7 @@ contract CRITICAL_02_ReplayPrevention is SecurityTestBase {
         MainVoting.UserBatchSig[] memory sigs = new MainVoting.UserBatchSig[](1);
         sigs[0] = userBatch;
 
-        voting.submitMultiUserBatch(records, sigs, 0, batchSig, recordNonces);
+        voting.submitMultiUserBatch(records, sigs, 0, batchSig);
 
         // 2. 같은 record를 다른 userNonce, 다른 batchNonce로 재제출 시도
         bytes memory userSig2 = _signUserBatch(user1PrivateKey, user1, 1, records, recordNonces);
@@ -274,7 +274,7 @@ contract CRITICAL_02_ReplayPrevention is SecurityTestBase {
 
         // 같은 recordNonce → 스킵 처리
         uint256 countBefore = voting.getVoteCountByVotingId(1, 1);
-        voting.submitMultiUserBatch(records, sigs2, 1, batchSig2, recordNonces);
+        voting.submitMultiUserBatch(records, sigs2, 1, batchSig2);
         uint256 countAfter = voting.getVoteCountByVotingId(1, 1);
 
         // count가 증가하지 않음 (스킵됨)
@@ -327,7 +327,7 @@ contract CRITICAL_02_ReplayPrevention is SecurityTestBase {
 
         // 3. 재제출 시도 → 모든 record 스킵됨
         uint256 totalCountBefore = voting.getVoteCount(1);
-        voting.submitMultiUserBatch(records, sigs2, 1, batchSig2, recordNonces);
+        voting.submitMultiUserBatch(records, sigs2, 1, batchSig2);
         uint256 totalCountAfter = voting.getVoteCount(1);
 
         // count가 증가하지 않음 (모두 스킵됨)

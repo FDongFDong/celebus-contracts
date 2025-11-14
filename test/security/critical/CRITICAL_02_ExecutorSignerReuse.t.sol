@@ -76,7 +76,7 @@ contract CRITICAL_02_ExecutorSignerReuse is SecurityTestBase {
         // 5. 제출 시도 (실패 예상 - InvalidSignature)
         // 현재 executorSigner는 executorB이므로 executorA의 서명은 무효
         vm.expectRevert(MainVoting.InvalidSignature.selector);
-        voting.submitMultiUserBatch(records2, sigs, 1, executorASignature, _createRecordNonces(records2.length));
+        voting.submitMultiUserBatch(records2, sigs, 1, executorASignature);
 
         _logTestResult(
             "TC-01: Reusing Old Executor Signature",
@@ -144,7 +144,7 @@ contract CRITICAL_02_ExecutorSignerReuse is SecurityTestBase {
             MainVoting.UserBatchSig[] memory bSigs = new MainVoting.UserBatchSig[](1);
             bSigs[0] = bUserBatch;
 
-            voting.submitMultiUserBatch(bRecords, bSigs, i, batchSig, _createRecordNonces(bRecords.length));
+            voting.submitMultiUserBatch(bRecords, bSigs, i, batchSig);
         }
 
         // executorB의 nonce 0~10 사용 확인
@@ -172,7 +172,7 @@ contract CRITICAL_02_ExecutorSignerReuse is SecurityTestBase {
         // 8. 제출 시도
         // 현재 코드: 통과 가능 (취약점!)
         // 수정 후 코드: BatchNonceTooLow 또는 InvalidSignature 에러
-        try voting.submitMultiUserBatch(futureRecords, sigs, 10, executorAFutureSignature, _createRecordNonces(futureRecords.length)) {
+        try voting.submitMultiUserBatch(futureRecords, sigs, 10, executorAFutureSignature) {
             // 성공하면 취약점 확인됨
             console.log("VULNERABILITY CONFIRMED: Old executor signature was reused!");
             console.log("Votes for votingId=10:", voting.getVoteCountByVotingId(1, 10));
@@ -274,7 +274,7 @@ contract CRITICAL_02_ExecutorSignerReuse is SecurityTestBase {
         MainVoting.UserBatchSig[] memory sigs = new MainVoting.UserBatchSig[](1);
         sigs[0] = userBatch;
 
-        voting.submitMultiUserBatch(records, sigs, 0, batchSig, recordNonces);
+        voting.submitMultiUserBatch(records, sigs, 0, batchSig);
 
         // 3. 정상 제출 확인
         assertEq(voting.getVoteCountByVotingId(1, 1), 1);

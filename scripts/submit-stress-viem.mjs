@@ -50,7 +50,6 @@ const MAIN_VOTING_ABI = [
       { name: 'userBatchSigs', type: 'tuple[]', components: USER_SIG_TUPLE.components },
       { name: 'batchNonce', type: 'uint256' },
       { name: 'executorSig', type: 'bytes' },
-      { name: 'recordNonces', type: 'uint256[]' },
     ],
     outputs: [],
   },
@@ -109,10 +108,7 @@ function decodeRecords(encoded) {
   }));
 }
 
-function decodeRecordNonces(encoded) {
-  const [nonces] = decodeAbiParameters([{ type: 'uint256[]' }], encoded);
-  return nonces.map((n) => BigInt(n));
-}
+// recordNonces는 V1에서 제거됨 (불필요)
 
 function decodeUserBatchSigs(encoded) {
   const [sigs] = decodeAbiParameters([USER_SIG_TUPLE], encoded);
@@ -139,7 +135,6 @@ async function main() {
     cli.votingAddress || process.env.VOTING_ADDRESS || json.metadata?.votingAddress || DEFAULT_VOTING_ADDRESS
   );
   const records = decodeRecords(json.records);
-  const recordNonces = decodeRecordNonces(json.recordNonces);
   const userBatchSigs = decodeUserBatchSigs(json.userBatchSigs);
   const batchNonce = BigInt(json.batchNonce);
   const executorSig = json.executorSig;
@@ -178,7 +173,7 @@ async function main() {
       address: votingAddress,
       abi: MAIN_VOTING_ABI,
       functionName: 'submitMultiUserBatch',
-      args: [records, userBatchSigs, batchNonce, executorSig, recordNonces],
+      args: [records, userBatchSigs, batchNonce, executorSig],
     });
     // add 25% safety margin
     gasLimit = (estimate * 125n) / 100n;
@@ -210,7 +205,7 @@ async function main() {
     address: votingAddress,
     abi: MAIN_VOTING_ABI,
     functionName: 'submitMultiUserBatch',
-    args: [records, userBatchSigs, batchNonce, executorSig, recordNonces],
+    args: [records, userBatchSigs, batchNonce, executorSig],
     gas: gasLimit,
     maxFeePerGas,
     maxPriorityFeePerGas,

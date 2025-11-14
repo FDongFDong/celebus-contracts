@@ -61,7 +61,7 @@ contract CRITICAL_01_NonceRaceCondition is SecurityTestBase {
 
         // 5. 두 번째 배치 제출 시도 (실패 예상)
         vm.expectRevert(MainVoting.UserNonceAlreadyUsed.selector);
-        voting.submitMultiUserBatch(records2, sigs2, 1, batchSig2, _createRecordNonces(records2.length));
+        voting.submitMultiUserBatch(records2, sigs2, 1, batchSig2);
 
         _logTestResult(
             "TC-01: Reusing UserNonce",
@@ -104,7 +104,7 @@ contract CRITICAL_01_NonceRaceCondition is SecurityTestBase {
 
         // 3. 제출 시도 (실패 예상)
         vm.expectRevert(MainVoting.BatchNonceAlreadyUsed.selector);
-        voting.submitMultiUserBatch(records2, sigs2, 0, batchSig2, _createRecordNonces(records2.length));
+        voting.submitMultiUserBatch(records2, sigs2, 0, batchSig2);
 
         _logTestResult(
             "TC-02: Reusing BatchNonce",
@@ -143,7 +143,7 @@ contract CRITICAL_01_NonceRaceCondition is SecurityTestBase {
         MainVoting.UserBatchSig[] memory sigs1 = new MainVoting.UserBatchSig[](1);
         sigs1[0] = userBatch1;
 
-        voting.submitMultiUserBatch(records1, sigs1, 0, batchSig1, _createRecordNonces(records1.length));
+        voting.submitMultiUserBatch(records1, sigs1, 0, batchSig1);
 
         // 투표 성공 확인
         assertEq(voting.getVoteCountByVotingId(1, 1), 1);
@@ -165,7 +165,7 @@ contract CRITICAL_01_NonceRaceCondition is SecurityTestBase {
         sigs2[0] = userBatch2;
 
         vm.expectRevert(MainVoting.UserNonceAlreadyUsed.selector);
-        voting.submitMultiUserBatch(records2, sigs2, 1, batchSig2, _createRecordNonces(records2.length));
+        voting.submitMultiUserBatch(records2, sigs2, 1, batchSig2);
 
         _logTestResult(
             "TC-03: Concurrent Nonce Usage",
@@ -212,7 +212,7 @@ contract CRITICAL_01_NonceRaceCondition is SecurityTestBase {
 
         // 3. 재사용 시도 실패 확인
         vm.expectRevert(MainVoting.UserNonceAlreadyUsed.selector);
-        voting.submitMultiUserBatch(records2, sigs2, 1, batchSig2, _createRecordNonces(records2.length));
+        voting.submitMultiUserBatch(records2, sigs2, 1, batchSig2);
     }
 
     // ========================================
@@ -246,7 +246,7 @@ contract CRITICAL_01_NonceRaceCondition is SecurityTestBase {
 
         // 3. 제출 시도 (실패 예상)
         vm.expectRevert(MainVoting.UserNonceTooLow.selector);
-        voting.submitMultiUserBatch(records, sigs, 0, batchSig, _createRecordNonces(records.length));
+        voting.submitMultiUserBatch(records, sigs, 0, batchSig);
 
         _logTestResult(
             "TC-05: Nonce Below Minimum",

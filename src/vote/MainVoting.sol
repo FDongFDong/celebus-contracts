@@ -15,9 +15,12 @@ interface IERC1271 {
 
 /**
  * @title MainVoting
- * @notice 유저별 투표 여부/총량만 추적하는 생존 투표 컨트랙트
- * @dev (1) voteHash 충돌 제거, (2) AlreadyProcessed 스킵, (3) Executor ERC-1271 지원,
- *      (4) 배치 서명에 itemsHash 포함(무결성 강제)
+ * @notice EIP-712 서명 기반 배치 투표 시스템 (V1 - 단순화된 설계)
+ * @dev 백엔드는 batchNonce만 서명, 모든 검증은 컨트랙트에서 수행
+ *      - 이중 서명: 유저 서명 + 백엔드 서명
+ *      - 문자열 해시 방식: 가스 최적화
+ *      - 배치 크기 제한: 최대 5000개
+ *      - 유저당 배치 제한: 최대 50개
  */
 contract MainVoting is Ownable2Step, EIP712 {
     // ========================================
@@ -33,9 +36,10 @@ contract MainVoting is Ownable2Step, EIP712 {
     // ========================================
     // EIP-712 Type Hashes
     // ========================================
+    // recordNonce 제거 - 불필요한 복잡성 제거
     bytes32 private constant VOTE_RECORD_TYPEHASH =
         keccak256(
-            "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,bytes32 userIdHash,bytes32 votingForHash,bytes32 votedOnHash,uint256 votingAmt,uint256 deadline,uint256 recordNonce)"
+            "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,bytes32 userIdHash,bytes32 votingForHash,bytes32 votedOnHash,uint256 votingAmt,uint256 deadline)"
         );
 
     bytes32 private constant USER_BATCH_TYPEHASH =
@@ -43,11 +47,9 @@ contract MainVoting is Ownable2Step, EIP712 {
             "UserBatch(address user,uint256 userNonce,bytes32 recordsHash)"
         );
 
-    // itemsHash 포함
+    // 백엔드는 batchNonce만 서명 (itemsHash, chainId 제거)
     bytes32 private constant BATCH_TYPEHASH =
-        keccak256(
-            "Batch(uint256 chainId,bytes32 itemsHash,uint256 batchNonce)"
-        );
+        keccak256("Batch(uint256 batchNonce)");
 
     // ========================================
     // Errors
@@ -120,17 +122,12 @@ contract MainVoting is Ownable2Step, EIP712 {
         address indexed newSigner,
         uint256 oldMinNonce
     );
-    event VoteRecordAdded(
-        bytes32 indexed voteHash,
+    event UserBatchProcessed(
         bytes32 indexed batchDigest,
-        uint256 indexed missionId,
-        uint256 votingId,
-        address userAddress,
-        string userId,
-        string votingFor,
-        string votedOn,
-        uint256 votingAmt,
-        uint256 timestamp
+        address indexed user,
+        uint256 userNonce,
+        uint256 recordCount,
+        uint256 storedCount
     );
     event BatchProcessed(
         bytes32 indexed batchDigest,
@@ -198,9 +195,9 @@ contract MainVoting is Ownable2Step, EIP712 {
     // ========================================
     // Internal: Hashers
     // ========================================
+    // recordNonce 제거 - 단순화
     function _hashVoteRecord(
-        VoteRecord calldata record,
-        uint256 recordNonce
+        VoteRecord calldata record
     ) internal pure returns (bytes32) {
         return
             keccak256(
@@ -214,8 +211,7 @@ contract MainVoting is Ownable2Step, EIP712 {
                     keccak256(bytes(record.votingFor)),
                     keccak256(bytes(record.votedOn)),
                     record.votingAmt,
-                    record.deadline,
-                    recordNonce
+                    record.deadline
                 )
             );
     }
@@ -238,16 +234,13 @@ contract MainVoting is Ownable2Step, EIP712 {
             );
     }
 
-    // itemsHash 포함 배치 다이제스트
+    // 백엔드는 batchNonce만 서명
     function _hashBatch(
-        bytes32 itemsHash,
         uint256 batchNonce
     ) internal view returns (bytes32) {
         return
             _hashTypedDataV4(
-                keccak256(
-                    abi.encode(BATCH_TYPEHASH, CHAIN_ID, itemsHash, batchNonce)
-                )
+                keccak256(abi.encode(BATCH_TYPEHASH, batchNonce))
             );
     }
 
@@ -317,16 +310,14 @@ contract MainVoting is Ownable2Step, EIP712 {
     }
 
     function _buildRecordDigests(
-        VoteRecord[] calldata records,
-        uint256[] calldata recordNonces
+        VoteRecord[] calldata records
     ) internal pure returns (bytes32[] memory recordDigests) {
         uint256 len = records.length;
-        if (len != recordNonces.length) revert InvalidRecordIndices();
 
         recordDigests = new bytes32[](len);
         for (uint256 i; i < len; ) {
             _validateStrings(records[i]);
-            recordDigests[i] = _hashVoteRecord(records[i], recordNonces[i]);
+            recordDigests[i] = _hashVoteRecord(records[i]);
             unchecked {
                 ++i;
             }
@@ -340,7 +331,8 @@ contract MainVoting is Ownable2Step, EIP712 {
         VoteRecord[] calldata records,
         UserBatchSig calldata userBatch,
         bool[] memory covered,
-        bytes32[] memory recordDigests
+        bytes32[] memory recordDigests,
+        bytes32 batchDigest
     ) internal {
         uint256 indicesLen = userBatch.recordIndices.length;
         if (indicesLen > MAX_RECORDS_PER_USER_BATCH) revert UserBatchTooLarge();
@@ -381,15 +373,23 @@ contract MainVoting is Ownable2Step, EIP712 {
         }
 
         _consumeUserNonce(userBatch.user, userBatch.userNonce);
+
+        // UserBatch 서명당 1개 이벤트 발생
+        emit UserBatchProcessed(
+            batchDigest,
+            userBatch.user,
+            userBatch.userNonce,
+            indicesLen,
+            indicesLen  // storedCount는 나중에 계산
+        );
     }
 
+    // 백엔드 서명 검증 - batchNonce만 사용
     function _verifyBatchSignature(
-        bytes32[] memory recordDigests,
         uint256 batchNonce,
         bytes calldata executorSig
     ) internal returns (bytes32 batchDigest) {
-        bytes32 itemsHash = keccak256(abi.encodePacked(recordDigests));
-        batchDigest = _hashBatch(itemsHash, batchNonce);
+        batchDigest = _hashBatch(batchNonce);
         if (!_isValidExecSig(executorSigner, batchDigest, executorSig)) {
             revert InvalidSignature();
         }
@@ -401,7 +401,8 @@ contract MainVoting is Ownable2Step, EIP712 {
         VoteRecord[] calldata records,
         UserBatchSig[] calldata userBatchSigs,
         bool[] memory covered,
-        bytes32[] memory recordDigests
+        bytes32[] memory recordDigests,
+        bytes32 batchDigest
     ) internal {
         uint256 userBatchLen = userBatchSigs.length;
         for (uint256 i; i < userBatchLen; ) {
@@ -409,7 +410,8 @@ contract MainVoting is Ownable2Step, EIP712 {
                 records,
                 userBatchSigs[i],
                 covered,
-                recordDigests
+                recordDigests,
+                batchDigest
             );
             unchecked {
                 ++i;
@@ -475,19 +477,6 @@ contract MainVoting is Ownable2Step, EIP712 {
                 missionVotingIds[record.missionId].push(record.votingId);
             }
 
-            emit VoteRecordAdded(
-                voteHash,
-                batchDigest,
-                record.missionId,
-                record.votingId,
-                record.userAddress,
-                record.userId,
-                record.votingFor,
-                record.votedOn,
-                record.votingAmt,
-                record.timestamp
-            );
-
             unchecked {
                 ++storedCount;
                 ++i;
@@ -502,30 +491,22 @@ contract MainVoting is Ownable2Step, EIP712 {
         VoteRecord[] calldata records,
         UserBatchSig[] calldata userBatchSigs,
         uint256 batchNonce,
-        bytes calldata executorSig,
-        uint256[] calldata recordNonces
+        bytes calldata executorSig
     ) external {
         uint256 len = records.length;
         if (len > MAX_RECORDS_PER_BATCH) revert BatchTooLarge();
         if (executorSigner == address(0)) revert ZeroAddress();
         if (block.chainid != CHAIN_ID) revert BadChain();
 
-        // 1) 각 레코드 다이제스트 산출 + 문자열 길이 검증
-        bytes32[] memory recordDigests = _buildRecordDigests(
-            records,
-            recordNonces
-        );
+        // 1) 백엔드 서명 검증 (batchNonce만 사용)
+        bytes32 batchDigest = _verifyBatchSignature(batchNonce, executorSig);
 
-        // 2) itemsHash → 배치 서명 검증 및 nonce 소비
-        bytes32 batchDigest = _verifyBatchSignature(
-            recordDigests,
-            batchNonce,
-            executorSig
-        );
+        // 2) 각 레코드 다이제스트 산출 + 문자열 길이 검증
+        bytes32[] memory recordDigests = _buildRecordDigests(records);
 
         // 3) 유저 서명 검증(커버리지 강제)
         bool[] memory covered = new bool[](len);
-        _verifyAllUserCoverage(records, userBatchSigs, covered, recordDigests);
+        _verifyAllUserCoverage(records, userBatchSigs, covered, recordDigests, batchDigest);
         uint256 userBatchLen = userBatchSigs.length;
 
         // 4) 저장
@@ -755,25 +736,20 @@ contract MainVoting is Ownable2Step, EIP712 {
 
     // === 프리뷰 유틸 ===
     function hashVoteRecord(
-        VoteRecord calldata record,
-        uint256 recordNonce
+        VoteRecord calldata record
     ) external pure returns (bytes32) {
-        return _hashVoteRecord(record, recordNonce);
+        return _hashVoteRecord(record);
     }
 
     function hashUserBatchPreview(
         address user,
         uint256 userNonce,
-        VoteRecord[] calldata userRecords,
-        uint256[] calldata userRecordNonces
+        VoteRecord[] calldata userRecords
     ) external view returns (bytes32) {
-        if (userRecords.length != userRecordNonces.length) {
-            revert LengthMismatch();
-        }
         bytes32[] memory hashes = new bytes32[](userRecords.length);
         for (uint256 i; i < hashes.length; ) {
             _validateStrings(userRecords[i]);
-            hashes[i] = _hashVoteRecord(userRecords[i], userRecordNonces[i]);
+            hashes[i] = _hashVoteRecord(userRecords[i]);
             unchecked {
                 ++i;
             }
@@ -786,22 +762,10 @@ contract MainVoting is Ownable2Step, EIP712 {
             );
     }
 
-    // 실행자 배치 프리뷰 — itemsHash 포함
+    // 실행자 배치 프리뷰 - batchNonce만 사용
     function hashBatchPreview(
-        VoteRecord[] calldata records,
-        uint256[] calldata recordNonces,
         uint256 batchNonce
     ) external view returns (bytes32) {
-        if (records.length != recordNonces.length) revert LengthMismatch();
-        bytes32[] memory hashes = new bytes32[](records.length);
-        for (uint256 i; i < hashes.length; ) {
-            _validateStrings(records[i]);
-            hashes[i] = _hashVoteRecord(records[i], recordNonces[i]);
-            unchecked {
-                ++i;
-            }
-        }
-        bytes32 itemsHash = keccak256(abi.encodePacked(hashes));
-        return _hashBatch(itemsHash, batchNonce);
+        return _hashBatch(batchNonce);
     }
 }

@@ -58,7 +58,7 @@ contract CRITICAL_01_CoverageVerification is SecurityTestBase {
 
         // 3. 제출 시도 → records[1]이 커버되지 않아서 실패
         vm.expectRevert(abi.encodeWithSelector(MainVoting.UncoveredRecord.selector, 1));
-        voting.submitMultiUserBatch(records, sigs, 0, batchSig, _createRecordNonces(2));
+        voting.submitMultiUserBatch(records, sigs, 0, batchSig);
 
         _logTestResult(
             "TC-01: Executor Adds Unauthorized Vote",
@@ -99,7 +99,7 @@ contract CRITICAL_01_CoverageVerification is SecurityTestBase {
 
         // 3. 제출 시도 → 중복 인덱스 에러
         vm.expectRevert(abi.encodeWithSelector(MainVoting.DuplicateIndex.selector, 0));
-        voting.submitMultiUserBatch(records, sigs, 0, batchSig, _createRecordNonces(2));
+        voting.submitMultiUserBatch(records, sigs, 0, batchSig);
 
         _logTestResult(
             "TC-02: Duplicate Index in Batch",
@@ -140,7 +140,7 @@ contract CRITICAL_01_CoverageVerification is SecurityTestBase {
         sigs[0] = userBatch;
 
         // 2. 제출 → 성공
-        voting.submitMultiUserBatch(records, sigs, 0, batchSig, _createRecordNonces(3));
+        voting.submitMultiUserBatch(records, sigs, 0, batchSig);
 
         // 3. 검증
         assertEq(voting.getVoteCountByVotingId(1, 1), 1);
@@ -216,7 +216,7 @@ contract CRITICAL_01_CoverageVerification is SecurityTestBase {
         sigs[0] = user1Batch;
         sigs[1] = user2Batch;
 
-        voting.submitMultiUserBatch(records, sigs, 0, batchSig, recordNonces);
+        voting.submitMultiUserBatch(records, sigs, 0, batchSig);
 
         // 5. 검증
         assertEq(voting.getVoteCountByVotingId(1, 1), 1);
@@ -272,7 +272,7 @@ contract CRITICAL_01_CoverageVerification is SecurityTestBase {
 
         // 3. 제출 시도 → records[1]이 커버되지 않아서 실패
         vm.expectRevert(abi.encodeWithSelector(MainVoting.UncoveredRecord.selector, 1));
-        voting.submitMultiUserBatch(records, sigs, 0, batchSig, recordNonces);
+        voting.submitMultiUserBatch(records, sigs, 0, batchSig);
 
         _logTestResult(
             "TC-05: Partial Coverage",

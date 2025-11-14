@@ -24,7 +24,7 @@ const MAX_RECORDS_PER_USER_BATCH = 50;
 const TWO_WEEKS = 14n * 24n * 60n * 60n;
 
 const VOTE_RECORD_TYPESTRING =
-  'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,bytes32 userIdHash,bytes32 votingForHash,bytes32 votedOnHash,uint256 votingAmt,uint256 deadline,uint256 recordNonce)';
+  'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,bytes32 userIdHash,bytes32 votingForHash,bytes32 votedOnHash,uint256 votingAmt,uint256 deadline)';
 const VOTE_RECORD_TYPEHASH = keccak256(stringToHex(VOTE_RECORD_TYPESTRING));
 
 const USER_BATCH_TYPES = {
@@ -37,8 +37,6 @@ const USER_BATCH_TYPES = {
 
 const BATCH_TYPES = {
   Batch: [
-    { name: 'chainId', type: 'uint256' },
-    { name: 'itemsHash', type: 'bytes32' },
     { name: 'batchNonce', type: 'uint256' },
   ],
 };
@@ -111,7 +109,7 @@ function toBigInt(value, label) {
   }
 }
 
-function hashVoteRecord(record, recordNonce) {
+function hashVoteRecord(record) {
   return keccak256(
     encodeAbiParameters(
       [
@@ -123,7 +121,6 @@ function hashVoteRecord(record, recordNonce) {
         { type: 'bytes32' },
         { type: 'bytes32' },
         { type: 'bytes32' },
-        { type: 'uint256' },
         { type: 'uint256' },
         { type: 'uint256' },
       ],
@@ -138,7 +135,6 @@ function hashVoteRecord(record, recordNonce) {
         keccak256(stringToHex(record.votedOn)),
         record.votingAmt,
         record.deadline,
-        recordNonce,
       ]
     )
   );
@@ -148,9 +144,7 @@ function encodeRecords(records) {
   return encodeAbiParameters([RECORD_TUPLE], [records]);
 }
 
-function encodeRecordNonces(nonces) {
-  return encodeAbiParameters([{ type: 'uint256[]' }], [nonces]);
-}
+// recordNonces는 V1에서 제거됨 (불필요)
 
 function encodeUserBatchSigs(sigs) {
   return encodeAbiParameters([USER_SIG_TUPLE], [sigs]);
@@ -253,7 +247,6 @@ async function main() {
   );
 
   const records = [];
-  const recordNonces = [];
   const recordHashes = [];
   const userBatchSigs = [];
 
@@ -261,7 +254,6 @@ async function main() {
     const userKey = deriveUserKey(u);
     const userAccount = privateKeyToAccount(userKey);
     const perUserRecords = [];
-    const perUserNonces = [];
     const perUserHashes = [];
     const recordIndices = [];
 
@@ -272,7 +264,6 @@ async function main() {
 
     for (let j = 0; j < votesPerUser; j++) {
       const idx = records.length;
-      const recordNonce = BigInt((u + 1) * 1_000 + j + 1);
       const votingAmt = BigInt(10 + j);
       const votedOnLabel = j < rememberCount ? rememberLabel : forgetLabel;
       const record = {
@@ -286,14 +277,12 @@ async function main() {
         votingAmt,
         deadline,
       };
-      const digest = hashVoteRecord(record, recordNonce);
+      const digest = hashVoteRecord(record);
 
       records.push(record);
-      recordNonces.push(recordNonce);
       recordHashes.push(digest);
 
       perUserRecords.push(record);
-      perUserNonces.push(recordNonce);
       perUserHashes.push(digest);
       recordIndices.push(BigInt(idx));
     }
@@ -320,20 +309,16 @@ async function main() {
 
   const batchNonceInput = cli.batchNonce || process.env.BATCH_NONCE;
   const batchNonce = batchNonceInput ? toBigInt(batchNonceInput, 'batchNonce') : randomBatchNonce();
-  const itemsHash = keccak256(concatHex(recordHashes));
   const executorSig = await executorAccount.signTypedData({
     domain,
     types: BATCH_TYPES,
     primaryType: 'Batch',
     message: {
-      chainId,
-      itemsHash,
       batchNonce,
     },
   });
 
   const encodedRecords = encodeRecords(records);
-  const encodedNonces = encodeRecordNonces(recordNonces);
   const encodedUserSigs = encodeUserBatchSigs(userBatchSigs);
 
   const outputDir = resolve(process.cwd(), 'stress-artifacts');
@@ -347,7 +332,6 @@ async function main() {
     userCount,
     batchNonce: Number(batchNonce),
     records: encodedRecords,
-    recordNonces: encodedNonces,
     userBatchSigs: encodedUserSigs,
     executorSig,
     metadata: {

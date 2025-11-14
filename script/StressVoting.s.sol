@@ -32,15 +32,14 @@ contract StressVotingGenerate is Script {
             string.concat("Preparing ", totalVotes.toString(), " votes across ", userCount.toString(), " users")
         );
 
-        (MainVoting.VoteRecord[] memory records, uint256[] memory recordNonces) =
-            _buildRecords(missionId, userCount, votesPerUser);
-        MainVoting.UserBatchSig[] memory userBatchSigs = _signUsers(records, recordNonces, userCount, votesPerUser);
+        MainVoting.VoteRecord[] memory records = _buildRecords(missionId, userCount, votesPerUser);
+        MainVoting.UserBatchSig[] memory userBatchSigs = _signUsers(records, userCount, votesPerUser);
 
         uint256 batchNonce = _deriveBatchNonce();
-        bytes memory executorSig = _buildExecutorSig(executorKey, records, recordNonces, batchNonce);
+        bytes memory executorSig = _buildExecutorSig(executorKey, batchNonce);
 
         string memory fullPath = _writeJson(
-            fileName, missionId, totalVotes, userCount, batchNonce, records, recordNonces, userBatchSigs, executorSig
+            fileName, missionId, totalVotes, userCount, batchNonce, records, userBatchSigs, executorSig
         );
 
         console2.log(string.concat("Signatures stored to ", fullPath));
@@ -51,44 +50,51 @@ contract StressVotingGenerate is Script {
     function _buildRecords(uint256 missionId, uint256 userCount, uint256 votesPerUser)
         internal
         view
-        returns (MainVoting.VoteRecord[] memory records, uint256[] memory recordNonces)
+        returns (MainVoting.VoteRecord[] memory records)
     {
         uint256 ts = block.timestamp;
         if (ts == 0) ts = 1736726400;
         uint256 deadline = ts + 14 days;
-
         uint256 recordCount = userCount * votesPerUser;
         records = new MainVoting.VoteRecord[](recordCount);
-        recordNonces = new uint256[](recordCount);
-
         uint256 votingBase = uint256(keccak256(abi.encode(ts, missionId)));
 
         for (uint256 u; u < userCount; ++u) {
-            address userAddr = vm.addr(_userKey(u));
-            string memory userId = string.concat("stress-", u.toString());
-            uint256 votingId = (votingBase + u + 1) % 1_000_000_000 + 1;
+            _fillUserRecords(records, u, votesPerUser, ts, missionId, votingBase, deadline);
+        }
+    }
 
-            for (uint256 j; j < votesPerUser; ++j) {
-                uint256 idx = u * votesPerUser + j;
-                records[idx] = MainVoting.VoteRecord({
-                    timestamp: ts,
-                    missionId: missionId,
-                    votingId: votingId,
-                    userAddress: userAddr,
-                    userId: userId,
-                    votingFor: string.concat("Artist-", (u + 1).toString()),
-                    votedOn: string.concat("Track-", (j + 1).toString()),
-                    votingAmt: 10 + j,
-                    deadline: deadline
-                });
-                recordNonces[idx] = (u + 1) * 1_000 + j + 1;
-            }
+    function _fillUserRecords(
+        MainVoting.VoteRecord[] memory records,
+        uint256 userIndex,
+        uint256 votesPerUser,
+        uint256 timestamp,
+        uint256 missionId,
+        uint256 votingBase,
+        uint256 deadline
+    ) internal view {
+        address userAddr = vm.addr(_userKey(userIndex));
+        string memory userId = string.concat("stress-", userIndex.toString());
+        uint256 votingId = (votingBase + userIndex + 1) % 1_000_000_000 + 1;
+
+        for (uint256 j; j < votesPerUser; ++j) {
+            uint256 idx = userIndex * votesPerUser + j;
+            records[idx] = MainVoting.VoteRecord({
+                timestamp: timestamp,
+                missionId: missionId,
+                votingId: votingId,
+                userAddress: userAddr,
+                userId: userId,
+                votingFor: string.concat("Artist-", (userIndex + 1).toString()),
+                votedOn: string.concat("Track-", (j + 1).toString()),
+                votingAmt: 10 + j,
+                deadline: deadline
+            });
         }
     }
 
     function _signUsers(
         MainVoting.VoteRecord[] memory records,
-        uint256[] memory recordNonces,
         uint256 userCount,
         uint256 votesPerUser
     ) internal view returns (MainVoting.UserBatchSig[] memory userBatchSigs) {
@@ -101,26 +107,23 @@ contract StressVotingGenerate is Script {
                 indices[j] = u * votesPerUser + j;
             }
             uint256 userNonce = uint256(keccak256(abi.encodePacked("userNonce", u, block.timestamp)));
-            userBatchSigs[u] = _buildUserBatchSig(records, recordNonces, userKey, vm.addr(userKey), userNonce, indices);
+            userBatchSigs[u] = _buildUserBatchSig(records, userKey, vm.addr(userKey), userNonce, indices);
         }
     }
 
     function _buildUserBatchSig(
         MainVoting.VoteRecord[] memory records,
-        uint256[] memory recordNonces,
         uint256 userKey,
         address userAddr,
         uint256 userNonce,
         uint256[] memory indices
     ) internal view returns (MainVoting.UserBatchSig memory sigStruct) {
         MainVoting.VoteRecord[] memory subset = new MainVoting.VoteRecord[](indices.length);
-        uint256[] memory subsetNonces = new uint256[](indices.length);
         for (uint256 i; i < indices.length; ++i) {
             uint256 idx = indices[i];
             subset[i] = records[idx];
-            subsetNonces[i] = recordNonces[idx];
         }
-        bytes32 digest = VOTING.hashUserBatchPreview(userAddr, userNonce, subset, subsetNonces);
+        bytes32 digest = VOTING.hashUserBatchPreview(userAddr, userNonce, subset);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(userKey, digest);
         sigStruct = MainVoting.UserBatchSig({
             user: userAddr,
@@ -132,11 +135,9 @@ contract StressVotingGenerate is Script {
 
     function _buildExecutorSig(
         uint256 executorKey,
-        MainVoting.VoteRecord[] memory records,
-        uint256[] memory recordNonces,
         uint256 batchNonce
     ) internal view returns (bytes memory signature) {
-        bytes32 digest = VOTING.hashBatchPreview(records, recordNonces, batchNonce);
+        bytes32 digest = VOTING.hashBatchPreview(batchNonce);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorKey, digest);
         signature = abi.encodePacked(r, s, v);
     }
@@ -156,7 +157,6 @@ contract StressVotingGenerate is Script {
         uint256 userCount,
         uint256 batchNonce,
         MainVoting.VoteRecord[] memory records,
-        uint256[] memory recordNonces,
         MainVoting.UserBatchSig[] memory userBatchSigs,
         bytes memory executorSig
     ) internal returns (string memory fullPath) {
@@ -168,7 +168,6 @@ contract StressVotingGenerate is Script {
         vm.serializeUint("stress", "userCount", userCount);
         vm.serializeUint("stress", "batchNonce", batchNonce);
         vm.serializeBytes("stress", "records", abi.encode(records));
-        vm.serializeBytes("stress", "recordNonces", abi.encode(recordNonces));
         vm.serializeBytes("stress", "userBatchSigs", abi.encode(userBatchSigs));
         string memory json = vm.serializeBytes("stress", "executorSig", executorSig);
         vm.writeJson(json, fullPath);

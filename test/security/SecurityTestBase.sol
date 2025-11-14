@@ -105,7 +105,7 @@ abstract contract SecurityTestBase is Test {
     ) internal view returns (bytes memory) {
         bytes32[] memory hashes = new bytes32[](userRecords.length);
         for (uint256 i; i < userRecords.length; ) {
-            hashes[i] = voting.hashVoteRecord(userRecords[i], userRecordNonces[i]);
+            hashes[i] = voting.hashVoteRecord(userRecords[i]);
             unchecked { ++i; }
         }
         bytes32 recordsHash = keccak256(abi.encodePacked(hashes));
@@ -126,7 +126,7 @@ abstract contract SecurityTestBase is Test {
     ) internal view returns (bytes memory signature, bytes32 itemsHash) {
         bytes32[] memory hashes = new bytes32[](records.length);
         for (uint256 i; i < records.length; ) {
-            hashes[i] = voting.hashVoteRecord(records[i], recordNonces[i]);
+            hashes[i] = voting.hashVoteRecord(records[i]);
             unchecked { ++i; }
         }
         itemsHash = keccak256(abi.encodePacked(hashes));
@@ -266,7 +266,7 @@ abstract contract SecurityTestBase is Test {
         MainVoting.UserBatchSig[] memory sigs = new MainVoting.UserBatchSig[](1);
         sigs[0] = userBatch;
 
-        voting.submitMultiUserBatch(records, sigs, batchNonce, batchSig, recordNonces);
+        voting.submitMultiUserBatch(records, sigs, batchNonce, batchSig);
     }
 
     // ========================================
@@ -297,7 +297,7 @@ abstract contract SecurityTestBase is Test {
     ) internal view returns (bytes32) {
         bytes32[] memory hashes = new bytes32[](records.length);
         for (uint256 i; i < records.length; ) {
-            hashes[i] = voting.hashVoteRecord(records[i], recordNonces[i]);
+            hashes[i] = voting.hashVoteRecord(records[i]);
             unchecked { ++i; }
         }
         return keccak256(abi.encodePacked(hashes));

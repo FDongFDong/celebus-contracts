@@ -89,8 +89,9 @@ contract MainVotingTest is Test {
         "UserBatch(address user,uint256 userNonce,bytes32 recordsHash)"
     );
 
+    // V1: 단순화 - batchNonce만 서명
     bytes32 public constant BATCH_TYPEHASH = keccak256(
-        "Batch(uint256 chainId,bytes32 itemsHash,uint256 batchNonce)"
+        "Batch(uint256 batchNonce)"
     );
 
     function setUp() public {
@@ -148,16 +149,16 @@ contract MainVotingTest is Test {
         });
     }
 
+    // V1: recordNonces 제거
     function _signUserBatch(
         uint256 privateKey,
         address user,
         uint256 userNonce,
-        MainVoting.VoteRecord[] memory userRecords,
-        uint256[] memory userRecordNonces
+        MainVoting.VoteRecord[] memory userRecords
     ) internal view returns (bytes memory) {
         bytes32[] memory hashes = new bytes32[](userRecords.length);
         for (uint256 i; i < userRecords.length; ) {
-            hashes[i] = voting.hashVoteRecord(userRecords[i], userRecordNonces[i]);
+            hashes[i] = voting.hashVoteRecord(userRecords[i]);
             unchecked { ++i; }
         }
         bytes32 recordsHash = keccak256(abi.encodePacked(hashes));
@@ -170,36 +171,18 @@ contract MainVotingTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
+    // V1: 백엔드는 batchNonce만 서명
     function _signExecutorBatch(
         uint256 privateKey,
-        MainVoting.VoteRecord[] memory records,
-        uint256[] memory recordNonces,
         uint256 batchNonce
     ) internal view returns (bytes memory) {
-        bytes32[] memory hashes = new bytes32[](records.length);
-        for (uint256 i; i < records.length; ) {
-            hashes[i] = voting.hashVoteRecord(records[i], recordNonces[i]);
-            unchecked { ++i; }
-        }
-        bytes32 itemsHash = keccak256(abi.encodePacked(hashes));
         bytes32 structHash = keccak256(
-            abi.encode(BATCH_TYPEHASH, block.chainid, itemsHash, batchNonce)
+            abi.encode(BATCH_TYPEHASH, batchNonce)
         );
         bytes32 digest = _hashTypedDataV4(structHash);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
         return abi.encodePacked(r, s, v);
-    }
-
-    /**
-     * @notice recordNonces 배열 생성 헬퍼 (보안 패치 후 추가)
-     */
-    function _createRecordNonces(uint256 count) internal pure returns (uint256[] memory) {
-        uint256[] memory nonces = new uint256[](count);
-        for (uint256 i = 0; i < count; i++) {
-            nonces[i] = i; // 각 레코드마다 고유 nonce
-        }
-        return nonces;
     }
 
     /**
@@ -211,17 +194,17 @@ contract MainVotingTest is Test {
     ) internal view returns (bytes32) {
         bytes32[] memory hashes = new bytes32[](records.length);
         for (uint256 i; i < records.length; ) {
-            hashes[i] = voting.hashVoteRecord(records[i], recordNonces[i]);
+            hashes[i] = voting.hashVoteRecord(records[i]);
             unchecked { ++i; }
         }
         return keccak256(abi.encodePacked(hashes));
     }
 
+    // V1: recordNonces 제거
     function _prepareBatchRecords(uint256 totalRecords)
         internal
         returns (
             MainVoting.VoteRecord[] memory allRecords,
-            uint256[] memory recordNonces,
             MainVoting.UserBatchSig[] memory userBatchSigs
         )
     {
@@ -250,7 +233,6 @@ contract MainVotingTest is Test {
             );
         }
 
-        recordNonces = _createRecordNonces(totalRecords);
         userBatchSigs = new MainVoting.UserBatchSig[](userCount);
 
         for (uint256 u; u < userCount; ++u) {
@@ -261,21 +243,18 @@ contract MainVotingTest is Test {
 
             uint256[] memory indices = new uint256[](count);
             MainVoting.VoteRecord[] memory userRecords = new MainVoting.VoteRecord[](count);
-            uint256[] memory userRecordNonces = new uint256[](count);
 
             for (uint256 j; j < count; ++j) {
                 uint256 idx = start + j;
                 indices[j] = idx;
                 userRecords[j] = allRecords[idx];
-                userRecordNonces[j] = recordNonces[idx];
             }
 
             bytes memory sig = _signUserBatch(
                 userPrivateKeys[u],
                 userAddrs[u],
                 0,
-                userRecords,
-                userRecordNonces
+                userRecords
             );
 
             userBatchSigs[u] = MainVoting.UserBatchSig({
@@ -326,7 +305,6 @@ contract MainVotingTest is Test {
         allRecords[2] = _createVoteRecord(user1, "user1", 1, 3, "SaN", "candidate3", 150);
         allRecords[3] = _createVoteRecord(user1, "user1", 1, 4, "KaS", "candidate4", 180);
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
 
         // 2. user1의 배치 서명 생성
         uint256[] memory recordIndices = new uint256[](4);
@@ -335,7 +313,7 @@ contract MainVotingTest is Test {
         recordIndices[2] = 2;
         recordIndices[3] = 3;
 
-        bytes memory user1Signature = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        bytes memory user1Signature = _signUserBatch(user1PrivateKey, user1, 0, allRecords);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -346,10 +324,10 @@ contract MainVotingTest is Test {
         });
 
         // 3. Executor 서명 생성
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 4. 배치 제출
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 5. 검증
         assertEq(voting.getVoteCount(1), 4);
@@ -378,7 +356,6 @@ contract MainVotingTest is Test {
         allRecords[5] = _createVoteRecord(user3, "user3", 1, 6, "Artist6", "song6", 90);
 
         // 2. 전체 recordNonces 생성 (먼저!)
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
 
         // 3. 각 사용자의 배치 서명 생성
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](3);
@@ -390,14 +367,11 @@ contract MainVotingTest is Test {
         MainVoting.VoteRecord[] memory user1Records = new MainVoting.VoteRecord[](2);
         user1Records[0] = allRecords[0];
         user1Records[1] = allRecords[1];
-        uint256[] memory user1RecordNonces = new uint256[](2);
-        user1RecordNonces[0] = recordNonces[0];
-        user1RecordNonces[1] = recordNonces[1];
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: user1Indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, user1Records, user1RecordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, user1Records)
         });
 
         // user2 배치
@@ -409,15 +383,11 @@ contract MainVotingTest is Test {
         user2Records[0] = allRecords[2];
         user2Records[1] = allRecords[3];
         user2Records[2] = allRecords[4];
-        uint256[] memory user2RecordNonces = new uint256[](3);
-        user2RecordNonces[0] = recordNonces[2];
-        user2RecordNonces[1] = recordNonces[3];
-        user2RecordNonces[2] = recordNonces[4];
         userBatchSigs[1] = MainVoting.UserBatchSig({
             user: user2,
             userNonce: 0,
             recordIndices: user2Indices,
-            signature: _signUserBatch(user2PrivateKey, user2, 0, user2Records, user2RecordNonces)
+            signature: _signUserBatch(user2PrivateKey, user2, 0, user2Records)
         });
 
         // user3 배치
@@ -425,20 +395,18 @@ contract MainVotingTest is Test {
         user3Indices[0] = 5;
         MainVoting.VoteRecord[] memory user3Records = new MainVoting.VoteRecord[](1);
         user3Records[0] = allRecords[5];
-        uint256[] memory user3RecordNonces = new uint256[](1);
-        user3RecordNonces[0] = recordNonces[5];
         userBatchSigs[2] = MainVoting.UserBatchSig({
             user: user3,
             userNonce: 0,
             recordIndices: user3Indices,
-            signature: _signUserBatch(user3PrivateKey, user3, 0, user3Records, user3RecordNonces)
+            signature: _signUserBatch(user3PrivateKey, user3, 0, user3Records)
         });
 
         // 4. Executor 서명
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 5. 배치 제출
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 5. 검증
         assertEq(voting.getVoteCount(1), 6);
@@ -459,20 +427,19 @@ contract MainVotingTest is Test {
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        // 잘못된 private key로 서명
-        bytes memory wrongExecutorSig = _signExecutorBatch(user1PrivateKey, allRecords, recordNonces, 0);
+        // 잘못된 private key로 서명 (user1의 키 사용)
+        bytes memory wrongExecutorSig = _signExecutorBatch(user1PrivateKey, 0);
 
         vm.expectRevert(MainVoting.InvalidSignature.selector);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, wrongExecutorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, wrongExecutorSig);
     }
 
     function test_RevertWhen_InvalidUserSignature() public {
@@ -483,19 +450,18 @@ contract MainVotingTest is Test {
         indices[0] = 0;
 
         // 잘못된 private key로 서명
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user2PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user2PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         vm.expectRevert(MainVoting.InvalidSignature.selector);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
     }
 
     function test_RevertWhen_UserNonceAlreadyUsed() public {
@@ -505,26 +471,24 @@ contract MainVotingTest is Test {
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 첫 번째 제출 성공
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 두 번째 제출 실패 (같은 nonce)
-        uint256[] memory recordNonces2 = _createRecordNonces(allRecords.length);
-        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces2, 1);
+        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, 1);
 
         vm.expectRevert(MainVoting.UserNonceAlreadyUsed.selector);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 1, executorSig2, recordNonces2);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 1, executorSig2);
     }
 
     function test_RevertWhen_BatchNonceAlreadyUsed() public {
@@ -534,31 +498,29 @@ contract MainVotingTest is Test {
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 첫 번째 제출 성공
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 두 번째 제출 실패 (같은 batch nonce)
         allRecords[0] = _createVoteRecord(user1, "user1", 1, 2, "Artist2", "song2", 150);
-        uint256[] memory recordNonces2 = _createRecordNonces(allRecords.length);
         userBatchSigs[0].userNonce = 1;
-        userBatchSigs[0].signature = _signUserBatch(user1PrivateKey, user1, 1, allRecords, recordNonces2);
+        userBatchSigs[0].signature = _signUserBatch(user1PrivateKey, user1, 1, allRecords);
 
         // 새로운 데이터에 대한 executor signature를 같은 batch nonce(0)로 생성
-        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces2, 0);
+        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, 0);
 
         vm.expectRevert(MainVoting.BatchNonceAlreadyUsed.selector);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig2, recordNonces2);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig2);
     }
 
     function test_RevertWhen_ExpiredDeadline() public {
@@ -571,19 +533,18 @@ contract MainVotingTest is Test {
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 만료된 레코드는 스킵됨 (에러 발생 안함)
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // voteCount가 0으로 유지됨 (스킵됨)
         assertEq(voting.getVoteCountByVotingId(1, 1), 0, "Expired record should be skipped");
@@ -596,19 +557,18 @@ contract MainVotingTest is Test {
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 0 투표량 레코드는 스킵됨 (에러 발생 안함)
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // voteCount가 0으로 유지됨 (스킵됨)
         assertEq(voting.getVoteCountByVotingId(1, 1), 0, "Zero voting amount record should be skipped");
@@ -622,19 +582,18 @@ contract MainVotingTest is Test {
         uint256[] memory indices = new uint256[](1);
         indices[0] = 10; // allRecords.length는 1
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         vm.expectRevert(MainVoting.InvalidRecordIndices.selector);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
     }
 
     function test_RevertWhen_MismatchedUserAddress() public {
@@ -647,19 +606,18 @@ contract MainVotingTest is Test {
         indices[0] = 0;
         indices[1] = 1;
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         vm.expectRevert(MainVoting.InvalidSignature.selector);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
     }
 
     // ========================================
@@ -712,17 +670,16 @@ contract MainVotingTest is Test {
         indices[0] = 0;
         indices[1] = 1;
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 유저별 해시 조회 및 검증 (votingId=1)
         bytes32[] memory hashes1 = voting.getUserVoteHashes(user1, 1, 1, 0, 100);
@@ -748,11 +705,10 @@ contract MainVotingTest is Test {
         MainVoting.VoteRecord[] memory userRecords = new MainVoting.VoteRecord[](1);
         userRecords[0] = _createVoteRecord(user1, "user1", 1, 1, "Artist1", "song1", 100);
 
-        uint256[] memory recordNonces = _createRecordNonces(userRecords.length);
-        bytes32 hash = voting.hashUserBatchPreview(user1, 0, userRecords, recordNonces);
+        bytes32 hash = voting.hashUserBatchPreview(user1, 0, userRecords);
 
         bytes32[] memory hashes = new bytes32[](1);
-        hashes[0] = voting.hashVoteRecord(userRecords[0], recordNonces[0]);
+        hashes[0] = voting.hashVoteRecord(userRecords[0]);
         bytes32 recordsHash = keccak256(abi.encodePacked(hashes));
         bytes32 expectedStructHash = keccak256(
             abi.encode(USER_BATCH_TYPEHASH, user1, 0, recordsHash)
@@ -762,18 +718,12 @@ contract MainVotingTest is Test {
         assertEq(hash, expected);
     }
 
+    // V1: batchNonce만 사용
     function test_HashBatchPreview() public view {
-        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](1);
-        records[0] = _createVoteRecord(user1, "user1", 1, 1, "Artist1", "song1", 100);
+        bytes32 hash = voting.hashBatchPreview(0);
 
-        uint256[] memory recordNonces = _createRecordNonces(records.length);
-        bytes32 hash = voting.hashBatchPreview(records, recordNonces, 0);
-
-        bytes32[] memory hashes = new bytes32[](1);
-        hashes[0] = voting.hashVoteRecord(records[0], recordNonces[0]);
-        bytes32 itemsHash = keccak256(abi.encodePacked(hashes));
         bytes32 expectedStructHash = keccak256(
-            abi.encode(BATCH_TYPEHASH, block.chainid, itemsHash, 0)
+            abi.encode(BATCH_TYPEHASH, 0)
         );
         bytes32 expected = _hashTypedDataV4(expectedStructHash);
 
@@ -802,8 +752,7 @@ contract MainVotingTest is Test {
         recordIndices[1] = 1;
         recordIndices[2] = 2;
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
-        bytes memory userSignature = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        bytes memory userSignature = _signUserBatch(user1PrivateKey, user1, 0, allRecords);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -814,10 +763,10 @@ contract MainVotingTest is Test {
         });
 
         // Executor 서명
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 배치 제출
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 검증
         assertEq(voting.getVoteCount(1), 3);
@@ -871,19 +820,18 @@ contract MainVotingTest is Test {
             indices[i] = i;
         }
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         vm.pauseGasMetering();
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
         vm.resumeGasMetering();
 
         // 검증 - 각 votingId별로 조회
@@ -917,7 +865,6 @@ contract MainVotingTest is Test {
         allRecords[2] = _createVoteRecord(user3, "user3", 1, 3, "YuSeungWoo", "R", 150);
 
         // 전체 recordNonces 먼저 생성
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](3);
 
@@ -926,13 +873,11 @@ contract MainVotingTest is Test {
         user1Indices[0] = 0;
         MainVoting.VoteRecord[] memory user1Records = new MainVoting.VoteRecord[](1);
         user1Records[0] = allRecords[0];
-        uint256[] memory user1RecordNonces = new uint256[](1);
-        user1RecordNonces[0] = recordNonces[0];
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: user1Indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, user1Records, user1RecordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, user1Records)
         });
 
         // user2 배치
@@ -940,13 +885,11 @@ contract MainVotingTest is Test {
         user2Indices[0] = 1;
         MainVoting.VoteRecord[] memory user2Records = new MainVoting.VoteRecord[](1);
         user2Records[0] = allRecords[1];
-        uint256[] memory user2RecordNonces = new uint256[](1);
-        user2RecordNonces[0] = recordNonces[1];
         userBatchSigs[1] = MainVoting.UserBatchSig({
             user: user2,
             userNonce: 0,
             recordIndices: user2Indices,
-            signature: _signUserBatch(user2PrivateKey, user2, 0, user2Records, user2RecordNonces)
+            signature: _signUserBatch(user2PrivateKey, user2, 0, user2Records)
         });
 
         // user3 배치
@@ -954,18 +897,16 @@ contract MainVotingTest is Test {
         user3Indices[0] = 2;
         MainVoting.VoteRecord[] memory user3Records = new MainVoting.VoteRecord[](1);
         user3Records[0] = allRecords[2];
-        uint256[] memory user3RecordNonces = new uint256[](1);
-        user3RecordNonces[0] = recordNonces[2];
         userBatchSigs[2] = MainVoting.UserBatchSig({
             user: user3,
             userNonce: 0,
             recordIndices: user3Indices,
-            signature: _signUserBatch(user3PrivateKey, user3, 0, user3Records, user3RecordNonces)
+            signature: _signUserBatch(user3PrivateKey, user3, 0, user3Records)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 검증: 3명이 같은 후보에게 투표
         assertEq(voting.getVoteCount(1), 3);
@@ -1006,18 +947,17 @@ contract MainVotingTest is Test {
         indices[0] = 0;
         indices[1] = 1;
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 검증: 같은 후보에게 R과 F 모두 투표 가능
         assertEq(voting.getVoteCount(1), 2);
@@ -1050,18 +990,17 @@ contract MainVotingTest is Test {
         indices[1] = 1;
         indices[2] = 2;
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 유저별 votingId로 각각 조회
         bytes32[] memory hash1 = voting.getUserVoteHashes(user1, 1, 1, 0, 100);
@@ -1106,7 +1045,6 @@ contract MainVotingTest is Test {
         allRecords[6] = _createVoteRecord(user3, "charlie", 1, 7, "SangNamja", "F", 90);
 
         // 전체 recordNonces 먼저 생성
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](3);
 
@@ -1119,15 +1057,11 @@ contract MainVotingTest is Test {
         user1Records[0] = allRecords[0];
         user1Records[1] = allRecords[1];
         user1Records[2] = allRecords[2];
-        uint256[] memory user1RecordNonces = new uint256[](3);
-        user1RecordNonces[0] = recordNonces[0];
-        user1RecordNonces[1] = recordNonces[1];
-        user1RecordNonces[2] = recordNonces[2];
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: user1Indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, user1Records, user1RecordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, user1Records)
         });
 
         // user2 배치
@@ -1137,14 +1071,11 @@ contract MainVotingTest is Test {
         MainVoting.VoteRecord[] memory user2Records = new MainVoting.VoteRecord[](2);
         user2Records[0] = allRecords[3];
         user2Records[1] = allRecords[4];
-        uint256[] memory user2RecordNonces = new uint256[](2);
-        user2RecordNonces[0] = recordNonces[3];
-        user2RecordNonces[1] = recordNonces[4];
         userBatchSigs[1] = MainVoting.UserBatchSig({
             user: user2,
             userNonce: 0,
             recordIndices: user2Indices,
-            signature: _signUserBatch(user2PrivateKey, user2, 0, user2Records, user2RecordNonces)
+            signature: _signUserBatch(user2PrivateKey, user2, 0, user2Records)
         });
 
         // user3 배치
@@ -1154,19 +1085,16 @@ contract MainVotingTest is Test {
         MainVoting.VoteRecord[] memory user3Records = new MainVoting.VoteRecord[](2);
         user3Records[0] = allRecords[5];
         user3Records[1] = allRecords[6];
-        uint256[] memory user3RecordNonces = new uint256[](2);
-        user3RecordNonces[0] = recordNonces[5];
-        user3RecordNonces[1] = recordNonces[6];
         userBatchSigs[2] = MainVoting.UserBatchSig({
             user: user3,
             userNonce: 0,
             recordIndices: user3Indices,
-            signature: _signUserBatch(user3PrivateKey, user3, 0, user3Records, user3RecordNonces)
+            signature: _signUserBatch(user3PrivateKey, user3, 0, user3Records)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 검증
         assertEq(voting.getVoteCount(1), 7); // 총 7개 투표
@@ -1205,14 +1133,13 @@ contract MainVotingTest is Test {
         uint256 totalRecords = voting.MAX_RECORDS_PER_BATCH() + 1;
         (
             MainVoting.VoteRecord[] memory allRecords,
-            uint256[] memory recordNonces,
             MainVoting.UserBatchSig[] memory userBatchSigs
         ) = _prepareBatchRecords(totalRecords);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         vm.expectRevert(MainVoting.BatchTooLarge.selector);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
     }
 
     function test_RevertWhen_QueryLimitExceeded() public {
@@ -1229,17 +1156,16 @@ contract MainVotingTest is Test {
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 유저별 voteHash 조회
         bytes32[] memory hashes = voting.getUserVoteHashes(user1, 1, 1, 0, 100);
@@ -1263,17 +1189,16 @@ contract MainVotingTest is Test {
             indices[i] = i;
         }
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 페이지네이션 조회 테스트
         bytes32[] memory page1 = voting.getUserVoteHashes(user1, 1, 1, 0, 2);
@@ -1303,20 +1228,19 @@ contract MainVotingTest is Test {
             indices[i] = i;
         }
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // UserBatchTooLarge 에러 예상
         vm.expectRevert(MainVoting.UserBatchTooLarge.selector);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
     }
 
     // ========================================
@@ -1329,7 +1253,6 @@ contract MainVotingTest is Test {
         allRecords[0] = _createVoteRecord(user1, "user1", 1, 1, "Artist1", "R", 100);
         allRecords[1] = _createVoteRecord(user1, "user1", 1, 2, "Artist2", "F", 200);
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         uint256[] memory indices = new uint256[](2);
         indices[0] = 0;
         indices[1] = 1;
@@ -1339,13 +1262,13 @@ contract MainVotingTest is Test {
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 정상 제출
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 검증
         assertEq(voting.getVoteCount(1), 2);
@@ -1359,7 +1282,6 @@ contract MainVotingTest is Test {
         MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](1);
         allRecords[0] = _createVoteRecord(user1, "user1", 1, 1, "Artist1", "R", 100);
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
 
@@ -1369,49 +1291,23 @@ contract MainVotingTest is Test {
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 서명 후 votingAmt 변조
         allRecords[0].votingAmt = 999999;
 
         // InvalidSignature 에러 예상 (itemsHash 불일치)
         vm.expectRevert(MainVoting.InvalidSignature.selector);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
     }
 
-    function test_RevertWhen_RecordNoncesMismatch() public {
-        // recordNonces 조작 시도
-        MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](2);
-        allRecords[0] = _createVoteRecord(user1, "user1", 1, 1, "Artist1", "R", 100);
-        allRecords[1] = _createVoteRecord(user1, "user1", 1, 2, "Artist2", "F", 200);
-
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
-        uint256[] memory indices = new uint256[](2);
-        indices[0] = 0;
-        indices[1] = 1;
-
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
-        });
-
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
-
-        // recordNonces 순서 조작
-        uint256[] memory tamperedNonces = new uint256[](2);
-        tamperedNonces[0] = 1; // 원래 0이어야 함
-        tamperedNonces[1] = 0; // 원래 1이어야 함
-
-        // InvalidSignature 또는 InvalidRecordIndices 에러 예상
-        vm.expectRevert();
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, tamperedNonces);
-    }
+    // V1: RecordNonces 제거로 인해 테스트 불필요
+    // function test_RevertWhen_RecordNoncesMismatch() public {
+    //     // 테스트 비활성화: V1에서는 recordNonces가 없음
+    // }
 
     // ========================================
     // Fail-Fast 최적화 테스트 (신규)
@@ -1424,7 +1320,6 @@ contract MainVotingTest is Test {
         string memory longString = "this_is_a_very_long_string_that_exceeds_the_maximum_allowed_length_of_100_characters_and_should_trigger_error";
         allRecords[0] = _createVoteRecord(user1, "user1", 1, 1, longString, "R", 100);
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
 
@@ -1433,15 +1328,15 @@ contract MainVotingTest is Test {
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
         // 잘못된 executor 서명 (user1 키로 서명)
-        bytes memory wrongExecutorSig = _signExecutorBatch(user1PrivateKey, allRecords, recordNonces, 0);
+        bytes memory wrongExecutorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // StringTooLong이 먼저 발생함 (InvalidSignature 전에)
         vm.expectRevert(MainVoting.StringTooLong.selector);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, wrongExecutorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, wrongExecutorSig);
     }
 
     function test_FailFast_BatchTooLargeBeforeHashComputation() public {
@@ -1451,40 +1346,17 @@ contract MainVotingTest is Test {
             allRecords[i] = _createVoteRecord(user1, "user1", 1, i + 1, "Artist", "R", 100);
         }
 
-        uint256[] memory recordNonces = _createRecordNonces(totalRecords);
         MainVoting.UserBatchSig[] memory userBatchSigs;
         bytes memory executorSig;
 
         vm.expectRevert(MainVoting.BatchTooLarge.selector);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
     }
 
-    function test_FailFast_LengthMismatchBeforeSignatureValidation() public {
-        // recordNonces 길이 불일치
-        MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](2);
-        allRecords[0] = _createVoteRecord(user1, "user1", 1, 1, "Artist1", "R", 100);
-        allRecords[1] = _createVoteRecord(user1, "user1", 1, 2, "Artist2", "F", 200);
-
-        // 잘못된 길이의 recordNonces
-        uint256[] memory recordNonces = _createRecordNonces(1); // 2개여야 함
-        uint256[] memory indices = new uint256[](2);
-        indices[0] = 0;
-        indices[1] = 1;
-
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, _createRecordNonces(2))
-        });
-
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, _createRecordNonces(2), 0);
-
-        // InvalidRecordIndices가 즉시 발생해야 함
-        vm.expectRevert(MainVoting.InvalidRecordIndices.selector);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
-    }
+    // V1: RecordNonces 제거로 인해 길이 불일치 검증 불필요
+    // function test_FailFast_LengthMismatchBeforeSignatureValidation() public {
+    //     // 테스트 비활성화: V1에서는 recordNonces가 없어서 길이 불일치 검증 없음
+    // }
 
     // ========================================
     // 보안 강화 테스트 (신규)
@@ -1495,7 +1367,6 @@ contract MainVotingTest is Test {
         MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](1);
         allRecords[0] = _createVoteRecord(user1, "user1", 1, 1, "Artist1", "R", 100);
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
 
@@ -1504,13 +1375,13 @@ contract MainVotingTest is Test {
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 첫 번째 제출 성공
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 같은 itemsHash로 재사용 시도 (batchNonce+1, userNonce+1)
         MainVoting.UserBatchSig[] memory userBatchSigs2 = new MainVoting.UserBatchSig[](1);
@@ -1518,13 +1389,13 @@ contract MainVotingTest is Test {
             user: user1,
             userNonce: 1,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 1, allRecords, recordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 1, allRecords)
         });
 
-        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 1);
+        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, 1);
 
         // 이미 처리된 recordDigest는 스킵됨 (revert하지 않음)
-        voting.submitMultiUserBatch(allRecords, userBatchSigs2, 1, executorSig2, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs2, 1, executorSig2);
 
         // 투표 개수는 여전히 1개 (스킵되어 추가되지 않음)
         assertEq(voting.getVoteCountByVotingId(1, 1), 1, "Duplicate record should be skipped");
@@ -1537,7 +1408,6 @@ contract MainVotingTest is Test {
             fullRecords[i] = _createVoteRecord(user1, "user1", 1, i + 1, "Artist", "R", 100);
         }
 
-        uint256[] memory fullRecordNonces = _createRecordNonces(fullRecords.length);
 
         // 전체로 서명 생성
         uint256[] memory fullIndices = new uint256[](10);
@@ -1550,10 +1420,10 @@ contract MainVotingTest is Test {
             user: user1,
             userNonce: 0,
             recordIndices: fullIndices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, fullRecords, fullRecordNonces)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, fullRecords)
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, fullRecords, fullRecordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 일부만 제출 시도 (5개)
         MainVoting.VoteRecord[] memory partialRecords = new MainVoting.VoteRecord[](5);
@@ -1561,14 +1431,9 @@ contract MainVotingTest is Test {
             partialRecords[i] = fullRecords[i];
         }
 
-        uint256[] memory partialNonces = new uint256[](5);
-        for (uint256 i = 0; i < 5; i++) {
-            partialNonces[i] = fullRecordNonces[i];
-        }
-
         // InvalidSignature 또는 InvalidRecordIndices 에러 예상
         vm.expectRevert();
-        voting.submitMultiUserBatch(partialRecords, userBatchSigs, 0, executorSig, partialNonces);
+        voting.submitMultiUserBatch(partialRecords, userBatchSigs, 0, executorSig);
     }
 
     function test_SecurityEnhancement_DuplicateRecordNoncePrevention() public {
@@ -1587,13 +1452,13 @@ contract MainVotingTest is Test {
             user: user1,
             userNonce: 0,
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords1, recordNonces1)
+            signature: _signUserBatch(user1PrivateKey, user1, 0, allRecords1)
         });
 
-        bytes memory executorSig1 = _signExecutorBatch(executorPrivateKey, allRecords1, recordNonces1, 0);
+        bytes memory executorSig1 = _signExecutorBatch(executorPrivateKey, 0);
 
         // 첫 번째 제출 성공
-        voting.submitMultiUserBatch(allRecords1, userBatchSigs1, 0, executorSig1, recordNonces1);
+        voting.submitMultiUserBatch(allRecords1, userBatchSigs1, 0, executorSig1);
 
         // 다른 데이터지만 같은 recordNonce(0) 재사용 시도
         MainVoting.VoteRecord[] memory allRecords2 = new MainVoting.VoteRecord[](1);
@@ -1607,14 +1472,14 @@ contract MainVotingTest is Test {
             user: user1,
             userNonce: 1, // userNonce는 증가
             recordIndices: indices,
-            signature: _signUserBatch(user1PrivateKey, user1, 1, allRecords2, recordNonces2)
+            signature: _signUserBatch(user1PrivateKey, user1, 1, allRecords2)
         });
 
-        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, allRecords2, recordNonces2, 1);
+        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, 1);
 
         // 같은 recordNonce(0)지만 다른 데이터이므로 recordDigest는 다름
         // 따라서 consumed 체크를 통과하고 둘 다 저장됨
-        voting.submitMultiUserBatch(allRecords2, userBatchSigs2, 1, executorSig2, recordNonces2);
+        voting.submitMultiUserBatch(allRecords2, userBatchSigs2, 1, executorSig2);
 
         // 총 투표 개수는 2개 (recordDigest가 다르므로 둘 다 저장됨)
         assertEq(voting.getVoteCount(1), 2, "Different records with same recordNonce create different digests");
@@ -1639,7 +1504,6 @@ contract MainVotingTest is Test {
         // user2의 투표를 백엔드가 몰래 추가 (서명 없음!)
         allRecords[2] = _createVoteRecord(user2, "user2", 1, 3, "Artist3", "R", 200);
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
 
         // user1은 자신의 2개만 서명
         uint256[] memory user1Indices = new uint256[](2);
@@ -1650,11 +1514,8 @@ contract MainVotingTest is Test {
         user1Records[0] = allRecords[0];
         user1Records[1] = allRecords[1];
 
-        uint256[] memory user1RecordNonces = new uint256[](2);
-        user1RecordNonces[0] = recordNonces[0];
-        user1RecordNonces[1] = recordNonces[1];
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, user1Records, user1RecordNonces);
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, user1Records);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -1665,11 +1526,11 @@ contract MainVotingTest is Test {
         });
 
         // Executor는 3개 전체를 서명 (백엔드 공격)
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 제출 시도 - UncoveredRecord(2) 에러 발생
         vm.expectRevert(abi.encodeWithSignature("UncoveredRecord(uint256)", 2));
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
     }
 
     /**
@@ -1681,19 +1542,18 @@ contract MainVotingTest is Test {
         MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](1);
         allRecords[0] = _createVoteRecord(user1, "user1", 1, 1, "Artist1", "R", 100);
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
 
         // user1이 인덱스 0 서명
         uint256[] memory user1Indices = new uint256[](1);
         user1Indices[0] = 0;
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords);
 
         // user2도 인덱스 0 서명 (중복!)
         uint256[] memory user2Indices = new uint256[](1);
         user2Indices[0] = 0;
 
-        bytes memory user2Sig = _signUserBatch(user2PrivateKey, user2, 0, allRecords, recordNonces);
+        bytes memory user2Sig = _signUserBatch(user2PrivateKey, user2, 0, allRecords);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](2);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -1709,11 +1569,11 @@ contract MainVotingTest is Test {
             signature: user2Sig
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 제출 시도 - DuplicateIndex(0) 에러 발생
         vm.expectRevert(abi.encodeWithSignature("DuplicateIndex(uint256)", 0));
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
     }
 
     /**
@@ -1732,7 +1592,6 @@ contract MainVotingTest is Test {
         allRecords[2] = _createVoteRecord(user2, "user2", 1, 3, "Artist3", "R", 200);
         allRecords[3] = _createVoteRecord(user2, "user2", 1, 4, "Artist4", "F", 120);
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
 
         // user1 서명 (인덱스 0, 1)
         uint256[] memory user1Indices = new uint256[](2);
@@ -1743,11 +1602,8 @@ contract MainVotingTest is Test {
         user1Records[0] = allRecords[0];
         user1Records[1] = allRecords[1];
 
-        uint256[] memory user1RecordNonces = new uint256[](2);
-        user1RecordNonces[0] = recordNonces[0];
-        user1RecordNonces[1] = recordNonces[1];
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, user1Records, user1RecordNonces);
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, user1Records);
 
         // user2 서명 (인덱스 2, 3)
         uint256[] memory user2Indices = new uint256[](2);
@@ -1758,11 +1614,8 @@ contract MainVotingTest is Test {
         user2Records[0] = allRecords[2];
         user2Records[1] = allRecords[3];
 
-        uint256[] memory user2RecordNonces = new uint256[](2);
-        user2RecordNonces[0] = recordNonces[2];
-        user2RecordNonces[1] = recordNonces[3];
 
-        bytes memory user2Sig = _signUserBatch(user2PrivateKey, user2, 0, user2Records, user2RecordNonces);
+        bytes memory user2Sig = _signUserBatch(user2PrivateKey, user2, 0, user2Records);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](2);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -1778,10 +1631,10 @@ contract MainVotingTest is Test {
             signature: user2Sig
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 제출 성공 - 모든 레코드가 커버됨
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 검증
         assertEq(voting.getVoteCount(1), 4, "All 4 records stored");
@@ -1802,7 +1655,6 @@ contract MainVotingTest is Test {
         allRecords[1] = _createVoteRecord(user1, "user1", 1, 2, "Artist2", "F", 150);
         allRecords[2] = _createVoteRecord(user1, "user1", 1, 3, "Artist3", "R", 200);
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
 
         // user1이 인덱스 0, 2만 서명 (1은 빠뜨림)
         uint256[] memory user1Indices = new uint256[](2);
@@ -1813,11 +1665,8 @@ contract MainVotingTest is Test {
         user1Records[0] = allRecords[0];
         user1Records[1] = allRecords[2];
 
-        uint256[] memory user1RecordNonces = new uint256[](2);
-        user1RecordNonces[0] = recordNonces[0];
-        user1RecordNonces[1] = recordNonces[2];
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, user1Records, user1RecordNonces);
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, user1Records);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -1827,11 +1676,11 @@ contract MainVotingTest is Test {
             signature: user1Sig
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 제출 시도 - UncoveredRecord(1) 에러 발생
         vm.expectRevert(abi.encodeWithSignature("UncoveredRecord(uint256)", 1));
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
     }
 
     // ========================================
@@ -1853,7 +1702,6 @@ contract MainVotingTest is Test {
         allRecords[0] = _createVoteRecord(walletAddress, "wallet1", 1, 1, "Artist1", "R", 100);
         allRecords[1] = _createVoteRecord(walletAddress, "wallet1", 1, 2, "Artist2", "F", 150);
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
 
         // 3. 지갑 서명 (user1PrivateKey로 서명 - Mock은 user1 owner 검증)
         uint256[] memory recordIndices = new uint256[](2);
@@ -1863,7 +1711,7 @@ contract MainVotingTest is Test {
         // user1PrivateKey로 서명하지만, user는 walletAddress
         bytes32[] memory hashes = new bytes32[](2);
         for (uint256 i; i < 2; ) {
-            hashes[i] = voting.hashVoteRecord(allRecords[i], recordNonces[i]);
+            hashes[i] = voting.hashVoteRecord(allRecords[i]);
             unchecked { ++i; }
         }
         bytes32 recordsHash = keccak256(abi.encodePacked(hashes));
@@ -1885,10 +1733,10 @@ contract MainVotingTest is Test {
         });
 
         // 4. Executor 서명 (일반 EOA)
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 5. 제출 성공 - ERC-1271 경로로 검증됨
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 6. 검증
         assertEq(voting.getVoteCount(1), 2, "Smart wallet votes stored");
@@ -1912,13 +1760,12 @@ contract MainVotingTest is Test {
         MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](1);
         allRecords[0] = _createVoteRecord(user1, "user1", 1, 1, "Artist1", "R", 100);
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
 
         // 4. user1 서명 (일반 EOA)
         uint256[] memory recordIndices = new uint256[](1);
         recordIndices[0] = 0;
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -1931,7 +1778,7 @@ contract MainVotingTest is Test {
         // 5. Executor 서명 (스마트 계약 지갑)
         // executorPrivateKey로 서명하지만, signer는 executorWalletAddress
         bytes32[] memory hashes = new bytes32[](1);
-        hashes[0] = voting.hashVoteRecord(allRecords[0], recordNonces[0]);
+        hashes[0] = voting.hashVoteRecord(allRecords[0]);
         bytes32 itemsHash = keccak256(abi.encodePacked(hashes));
         bytes32 structHash = keccak256(
             abi.encode(BATCH_TYPEHASH, block.chainid, itemsHash, 0)
@@ -1943,7 +1790,7 @@ contract MainVotingTest is Test {
         bytes memory executorWalletSig = abi.encodePacked(r, s, v);
 
         // 6. 제출 성공 - Executor ERC-1271 경로로 검증됨
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorWalletSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorWalletSig);
 
         // 7. 검증
         assertEq(voting.getVoteCount(1), 1, "Vote stored with smart wallet executor");
@@ -1955,10 +1802,10 @@ contract MainVotingTest is Test {
     // ========================================
 
     /**
-     * @notice VoteRecordAdded 이벤트의 모든 파라미터 정확성 검증
+     * @notice UserBatchProcessed 이벤트의 모든 파라미터 정확성 검증
      * @dev vm.expectEmit을 사용하여 이벤트 필드 검증
      */
-    function test_EventValidation_VoteRecordAdded() public {
+    function test_EventValidation_UserBatchProcessed() public {
         // 1. 투표 레코드 생성
         MainVoting.VoteRecord memory record = _createVoteRecord(
             user1,
@@ -1973,28 +1820,17 @@ contract MainVotingTest is Test {
         MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](1);
         allRecords[0] = record;
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
+        // 2. 예상 batchDigest 계산
+        bytes32 expectedBatchDigest = voting.hashBatchPreview(0);
 
-        // 2. 예상 voteHash 계산
-        bytes32 expectedVoteHash = voting.hashVoteRecord(record, recordNonces[0]);
-
-        // 3. 예상 batchDigest 계산
-        bytes32[] memory hashes = new bytes32[](1);
-        hashes[0] = expectedVoteHash;
-        bytes32 itemsHash = keccak256(abi.encodePacked(hashes));
-        bytes32 expectedBatchDigest = keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                voting.domainSeparator(),
-                keccak256(abi.encode(BATCH_TYPEHASH, block.chainid, itemsHash, 0))
-            )
-        );
-
-        // 4. 서명 생성
+        // 3. 서명 생성
         uint256[] memory recordIndices = new uint256[](1);
         recordIndices[0] = 0;
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        MainVoting.VoteRecord[] memory user1Records = new MainVoting.VoteRecord[](1);
+        user1Records[0] = record;
+
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, user1Records);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -2004,27 +1840,22 @@ contract MainVotingTest is Test {
             signature: user1Sig
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
-        // 5. 이벤트 검증 (모든 파라미터 체크)
-        vm.expectEmit(true, true, true, true);
-        emit MainVoting.VoteRecordAdded(
-            expectedVoteHash,
+        // 4. 이벤트 검증 (UserBatchProcessed)
+        vm.expectEmit(true, true, false, true);
+        emit MainVoting.UserBatchProcessed(
             expectedBatchDigest,
-            1,  // missionId
-            1,  // votingId
             user1,
-            "user1",
-            "Artist1",
-            "R",
-            100,
-            block.timestamp
+            0,  // userNonce
+            1,  // recordCount
+            1   // storedCount
         );
 
-        // 6. 제출
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        // 5. 제출
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
-        // 7. 추가 검증
+        // 6. 추가 검증
         assertEq(voting.getVoteCount(1), 1, "Vote recorded");
     }
 
@@ -2043,7 +1874,6 @@ contract MainVotingTest is Test {
             allRecords[i] = _createVoteRecord(user1, "user1", 1, i + 1, "Artist", "R", 100);
         }
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
 
         // 2. user1의 50개 모두 서명
         uint256[] memory recordIndices = new uint256[](50);
@@ -2051,7 +1881,7 @@ contract MainVotingTest is Test {
             recordIndices[i] = i;
         }
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -2062,10 +1892,10 @@ contract MainVotingTest is Test {
         });
 
         // 3. Executor 서명
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 4. 제출 성공 - 정확히 MAX_RECORDS_PER_USER_BATCH
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 5. 50개 모두 저장 확인
         assertEq(voting.getVoteCount(1), 50, "All 50 records stored at boundary");
@@ -2079,13 +1909,12 @@ contract MainVotingTest is Test {
         uint256 totalRecords = voting.MAX_RECORDS_PER_BATCH();
         (
             MainVoting.VoteRecord[] memory allRecords,
-            uint256[] memory recordNonces,
             MainVoting.UserBatchSig[] memory userBatchSigs
         ) = _prepareBatchRecords(totalRecords);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         assertEq(voting.getVoteCount(1), totalRecords, "All records stored at boundary");
     }
@@ -2151,7 +1980,6 @@ contract MainVotingTest is Test {
         allRecords[8] = _createVoteRecord(user1, "user1", 1, 9, "Valid4", "R", 100);
         allRecords[9] = _createVoteRecord(user1, "user1", 1, 10, "Valid5", "R", 100);
 
-        uint256[] memory recordNonces = _createRecordNonces(allRecords.length);
 
         // 2. user1이 모든 10개 서명
         uint256[] memory recordIndices = new uint256[](10);
@@ -2159,7 +1987,7 @@ contract MainVotingTest is Test {
             recordIndices[i] = i;
         }
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -2170,10 +1998,10 @@ contract MainVotingTest is Test {
         });
 
         // 3. Executor 서명
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // 4. 제출 - 부분 처리로 유효한 5개만 저장
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 5. 5개만 저장되었는지 확인
         assertEq(voting.getVoteCount(1), 5, "Only 5 valid records stored (3 expired + 2 zero amount skipped)");
@@ -2207,7 +2035,6 @@ contract MainVotingTest is Test {
             );
         }
 
-        uint256[] memory recordNonces = _createRecordNonces(batchSize);
 
         // user1 서명
         uint256[] memory recordIndices = new uint256[](batchSize);
@@ -2215,7 +2042,7 @@ contract MainVotingTest is Test {
             recordIndices[i] = i;
         }
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -2226,11 +2053,11 @@ contract MainVotingTest is Test {
         });
 
         // Executor 서명
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // When: 가스 측정하면서 제출
         uint256 gasBefore = gasleft();
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
         uint256 gasUsed = gasBefore - gasleft();
 
         // Then: 가스 사용량 검증
@@ -2251,14 +2078,13 @@ contract MainVotingTest is Test {
         uint256 totalRecords = voting.MAX_RECORDS_PER_BATCH();
         (
             MainVoting.VoteRecord[] memory allRecords,
-            uint256[] memory recordNonces,
             MainVoting.UserBatchSig[] memory userBatchSigs
         ) = _prepareBatchRecords(totalRecords);
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         uint256 gasBefore = gasleft();
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
         uint256 gasUsed = gasBefore - gasleft();
 
         assertEq(voting.getVoteCount(1), totalRecords, "All max batch records should be stored");
@@ -2280,13 +2106,12 @@ contract MainVotingTest is Test {
         MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](1);
         allRecords[0] = _createVoteRecord(user1, "user1", 1, 1, "YuSeungWoo", "R", 100);
 
-        uint256[] memory recordNonces = _createRecordNonces(1);
 
         // user1 서명
         uint256[] memory recordIndices = new uint256[](1);
         recordIndices[0] = 0;
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -2297,10 +2122,10 @@ contract MainVotingTest is Test {
         });
 
         // Executor 서명 (실제로는 executor 키로 서명하지만, wallet이 검증)
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // When: 제출 (ERC-1271 검증 사용)
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // Then: 정상 저장 확인
         assertEq(voting.getVoteCount(1), 1, "Record should be stored via ERC-1271");
@@ -2329,13 +2154,12 @@ contract MainVotingTest is Test {
         MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](1);
         allRecords[0] = _createVoteRecord(address(userWallet), "user1", 1, 1, "YuSeungWoo", "R", 100);
 
-        uint256[] memory recordNonces = _createRecordNonces(1);
 
         // userWallet owner (user1)의 키로 서명
         uint256[] memory recordIndices = new uint256[](1);
         recordIndices[0] = 0;
 
-        bytes memory userSig = _signUserBatch(user1PrivateKey, address(userWallet), 0, allRecords, recordNonces);
+        bytes memory userSig = _signUserBatch(user1PrivateKey, address(userWallet), 0, allRecords);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -2346,10 +2170,10 @@ contract MainVotingTest is Test {
         });
 
         // Executor 서명 (EOA)
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // When: 제출 (User는 ERC-1271, Executor는 EOA)
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // Then: 정상 저장 확인
         assertEq(voting.getVoteCount(1), 1, "Record should be stored with ERC-1271 user");
@@ -2381,13 +2205,12 @@ contract MainVotingTest is Test {
         MainVoting.VoteRecord[] memory allRecords = new MainVoting.VoteRecord[](1);
         allRecords[0] = _createVoteRecord(user1, "user1", 1, 1, "YuSeungWoo", "R", 100);
 
-        uint256[] memory recordNonces = _createRecordNonces(1);
 
         // user1 서명 (정상)
         uint256[] memory recordIndices = new uint256[](1);
         recordIndices[0] = 0;
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -2400,7 +2223,7 @@ contract MainVotingTest is Test {
         // Executor 서명: 다른 체인ID(999999)로 서명 생성
         // (실제로는 _signExecutorBatchWithChainId 헬퍼 함수가 필요하지만, 간략화를 위해 잘못된 서명 생성)
         bytes32[] memory hashes = new bytes32[](1);
-        hashes[0] = voting.hashVoteRecord(allRecords[0], recordNonces[0]);
+        hashes[0] = voting.hashVoteRecord(allRecords[0]);
         bytes32 itemsHash = keccak256(abi.encodePacked(hashes));
 
         // 잘못된 체인ID 사용
@@ -2414,7 +2237,7 @@ contract MainVotingTest is Test {
 
         // When & Then: 제출 시 InvalidSignature 발생 (chainId 불일치)
         vm.expectRevert(MainVoting.InvalidSignature.selector);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, wrongChainSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, wrongChainSig);
     }
 
     /**
@@ -2437,7 +2260,6 @@ contract MainVotingTest is Test {
         // votedOn = 100자
         allRecords[2] = _createVoteRecord(user1, "user1", 1, 3, "Artist", exactly100, 100);
 
-        uint256[] memory recordNonces = _createRecordNonces(3);
 
         // user1 서명
         uint256[] memory recordIndices = new uint256[](3);
@@ -2445,7 +2267,7 @@ contract MainVotingTest is Test {
             recordIndices[i] = i;
         }
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -2456,10 +2278,10 @@ contract MainVotingTest is Test {
         });
 
         // Executor 서명
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // When: 제출 (정상 처리되어야 함)
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // Then: 3개 모두 저장 확인
         assertEq(voting.getVoteCount(1), 3, "All 3 records with 100-char strings should be stored");
@@ -2479,13 +2301,12 @@ contract MainVotingTest is Test {
         // userId = 101자
         allRecords[0] = _createVoteRecord(user1, exactly101, 1, 1, "Artist", "R", 100);
 
-        uint256[] memory recordNonces = _createRecordNonces(1);
 
         // user1 서명
         uint256[] memory recordIndices = new uint256[](1);
         recordIndices[0] = 0;
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -2496,11 +2317,11 @@ contract MainVotingTest is Test {
         });
 
         // Executor 서명
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
         // When & Then: StringTooLong 에러 발생
         vm.expectRevert(MainVoting.StringTooLong.selector);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
     }
 
     /**
@@ -2513,7 +2334,6 @@ contract MainVotingTest is Test {
         // 첫 번째 배치: votingId=1
         MainVoting.VoteRecord[] memory batch1 = new MainVoting.VoteRecord[](1);
         batch1[0] = _createVoteRecord(user1, "user1", 1, 1, "Artist1", "R", 100);
-        uint256[] memory batch1Nonces = _createRecordNonces(1);
 
         // 두 번째 배치: votingId=2 (다른 데이터)
         MainVoting.VoteRecord[] memory batch2 = new MainVoting.VoteRecord[](1);
@@ -2524,7 +2344,7 @@ contract MainVotingTest is Test {
         // 첫 번째 배치 서명 (userNonce=0)
         uint256[] memory recordIndices1 = new uint256[](1);
         recordIndices1[0] = 0;
-        bytes memory user1Sig1 = _signUserBatch(user1PrivateKey, user1, 0, batch1, batch1Nonces);
+        bytes memory user1Sig1 = _signUserBatch(user1PrivateKey, user1, 0, batch1);
 
         MainVoting.UserBatchSig[] memory userBatchSigs1 = new MainVoting.UserBatchSig[](1);
         userBatchSigs1[0] = MainVoting.UserBatchSig({
@@ -2534,12 +2354,12 @@ contract MainVotingTest is Test {
             signature: user1Sig1
         });
 
-        bytes memory executorSig1 = _signExecutorBatch(executorPrivateKey, batch1, batch1Nonces, 0);
+        bytes memory executorSig1 = _signExecutorBatch(executorPrivateKey, 0);
 
         // 두 번째 배치 서명 (userNonce=0, 같은 nonce!)
         uint256[] memory recordIndices2 = new uint256[](1);
         recordIndices2[0] = 0;
-        bytes memory user1Sig2 = _signUserBatch(user1PrivateKey, user1, 0, batch2, batch2Nonces);
+        bytes memory user1Sig2 = _signUserBatch(user1PrivateKey, user1, 0, batch2);
 
         MainVoting.UserBatchSig[] memory userBatchSigs2 = new MainVoting.UserBatchSig[](1);
         userBatchSigs2[0] = MainVoting.UserBatchSig({
@@ -2549,10 +2369,10 @@ contract MainVotingTest is Test {
             signature: user1Sig2
         });
 
-        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, batch2, batch2Nonces, 1);
+        bytes memory executorSig2 = _signExecutorBatch(executorPrivateKey, 1);
 
         // When: 첫 번째 배치 제출 (성공)
-        voting.submitMultiUserBatch(batch1, userBatchSigs1, 0, executorSig1, batch1Nonces);
+        voting.submitMultiUserBatch(batch1, userBatchSigs1, 0, executorSig1);
 
         // Then: 첫 번째 배치 저장 확인
         assertEq(voting.getVoteCount(1), 1, "First batch should be stored");
@@ -2560,7 +2380,7 @@ contract MainVotingTest is Test {
         // When: 두 번째 배치 제출 (같은 userNonce=0 재사용 시도)
         // Then: UserNonceAlreadyUsed 에러 발생
         vm.expectRevert(MainVoting.UserNonceAlreadyUsed.selector);
-        voting.submitMultiUserBatch(batch2, userBatchSigs2, 1, executorSig2, batch2Nonces);
+        voting.submitMultiUserBatch(batch2, userBatchSigs2, 1, executorSig2);
 
         // 여전히 1개만 저장되어 있어야 함
         assertEq(voting.getVoteCount(1), 1, "Still only first batch stored (double-spend prevented)");
@@ -2585,14 +2405,13 @@ contract MainVotingTest is Test {
             );
         }
 
-        uint256[] memory recordNonces = _createRecordNonces(5);
 
         uint256[] memory recordIndices = new uint256[](5);
         for (uint256 i = 0; i < 5; i++) {
             recordIndices[i] = i;
         }
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -2602,9 +2421,9 @@ contract MainVotingTest is Test {
             signature: user1Sig
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 5개 저장 확인
         assertEq(voting.getVoteCount(1), 5, "5 records should be stored");
@@ -2636,14 +2455,13 @@ contract MainVotingTest is Test {
             );
         }
 
-        uint256[] memory recordNonces = _createRecordNonces(10);
 
         uint256[] memory recordIndices = new uint256[](10);
         for (uint256 i = 0; i < 10; i++) {
             recordIndices[i] = i;
         }
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords);
 
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
@@ -2653,9 +2471,9 @@ contract MainVotingTest is Test {
             signature: user1Sig
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
 
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // 10개 저장 확인
         assertEq(voting.getVoteCount(1), 10, "10 records should be stored");
@@ -2689,13 +2507,12 @@ contract MainVotingTest is Test {
             );
         }
 
-        uint256[] memory recordNonces = _createRecordNonces(10);
         uint256[] memory recordIndices = new uint256[](10);
         for (uint256 i = 0; i < 10; i++) {
             recordIndices[i] = i;
         }
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
@@ -2704,8 +2521,8 @@ contract MainVotingTest is Test {
             signature: user1Sig
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // When: 모든 투표 조회
         MainVoting.VoteRecord[] memory votes = voting.getVotesByUserVotingId(user1, 1, 1);
@@ -2742,13 +2559,12 @@ contract MainVotingTest is Test {
         allRecords[3] = _createVoteRecord(user1, "user1_v2", 1, 2, "ArtistX", "R", 400);
         allRecords[4] = _createVoteRecord(user1, "user1_v2_2", 1, 2, "ArtistY", "B", 500);
 
-        uint256[] memory recordNonces = _createRecordNonces(5);
         uint256[] memory recordIndices = new uint256[](5);
         for (uint256 i = 0; i < 5; i++) {
             recordIndices[i] = i;
         }
 
-        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords, recordNonces);
+        bytes memory user1Sig = _signUserBatch(user1PrivateKey, user1, 0, allRecords);
         MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
         userBatchSigs[0] = MainVoting.UserBatchSig({
             user: user1,
@@ -2757,8 +2573,8 @@ contract MainVotingTest is Test {
             signature: user1Sig
         });
 
-        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, allRecords, recordNonces, 0);
-        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig, recordNonces);
+        bytes memory executorSig = _signExecutorBatch(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(allRecords, userBatchSigs, 0, executorSig);
 
         // When: votingId=1, votingId=2 각각 조회
         MainVoting.VoteRecord[] memory votesV1 = voting.getVotesByUserVotingId(user1, 1, 1);

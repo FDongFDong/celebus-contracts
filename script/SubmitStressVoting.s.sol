@@ -16,14 +16,13 @@ contract SubmitStressVoting is Script {
 
         MainVoting.VoteRecord[] memory records =
             abi.decode(vm.parseJsonBytes(json, ".records"), (MainVoting.VoteRecord[]));
-        uint256[] memory recordNonces = abi.decode(vm.parseJsonBytes(json, ".recordNonces"), (uint256[]));
         MainVoting.UserBatchSig[] memory userBatchSigs =
             abi.decode(vm.parseJsonBytes(json, ".userBatchSigs"), (MainVoting.UserBatchSig[]));
         bytes memory executorSig = vm.parseJsonBytes(json, ".executorSig");
         uint256 batchNonce = vm.parseJsonUint(json, ".batchNonce");
 
         vm.startBroadcast(executorKey);
-        VOTING.submitMultiUserBatch(records, userBatchSigs, batchNonce, executorSig, recordNonces);
+        VOTING.submitMultiUserBatch(records, userBatchSigs, batchNonce, executorSig);
         vm.stopBroadcast();
 
         console2.log("Stress payload submitted from", filePath);

@@ -72,13 +72,13 @@ contract SubmitVoteScenarios is Script {
 
         vm.startBroadcast(executorKey);
 
-        VOTING.submitMultiUserBatch(records1, userBatchSigs1, batchNonce1, executorSig1, nonces1);
+        VOTING.submitMultiUserBatch(records1, userBatchSigs1, batchNonce1, executorSig1);
         console2.log("Submitted scenario 1 (multi-user batch).");
 
-        VOTING.submitMultiUserBatch(records2, userBatchSigs2, batchNonce2, executorSig2, nonces2);
+        VOTING.submitMultiUserBatch(records2, userBatchSigs2, batchNonce2, executorSig2);
         console2.log("Submitted scenario 2 (same user additional votes).");
 
-        VOTING.submitMultiUserBatch(records3, userBatchSigs3, batchNonce3, executorSig3, nonces3);
+        VOTING.submitMultiUserBatch(records3, userBatchSigs3, batchNonce3, executorSig3);
         console2.log("Submitted scenario 3 (Alpha single signature / 5 votes).");
 
         vm.stopBroadcast();
@@ -138,7 +138,7 @@ contract SubmitVoteScenarios is Script {
             _buildUserBatchSig(userCharlie, USER_CHARLIE_KEY, nonces.charlie, charlieIdx, records, recordNonces);
 
         batchNonce = nonces.batchBase;
-        executorSig = _buildExecutorSig(executorKey, records, recordNonces, batchNonce);
+        executorSig = _buildExecutorSig(executorKey, batchNonce);
     }
 
     function _buildScenarioSameUserExtra(
@@ -177,7 +177,7 @@ contract SubmitVoteScenarios is Script {
         );
 
         batchNonce = nonces.batchBase + 1;
-        executorSig = _buildExecutorSig(executorKey, records, recordNonces, batchNonce);
+        executorSig = _buildExecutorSig(executorKey, batchNonce);
     }
 
     function _buildScenarioAlphaFiveVotes(
@@ -229,7 +229,7 @@ contract SubmitVoteScenarios is Script {
             _buildUserBatchSig(userAlpha, USER_ALPHA_KEY, nonces.alphaFive, alphaIdx, records, recordNonces);
 
         batchNonce = nonces.batchBase + 2;
-        executorSig = _buildExecutorSig(executorKey, records, recordNonces, batchNonce);
+        executorSig = _buildExecutorSig(executorKey, batchNonce);
     }
 
     function _voteRecord(
@@ -286,7 +286,7 @@ contract SubmitVoteScenarios is Script {
             }
         }
 
-        bytes32 digest = VOTING.hashUserBatchPreview(user, userNonce, subset, subsetNonces);
+        bytes32 digest = VOTING.hashUserBatchPreview(user, userNonce, subset);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(userKey, digest);
 
         sigStruct = MainVoting.UserBatchSig({
@@ -299,11 +299,9 @@ contract SubmitVoteScenarios is Script {
 
     function _buildExecutorSig(
         uint256 executorKey,
-        MainVoting.VoteRecord[] memory records,
-        uint256[] memory recordNonces,
         uint256 batchNonce
     ) internal view returns (bytes memory signature) {
-        bytes32 digest = VOTING.hashBatchPreview(records, recordNonces, batchNonce);
+        bytes32 digest = VOTING.hashBatchPreview(batchNonce);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorKey, digest);
         signature = abi.encodePacked(r, s, v);
     }

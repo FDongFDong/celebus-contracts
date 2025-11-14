@@ -62,7 +62,7 @@ contract HIGH_01_CrossChainReplay is SecurityTestBase {
 
         // 4. BadChain 에러 예상
         vm.expectRevert(MainVoting.BadChain.selector);
-        voting.submitMultiUserBatch(records, sigs, 0, batchSig, _createRecordNonces(records.length));
+        voting.submitMultiUserBatch(records, sigs, 0, batchSig);
 
         _logTestResult(
             "TC-01: ChainId Mismatch",
@@ -101,7 +101,7 @@ contract HIGH_01_CrossChainReplay is SecurityTestBase {
         MainVoting.UserBatchSig[] memory sigs = new MainVoting.UserBatchSig[](1);
         sigs[0] = userBatch;
 
-        voting.submitMultiUserBatch(records, sigs, 0, batchSig, _createRecordNonces(records.length));
+        voting.submitMultiUserBatch(records, sigs, 0, batchSig);
 
         assertEq(voting.getVoteCountByVotingId(1, 1), 1);
         console.log("Submitted successfully on original chain");
@@ -137,7 +137,7 @@ contract HIGH_01_CrossChainReplay is SecurityTestBase {
 
         // submitMultiUserBatch는 먼저 CHAIN_ID 체크를 하므로 BadChain 에러 발생
         vm.expectRevert(MainVoting.BadChain.selector);
-        voting.submitMultiUserBatch(records2, sigs2, 1, oldBatchSig, _createRecordNonces(records2.length));
+        voting.submitMultiUserBatch(records2, sigs2, 1, oldBatchSig);
 
         console.log("Signature rejected after hard fork (BadChain check)");
         console.log("========================================");
@@ -203,7 +203,7 @@ contract HIGH_01_CrossChainReplay is SecurityTestBase {
 
         // 4. InvalidSignature 에러 예상
         vm.expectRevert(MainVoting.InvalidSignature.selector);
-        voting.submitMultiUserBatch(records, sigs, 0, wrongChainBatchSig, _createRecordNonces(records.length));
+        voting.submitMultiUserBatch(records, sigs, 0, wrongChainBatchSig);
 
         _logTestResult(
             "TC-04: Different Chain Signature",
@@ -243,7 +243,7 @@ contract HIGH_01_CrossChainReplay is SecurityTestBase {
 
         // 3. BadChain이 다른 에러들보다 먼저 발생
         vm.expectRevert(MainVoting.BadChain.selector);
-        voting.submitMultiUserBatch(records, sigs, 0, batchSig, _createRecordNonces(records.length));
+        voting.submitMultiUserBatch(records, sigs, 0, batchSig);
 
         _logTestResult(
             "TC-05: CHAIN_ID Check Order",
