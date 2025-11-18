@@ -262,8 +262,8 @@ async function main() {
       const votingAmt = BigInt(10 + j);
       // V1: voteType 0=Forget, 1=Remember
       const voteType = j < rememberCount ? 1 : 0;
-      // candidateId는 1~10 범위로 순환 (후보자 10명 제한)
-      const candidateId = BigInt((u % 10) + 1);
+      // candidateId는 투표별로 1~10 범위로 순환 분산 (각 사용자가 다양한 후보에게 투표)
+      const candidateId = BigInt((j % 10) + 1);
       const record = {
         timestamp,
         missionId,
