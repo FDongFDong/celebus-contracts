@@ -32,12 +32,22 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
     // 상태 변수
     // ============================================
 
+    /// @dev 다음 발행될 토큰 ID (auto increment)
+    uint256 private _nextTokenId;
+
     /// @dev 토큰별 잠금 상태 (true = 잠김, false = 잠금 해제)
     mapping(uint256 => bool) private _locked;
 
     // ============================================
     // 이벤트
     // ============================================
+
+    /// @dev 배치 민팅이 완료되었을 때 발생
+    event BatchMinted(
+        address indexed to,
+        uint256 indexed startTokenId,
+        uint256 count
+    );
 
     /// @dev 토큰이 잠겼을 때 발생
     event TokenLocked(uint256 indexed tokenId);
@@ -98,33 +108,40 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
     // ============================================
 
     /**
-     * @dev 단일 NFT 안전 민팅
+     * @dev 단일 NFT 안전 민팅 (auto increment)
      * @param to 받을 주소
-     * @param tokenId 토큰 ID
+     * @return tokenId 발행된 토큰 ID
      * @notice Owner만 호출 가능
+     * @notice 토큰 ID는 0부터 자동 증가
      */
-    function safeMint(address to, uint256 tokenId) public onlyOwner {
+    function safeMint(address to) public onlyOwner returns (uint256) {
+        uint256 tokenId = _nextTokenId++;
         _safeMint(to, tokenId);
+        return tokenId;
     }
 
     /**
-     * @dev 연속된 토큰 ID로 여러 NFT를 배치 민팅
+     * @dev 배치 민팅 (auto increment)
      * @param to 받을 주소
-     * @param startTokenId 시작 토큰 ID
      * @param count 민팅할 개수
+     * @return startTokenId 시작 토큰 ID
      * @notice Owner만 호출 가능
      * @notice 가스 효율을 위해 루프로 구현
+     * @notice 토큰 ID는 현재 _nextTokenId부터 자동 증가
      */
     function batchMint(
         address to,
-        uint256 startTokenId,
         uint256 count
-    ) external onlyOwner {
+    ) external onlyOwner returns (uint256 startTokenId) {
         if (count == 0) revert EmptyBatch();
 
+        startTokenId = _nextTokenId;
+
         for (uint256 i = 0; i < count; i++) {
-            _safeMint(to, startTokenId + i);
+            _safeMint(to, _nextTokenId++);
         }
+
+        emit BatchMinted(to, startTokenId, count);
     }
 
     // ============================================

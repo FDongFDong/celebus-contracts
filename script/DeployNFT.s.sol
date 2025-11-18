@@ -14,9 +14,9 @@ import {CelebusNFT} from "../src/nft/CelebusNFT.sol";
  *     --private-key $PRIVATE_KEY \
  *     -vvv
  *
- * Environment variables:
- *   - PRIVATE_KEY: Deployer private key (required)
- *   - RPC_URL: Network RPC URL (optional, can be passed via --rpc-url)
+ * Notes:
+ *   - Private key is passed via --private-key flag
+ *   - The deployer address becomes the NFT contract owner
  *
  * Networks:
  *   - Local: http://localhost:8545 (anvil)
@@ -24,16 +24,15 @@ import {CelebusNFT} from "../src/nft/CelebusNFT.sol";
  */
 contract DeployNFT is Script {
     function run() external {
-        // Load private key from environment
-        uint256 privateKey = vm.envUint("PRIVATE_KEY");
-        address owner = vm.addr(privateKey);
+        // msg.sender는 --private-key로 전달된 주소
+        address owner = msg.sender;
 
         console.log("=== CelebusNFT Deployment ===");
         console.log("Deployer:", owner);
         console.log("Chain ID:", block.chainid);
         console.log("=============================\n");
 
-        vm.startBroadcast(privateKey);
+        vm.startBroadcast();
 
         // Deploy CelebusNFT
         CelebusNFT nft = new CelebusNFT(owner);
