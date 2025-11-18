@@ -21,10 +21,9 @@ const DEFAULT_USER_COUNT = 20;
 const DEFAULT_MISSION_ID = 1;
 const MAX_RECORDS_PER_BATCH = 5000;
 const MAX_RECORDS_PER_USER_BATCH = 50;
-const TWO_WEEKS = 14n * 24n * 60n * 60n;
-
+// V1: deadline 제거, candidateId + voteType 사용
 const VOTE_RECORD_TYPESTRING =
-  'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,bytes32 userIdHash,bytes32 votingForHash,bytes32 votedOnHash,uint256 votingAmt,uint256 deadline)';
+  'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,bytes32 userIdHash,uint256 candidateId,uint8 voteType,uint256 votingAmt)';
 const VOTE_RECORD_TYPEHASH = keccak256(stringToHex(VOTE_RECORD_TYPESTRING));
 
 const USER_BATCH_TYPES = {
@@ -48,11 +47,10 @@ const RECORD_TUPLE = {
     { name: 'missionId', type: 'uint256' },
     { name: 'votingId', type: 'uint256' },
     { name: 'userAddress', type: 'address' },
+    { name: 'candidateId', type: 'uint256' },
+    { name: 'voteType', type: 'uint8' },
     { name: 'userId', type: 'string' },
-    { name: 'votingFor', type: 'string' },
-    { name: 'votedOn', type: 'string' },
     { name: 'votingAmt', type: 'uint256' },
-    { name: 'deadline', type: 'uint256' },
   ],
 };
 
@@ -119,9 +117,8 @@ function hashVoteRecord(record) {
         { type: 'uint256' },
         { type: 'address' },
         { type: 'bytes32' },
-        { type: 'bytes32' },
-        { type: 'bytes32' },
         { type: 'uint256' },
+        { type: 'uint8' },
         { type: 'uint256' },
       ],
       [
@@ -131,10 +128,9 @@ function hashVoteRecord(record) {
         record.votingId,
         record.userAddress,
         keccak256(stringToHex(record.userId)),
-        keccak256(stringToHex(record.votingFor)),
-        keccak256(stringToHex(record.votedOn)),
+        record.candidateId,
+        record.voteType,
         record.votingAmt,
-        record.deadline,
       ]
     )
   );
@@ -208,7 +204,6 @@ async function main() {
   const timestamp = timestampInput ? toBigInt(timestampInput, 'timestamp') : BigInt(Math.floor(Date.now() / 1000));
   const nonceSalt = BigInt('0x' + crypto.randomBytes(16).toString('hex'));
   const randomSalt = BigInt('0x' + crypto.randomBytes(16).toString('hex'));
-  const deadline = timestamp + TWO_WEEKS;
   const chainId = await resolveChainId(rpcUrl, cli.chainId || process.env.CHAIN_ID);
 
   if (!Number.isInteger(totalVotes) || totalVotes <= 0) {
@@ -265,17 +260,19 @@ async function main() {
     for (let j = 0; j < votesPerUser; j++) {
       const idx = records.length;
       const votingAmt = BigInt(10 + j);
-      const votedOnLabel = j < rememberCount ? rememberLabel : forgetLabel;
+      // V1: voteType 0=Forget, 1=Remember
+      const voteType = j < rememberCount ? 1 : 0;
+      // candidateId는 1~10 범위로 순환 (후보자 10명 제한)
+      const candidateId = BigInt((u % 10) + 1);
       const record = {
         timestamp,
         missionId,
         votingId,
         userAddress: userAccount.address,
+        candidateId,
+        voteType,
         userId,
-        votingFor: `Artist-${u + 1}`,
-        votedOn: votedOnLabel,
         votingAmt,
-        deadline,
       };
       const digest = hashVoteRecord(record);
 
@@ -339,7 +336,6 @@ async function main() {
       chainId: Number(chainId),
       missionId: Number(missionId),
       timestamp: timestamp.toString(),
-      deadline: deadline.toString(),
     },
   };
 

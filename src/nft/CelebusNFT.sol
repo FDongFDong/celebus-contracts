@@ -17,14 +17,15 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
  *
  * 주요 기능:
  * - ERC721 표준 NFT 구현
- * - 일시정지 기능 (긴급 상황 시 모든 전송 차단)
- * - 토큰 잠금 기능 (개별 토큰 전송 차단)
+ * - 일시정지 기능 (pause 시 민팅/전송/소각 모두 차단)
+ * - 토큰 잠금 기능 (개별 토큰 전송 차단, 단 Owner는 전송/소각 가능)
  * - 배치 민팅 (가스 효율적인 대량 발행)
  * - Owner만 소각 가능 (사용자는 자신의 NFT도 소각 불가)
  *
- * 보안 특징:
+ * 보안/권한 특징:
  * - Owner만 민팅, 잠금, 일시정지, 소각 가능
- * - 잠긴 토큰은 Owner만 전송 가능
+ * - 잠긴 토큰은 Owner만 전송/소각 가능
+ * - 중앙집중형 권한 모델(Owner 키에 강하게 의존)
  */
 contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
     // ============================================
@@ -57,7 +58,7 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
     /// @dev Owner가 아닌 주소가 소각을 시도할 때 발생
     error OnlyOwnerCanBurn();
 
-    /// @dev 배치 작업 시 빈 배열이 전달되었을 때 발생
+    /// @dev 배치 작업 시 빈 배열 또는 0 개수가 전달되었을 때 발생
     error EmptyBatch();
 
     // ============================================
@@ -77,7 +78,7 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
     // ============================================
 
     /**
-     * @dev 모든 NFT 전송을 일시정지 (긴급 상황용)
+     * @dev 모든 NFT 민팅/전송/소각을 일시정지 (긴급 상황용)
      * @notice Owner만 호출 가능
      */
     function pause() public onlyOwner {
@@ -119,6 +120,8 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
         uint256 startTokenId,
         uint256 count
     ) external onlyOwner {
+        if (count == 0) revert EmptyBatch();
+
         for (uint256 i = 0; i < count; i++) {
             _safeMint(to, startTokenId + i);
         }
@@ -132,7 +135,7 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
      * @dev 토큰 잠금 (전송 차단)
      * @param tokenId 잠글 토큰 ID
      * @notice Owner만 호출 가능
-     * @notice 잠긴 토큰은 Owner만 전송 가능
+     * @notice 잠긴 토큰은 Owner만 전송/소각 가능
      */
     function lockToken(uint256 tokenId) external onlyOwner {
         if (_ownerOf(tokenId) == address(0)) revert TokenDoesNotExist(tokenId);
@@ -162,8 +165,9 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
 
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
-            if (_ownerOf(tokenId) == address(0))
+            if (_ownerOf(tokenId) == address(0)) {
                 revert TokenDoesNotExist(tokenId);
+            }
             _locked[tokenId] = true;
             emit TokenLocked(tokenId);
         }
@@ -180,8 +184,9 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
 
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
-            if (_ownerOf(tokenId) == address(0))
+            if (_ownerOf(tokenId) == address(0)) {
                 revert TokenDoesNotExist(tokenId);
+            }
             _locked[tokenId] = false;
             emit TokenUnlocked(tokenId);
         }
@@ -195,8 +200,12 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
      * @dev 토큰 잠금 상태 확인
      * @param tokenId 확인할 토큰 ID
      * @return 잠김(true) 또는 잠금 해제(false)
+     * @notice 존재하지 않는 토큰에 대해서는 TokenDoesNotExist 에러 발생
      */
     function isLocked(uint256 tokenId) public view returns (bool) {
+        if (_ownerOf(tokenId) == address(0)) {
+            revert TokenDoesNotExist(tokenId);
+        }
         return _locked[tokenId];
     }
 
@@ -212,7 +221,6 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
      */
     function burn(uint256 tokenId) public override {
         if (msg.sender != owner()) revert OnlyOwnerCanBurn();
-        // Owner는 approval 체크 없이 모든 토큰 소각 가능
         _burn(tokenId);
     }
 
@@ -227,11 +235,13 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
      * @param auth 권한 주소 (Owner면 잠금 무시)
      * @return 이전 소유자 주소
      *
-     * 전송 차단 규칙:
-     * - 민팅(from = 0x0): 허용
-     * - 소각(to = 0x0): 허용
-     * - 잠긴 토큰 전송: Owner만 허용, 일반 사용자는 차단
-     * - 일시정지 상태: 모든 전송 차단
+     * 전송/잠금 규칙:
+     * - paused() == true: 민팅/전송/소각 모두 차단 (ERC721Pausable 기본 동작)
+     * - 잠긴 토큰 전송:
+     *   - from != 0, to != 0, _locked[tokenId] == true 인 경우
+     *   - auth != owner() 이면 TokenIsLocked 에러로 revert
+     *   - Owner는 잠금 상태여도 전송 가능
+     * - 소각 시 잠금 플래그 정리 (to == address(0))
      */
     function _update(
         address to,
@@ -240,9 +250,8 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
     ) internal override(ERC721, ERC721Pausable) returns (address) {
         address from = _ownerOf(tokenId);
 
-        // 민팅 허용 (from == address(0))
-        // 소각 허용 (to == address(0))
-        // 잠긴 토큰 전송은 Owner만 가능
+        // 민팅(from == address(0)) 또는 소각(to == address(0))이 아닌
+        // 일반 전송에서만 잠금 상태를 검사
         if (
             from != address(0) &&
             to != address(0) &&
@@ -250,6 +259,11 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
             auth != owner()
         ) {
             revert TokenIsLocked(tokenId);
+        }
+
+        // 소각 시 잠금 플래그 초기화 (상태 일관성 유지)
+        if (to == address(0) && _locked[tokenId]) {
+            delete _locked[tokenId];
         }
 
         return super._update(to, tokenId, auth);

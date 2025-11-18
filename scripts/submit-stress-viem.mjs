@@ -22,11 +22,10 @@ const RECORD_TUPLE = {
     { name: 'missionId', type: 'uint256' },
     { name: 'votingId', type: 'uint256' },
     { name: 'userAddress', type: 'address' },
+    { name: 'candidateId', type: 'uint256' },
+    { name: 'voteType', type: 'uint8' },
     { name: 'userId', type: 'string' },
-    { name: 'votingFor', type: 'string' },
-    { name: 'votedOn', type: 'string' },
     { name: 'votingAmt', type: 'uint256' },
-    { name: 'deadline', type: 'uint256' },
   ],
 };
 
@@ -100,11 +99,10 @@ function decodeRecords(encoded) {
     missionId: BigInt(r.missionId),
     votingId: BigInt(r.votingId),
     userAddress: getAddress(r.userAddress),
+    candidateId: BigInt(r.candidateId),
+    voteType: Number(r.voteType),
     userId: r.userId,
-    votingFor: r.votingFor,
-    votedOn: r.votedOn,
     votingAmt: BigInt(r.votingAmt),
-    deadline: BigInt(r.deadline),
   }));
 }
 

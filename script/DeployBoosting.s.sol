@@ -6,22 +6,38 @@ import {Boosting} from "../src/vote/Boosting.sol";
 
 contract DeployBoosting is Script {
     function run() external returns (Boosting) {
-        // 배포자 주소 (private key로부터 유도됨)
-        address deployer = vm.addr(vm.envUint("PRIVATE_KEY"));
+        // Private key 가져오기 (환경변수 또는 CLI 옵션)
+        uint256 deployerPrivateKey;
+        
+        try vm.envUint("PRIVATE_KEY") returns (uint256 key) {
+            deployerPrivateKey = key;
+            console.log("Using PRIVATE_KEY from environment variable");
+        } catch {
+            revert("PRIVATE_KEY environment variable not set. Use: export PRIVATE_KEY=0x... or forge script ... --private-key 0x...");
+        }
 
-        console.log("Deploying Boosting...");
-        console.log("Deployer:", deployer);
+        address deployer = vm.addr(deployerPrivateKey);
+
+        console.log("========================================");
+        console.log("Deploying Boosting Contract");
+        console.log("========================================");
+        console.log("Deployer Address:", deployer);
         console.log("Chain ID:", block.chainid);
+        console.log("========================================");
 
-        vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+        vm.startBroadcast(deployerPrivateKey);
 
-        // Boosting 배포 (deployer를 owner로 설정)
         Boosting boosting = new Boosting(deployer);
 
-        console.log("Boosting deployed at:", address(boosting));
-        console.log("Owner:", boosting.owner());
-        console.log("Chain ID stored:", boosting.CHAIN_ID());
-        console.log("ExecutorSigner (not set yet):", boosting.executorSigner());
+        console.log("");
+        console.log("========================================");
+        console.log("Deployment Successful!");
+        console.log("========================================");
+        console.log("Boosting Address:", address(boosting));
+        console.log("Owner Address:", boosting.owner());
+        console.log("Stored Chain ID:", boosting.CHAIN_ID());
+        console.log("ExecutorSigner (not set):", boosting.executorSigner());
+        console.log("========================================");
 
         vm.stopBroadcast();
 
