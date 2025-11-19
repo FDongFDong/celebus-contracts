@@ -54,16 +54,15 @@ contract StressBatchMint is Script {
         uint256 successCount = 0;
 
         for (uint256 i = 0; i < repeat; i++) {
-            uint256 startId = i * batchSize + 1;
             uint256 gasBefore = gasleft();
 
-            try nft.batchMint(recipient, startId, batchSize) {
+            try nft.batchMint(recipient, batchSize) returns (uint256 startTokenId) {
                 uint256 gasUsed = gasBefore - gasleft();
                 totalGasUsed += gasUsed;
                 successCount++;
 
                 console.log("Batch", i + 1, "SUCCESS:");
-                console.log("  Token IDs:", startId, "-", startId + batchSize - 1);
+                console.log("  Token IDs:", startTokenId, "-", startTokenId + batchSize - 1);
                 console.log("  Gas Used:", gasUsed);
             } catch Error(string memory reason) {
                 console.log("Batch", i + 1, "FAILED:", reason);

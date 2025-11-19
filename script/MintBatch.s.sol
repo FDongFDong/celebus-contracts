@@ -63,13 +63,15 @@ contract MintBatch is Script {
                 : batchSize;
 
             console.log("Batch", i + 1, "/", numBatches);
-            console.log("  Token IDs:", currentTokenId, "-", currentTokenId + currentBatchSize - 1);
+            console.log("  Starting Token ID:", currentTokenId);
 
-            // Mint batch
-            nft.batchMint(recipient, currentTokenId, currentBatchSize);
+            // Mint batch (auto increment)
+            uint256 startTokenId = nft.batchMint(recipient, currentBatchSize);
+
+            console.log("  Token IDs:", startTokenId, "-", startTokenId + currentBatchSize - 1);
 
             mintedCount += currentBatchSize;
-            currentTokenId += currentBatchSize;
+            currentTokenId = startTokenId + currentBatchSize;
 
             console.log("  Minted:", currentBatchSize, "NFTs");
             console.log("  Total minted:", mintedCount, "/", totalCount);

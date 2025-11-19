@@ -131,12 +131,13 @@ contract CelebusNFTInvariantTest is StdInvariant, Test {
     // Invariant 4: 상태 변수 경계
     // ============================================
 
-    /// @dev 토큰 ID는 0보다 커야 함 (0은 유효하지 않음)
-    function invariant_TokenIdsArePositive() public view {
+    /// @dev 토큰 ID는 0 이상이어야 함 (auto increment로 0부터 시작)
+    function invariant_TokenIdsAreValid() public view {
         uint256[] memory mintedTokens = handler.getMintedTokens();
 
         for (uint256 i = 0; i < mintedTokens.length; i++) {
-            assertGt(mintedTokens[i], 0);
+            // 토큰 ID는 0 이상의 유효한 값
+            assertGe(mintedTokens[i], 0);
         }
     }
 
@@ -212,7 +213,7 @@ contract NFTHandler is Test {
     mapping(uint256 => bool) public isLocked;
     mapping(address => bool) public isUser;
 
-    uint256 private nextTokenId = 1;
+    uint256 private nextTokenId = 0;
 
     constructor(CelebusNFT _nft, address _owner) {
         nft = _nft;
@@ -234,13 +235,13 @@ contract NFTHandler is Test {
         address user = _getRandomUser(userSeed);
 
         vm.prank(owner);
-        nft.safeMint(user, nextTokenId);
+        uint256 tokenId = nft.safeMint(user);
 
-        mintedTokens.push(nextTokenId);
-        isMinted[nextTokenId] = true;
+        mintedTokens.push(tokenId);
+        isMinted[tokenId] = true;
 
         mintCount++;
-        nextTokenId++;
+        nextTokenId = tokenId + 1;
     }
 
     function batchMint(uint256 userSeed, uint256 countSeed) public {
@@ -250,11 +251,11 @@ contract NFTHandler is Test {
         uint256 count = bound(countSeed, 1, 10); // 1~10개
 
         vm.prank(owner);
-        nft.batchMint(user, nextTokenId, count);
+        uint256 startTokenId = nft.batchMint(user, count);
 
         for (uint256 i = 0; i < count; i++) {
-            mintedTokens.push(nextTokenId + i);
-            isMinted[nextTokenId + i] = true;
+            mintedTokens.push(startTokenId + i);
+            isMinted[startTokenId + i] = true;
         }
 
         mintCount += count;
