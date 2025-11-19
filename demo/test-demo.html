@@ -137,10 +137,15 @@
 
       <div class="mb-4">
         <label class="block text-sm font-medium text-gray-700 mb-1">
-          User Nonce <span class="text-xs text-gray-500">(컨트랙트 조회)</span>
+          User Nonce <span class="text-xs text-gray-500">(수동 입력 또는 자동 증가)</span>
         </label>
-        <input type="number" id="userNonce" class="w-full px-3 py-2 border rounded-md bg-gray-100" value="0" readonly>
-        <p class="text-xs text-gray-500 mt-1">서명 버튼 클릭 시 컨트랙트에서 자동 조회</p>
+        <div class="flex gap-2">
+          <input type="number" id="userNonce" class="flex-1 px-3 py-2 border rounded-md" value="0">
+          <button onclick="incrementUserNonce()" class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">
+            ➕ +1
+          </button>
+        </div>
+        <p class="text-xs text-gray-500 mt-1">💡 매번 다른 nonce 사용 필요 (이전에 사용한 nonce 재사용 불가)</p>
       </div>
 
       <button onclick="generateUserSignature()" class="w-full bg-blue-600 text-white px-4 py-3 rounded-md hover:bg-blue-700 font-semibold">
@@ -176,11 +181,12 @@
             <span class="text-2xl">⚠️</span>
           </div>
           <div class="ml-3">
-            <p class="text-sm font-semibold text-yellow-800">Executor 등록 필수</p>
-            <p class="text-sm text-yellow-700 mt-1">
-              컨트랙트에서 <code class="bg-yellow-100 px-1 rounded">setExecutorSigner</code> 함수를 호출하여
-              Executor를 등록해야 합니다.
-            </p>
+            <p class="text-sm font-semibold text-yellow-800">컨트랙트 초기 설정 필수</p>
+            <div class="text-sm text-yellow-700 mt-1 space-y-1">
+              <p>1. <code class="bg-yellow-100 px-1 rounded">setExecutorSigner</code> 함수를 호출하여 Executor를 등록해야 합니다.</p>
+              <p>2. <code class="bg-yellow-100 px-1 rounded">setVoteTypeName</code> 함수를 호출하여 투표 타입 이름을 설정해야 합니다.</p>
+              <p class="text-xs mt-1">예: setVoteTypeName(0, "Forget"), setVoteTypeName(1, "Remember")</p>
+            </div>
           </div>
         </div>
       </div>
@@ -200,10 +206,15 @@
 
       <div class="mb-4">
         <label class="block text-sm font-medium text-gray-700 mb-1">
-          Batch Nonce <span class="text-xs text-gray-500">(컨트랙트 조회 후 관리)</span>
+          Batch Nonce <span class="text-xs text-gray-500">(수동 입력 또는 자동 증가)</span>
         </label>
-        <input type="number" id="batchNonce" class="w-full px-3 py-2 border rounded-md bg-gray-100" value="0" readonly>
-        <p class="text-xs text-gray-500 mt-1">컨트랙트에서 minBatchNonce 조회 → 서명에 사용 → 다음 배치에서 +1 증가</p>
+        <div class="flex gap-2">
+          <input type="number" id="batchNonce" class="flex-1 px-3 py-2 border rounded-md" value="0">
+          <button onclick="incrementBatchNonce()" class="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600">
+            ➕ +1
+          </button>
+        </div>
+        <p class="text-xs text-gray-500 mt-1">💡 매번 다른 nonce 사용 필요 (이전에 사용한 nonce 재사용 불가)</p>
       </div>
 
       <button onclick="generateExecutorSignature()" class="w-full bg-green-600 text-white px-4 py-3 rounded-md hover:bg-green-700 font-semibold">
@@ -261,6 +272,7 @@
             📋 복사
           </button>
         </div>
+        <p class="text-xs text-gray-600 mb-2">💡 [0]timestamp [1]missionId [2]votingId [3]userAddress [4]candidateId [5]voteType [6]userId [7]votingAmt</p>
         <textarea id="param0Records" class="w-full h-32 px-3 py-2 border rounded-md font-mono text-xs bg-gray-50" readonly></textarea>
       </div>
 
@@ -276,6 +288,7 @@
             📋 복사
           </button>
         </div>
+        <p class="text-xs text-gray-600 mb-2">💡 [0]user [1]userNonce [2]recordIndices [3]signature</p>
         <textarea id="param1UserBatchSigs" class="w-full h-24 px-3 py-2 border rounded-md font-mono text-xs bg-gray-50" readonly></textarea>
       </div>
 
@@ -597,6 +610,22 @@
     }
 
     // ============================================
+    // Nonce 갱신 함수
+    // ============================================
+
+    function incrementUserNonce() {
+      const currentNonce = parseInt(document.getElementById('userNonce').value) || 0;
+      document.getElementById('userNonce').value = currentNonce + 1;
+      showStatus(`✅ User Nonce 증가: ${currentNonce + 1}`, 'success');
+    }
+
+    function incrementBatchNonce() {
+      const currentNonce = parseInt(document.getElementById('batchNonce').value) || 0;
+      document.getElementById('batchNonce').value = currentNonce + 1;
+      showStatus(`✅ Batch Nonce 증가: ${currentNonce + 1}`, 'success', 'executorStatus');
+    }
+
+    // ============================================
     // STEP 3: 사용자 서명 생성
     // ============================================
 
@@ -614,10 +643,8 @@
 
         showStatus('사용자 서명 생성 중...', 'info');
 
-        // User nonce 조회
-        const contract = new ethers.Contract(getContractAddress(), ABI, provider);
-        const userNonce = Number(await contract.minUserNonce(userWallet.address));
-        document.getElementById('userNonce').value = userNonce;
+        // User nonce를 입력 필드에서 가져옴
+        const userNonce = parseInt(document.getElementById('userNonce').value) || 0;
 
         // 사용자 서명
         userBatchSig = await signUserBatch(userWallet, records, userNonce);
@@ -656,12 +683,8 @@
 
         showStatus('Executor 서명 생성 중...', 'info', 'executorStatus');
 
-        // Batch nonce를 컨트랙트에서 조회
-        const contract = new ethers.Contract(getContractAddress(), ABI, provider);
-        const currentBatchNonce = Number(await contract.minBatchNonce(executorWallet.address));
-        document.getElementById('batchNonce').value = currentBatchNonce;
-
-        batchNonce = currentBatchNonce; // 조회한 값으로 서명
+        // Batch nonce를 입력 필드에서 가져옴
+        batchNonce = parseInt(document.getElementById('batchNonce').value) || 0;
 
         // Executor 서명
         executorSig = await signBatch(executorWallet, batchNonce);
