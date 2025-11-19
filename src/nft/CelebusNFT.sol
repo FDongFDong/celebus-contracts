@@ -31,7 +31,8 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
     // ============================================
     // 상태 변수
     // ============================================
-
+    /// @dev 최대 배치 크기
+    uint256 public constant MAX_BATCH_SIZE = 1500;
     /// @dev 다음 발행될 토큰 ID (auto increment)
     uint256 private _nextTokenId;
 
@@ -57,6 +58,9 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
 
     /// @dev 토큰 잠금이 해제되었을 때 발생
     event TokenUnlocked(uint256 indexed tokenId);
+
+    /// @dev 배치 크기가 최대 크기를 초과할 때 발생
+    error BatchSizeExceeded(uint256 requested, uint256 max);
 
     // ============================================
     // 에러
@@ -138,6 +142,9 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
     ) external onlyOwner returns (uint256 startTokenId) {
         if (count == 0) revert EmptyBatch();
 
+        if (count > MAX_BATCH_SIZE)
+            revert BatchSizeExceeded(count, MAX_BATCH_SIZE);
+
         startTokenId = _nextTokenId;
 
         for (uint256 i = 0; i < count; i++) {
@@ -200,10 +207,12 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
      * @dev 여러 토큰을 배치로 잠금
      * @param tokenIds 잠글 토큰 ID 배열
      * @notice Owner만 호출 가능
-     * @notice 배치 크기 제한 없음 (가스 한도만 고려)
+     * @notice 배치 크기가 최대 크기를 초과할 때 발생
      */
     function batchLockTokens(uint256[] calldata tokenIds) external onlyOwner {
         if (tokenIds.length == 0) revert EmptyBatch();
+        if (tokenIds.length > MAX_BATCH_SIZE)
+            revert BatchSizeExceeded(tokenIds.length, MAX_BATCH_SIZE);
 
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
@@ -219,10 +228,12 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
      * @dev 여러 토큰의 잠금을 배치로 해제
      * @param tokenIds 잠금 해제할 토큰 ID 배열
      * @notice Owner만 호출 가능
-     * @notice 배치 크기 제한 없음 (가스 한도만 고려)
+     * @notice 배치 크기가 최대 크기를 초과할 때 발생
      */
     function batchUnlockTokens(uint256[] calldata tokenIds) external onlyOwner {
         if (tokenIds.length == 0) revert EmptyBatch();
+        if (tokenIds.length > MAX_BATCH_SIZE)
+            revert BatchSizeExceeded(tokenIds.length, MAX_BATCH_SIZE);
 
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
