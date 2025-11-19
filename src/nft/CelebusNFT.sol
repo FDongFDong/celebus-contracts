@@ -35,6 +35,9 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
     /// @dev 다음 발행될 토큰 ID (auto increment)
     uint256 private _nextTokenId;
 
+    /// @dev 토큰 메타데이터 Base URI
+    string private _baseTokenURI;
+
     /// @dev 토큰별 잠금 상태 (true = 잠김, false = 잠금 해제)
     mapping(uint256 => bool) private _locked;
 
@@ -142,6 +145,28 @@ contract CelebusNFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
         }
 
         emit BatchMinted(to, startTokenId, count);
+    }
+
+    // ============================================
+    // 메타데이터 관리
+    // ============================================
+
+    /**
+     * @dev Base URI 설정
+     * @param baseURI 새로운 Base URI
+     * @notice Owner만 호출 가능
+     * @notice 모든 토큰의 tokenURI는 baseURI + tokenId 형태
+     */
+    function setBaseURI(string memory baseURI) external onlyOwner {
+        _baseTokenURI = baseURI;
+    }
+
+    /**
+     * @dev Base URI 반환 (내부 함수)
+     * @return 현재 설정된 Base URI
+     */
+    function _baseURI() internal view override returns (string memory) {
+        return _baseTokenURI;
     }
 
     // ============================================
