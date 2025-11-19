@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MainVoting 컨트랙트 데모 (순차 테스트)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/ethers@6.7.0/dist/ethers.umd.min.js"></script>
+</head>
+<body class="bg-gray-100 p-8">
+  <div class="max-w-4xl mx-auto">
+
+    <!-- 헤더 -->
+    <div class="bg-white rounded-lg shadow p-6 mb-6">
+      <h1 class="text-2xl font-bold text-gray-800">MainVoting 컨트랙트 데모</h1>
+      <p class="text-sm text-gray-600 mt-2">실제 사용 흐름 순서대로 테스트</p>
+
+      <div class="grid grid-cols-2 gap-4 mt-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">네트워크</label>
+          <select id="network" class="w-full px-3 py-2 border rounded-md">
+            <option value="opbnb">opBNB Testnet</option>
+            <option value="bnb">BNB Testnet</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">Chain ID</label>
+          <input
+            type="text"
+            id="chainIdDisplay"
+            class="w-full px-3 py-2 border rounded-md bg-gray-100"
+            value="5611"
+            readonly
+          >
+        </div>
+      </div>
+
+      <div class="mt-4">
+        <label class="block text-sm font-medium text-gray-700 mb-2">컨트랙트 주소</label>
+        <input
+          type="text"
+          id="contractAddress"
+          class="w-full px-3 py-2 border rounded-md"
+          value="0xc18a062C1AF323A1E3d57520661fF3f5baCCcf5e"
+          placeholder="0x..."
+        >
+        <p class="text-xs text-gray-500 mt-1">배포된 MainVoting 컨트랙트 주소를 입력하세요</p>
+      </div>
+    </div>
+
+    <!-- STEP 1: 사용자 지갑 설정 -->
+    <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-blue-500">
+      <h2 class="text-xl font-semibold mb-4">
+        <span class="bg-blue-500 text-white px-3 py-1 rounded mr-2">STEP 1</span>
+        🎨 사용자 지갑 설정
+      </h2>
+      <p class="text-sm text-gray-600 mb-4">프론트엔드에서 사용자가 지갑을 연결합니다</p>
+
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-2">사용자 비밀키 (0x...)</label>
+        <input
+          type="text"
+          id="userPrivateKey"
+          class="w-full px-3 py-2 border rounded-md"
+          value="0x94d26f9b25e16734a747e9f789d71082cb80155d11810ba99a12f9fd163397ef"
+        >
+        <p class="text-xs text-gray-500 mt-1">
+          사용자 주소: <span id="userAddress" class="font-mono">-</span>
+        </p>
+      </div>
+    </div>
+
+    <!-- STEP 2: 레코드 작성 -->
+    <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-blue-500">
+      <h2 class="text-xl font-semibold mb-4">
+        <span class="bg-blue-500 text-white px-3 py-1 rounded mr-2">STEP 2</span>
+        📝 투표 레코드 작성
+      </h2>
+      <p class="text-sm text-gray-600 mb-4">사용자가 투표할 데이터를 입력합니다</p>
+
+      <div class="grid grid-cols-2 gap-4 mb-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Mission ID</label>
+          <input type="number" id="missionId" class="w-full px-3 py-2 border rounded-md" value="1">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Voting ID</label>
+          <input type="number" id="votingId" class="w-full px-3 py-2 border rounded-md" value="1">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Candidate ID</label>
+          <input type="number" id="candidateId" class="w-full px-3 py-2 border rounded-md" value="1">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Vote Type</label>
+          <select id="voteType" class="w-full px-3 py-2 border rounded-md">
+            <option value="1">Remember</option>
+            <option value="0">Forget</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">User ID</label>
+          <input type="text" id="userId" class="w-full px-3 py-2 border rounded-md" value="user01">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Voting Amount</label>
+          <input type="number" id="votingAmt" class="w-full px-3 py-2 border rounded-md" value="100">
+        </div>
+      </div>
+
+      <button onclick="addRecord()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">
+        + 레코드 추가
+      </button>
+
+      <div class="mt-4">
+        <p class="text-sm font-medium text-gray-700 mb-2">작성된 레코드 (<span id="recordCount">0</span>/20)</p>
+        <div id="recordsList" class="bg-gray-50 rounded p-3 min-h-[100px]">
+          <p class="text-gray-400 text-sm">레코드를 추가해주세요</p>
+        </div>
+      </div>
+
+      <div id="status" class="mt-4 p-3 rounded-md hidden"></div>
+    </div>
+
+    <!-- STEP 3: 사용자 서명 생성 -->
+    <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-blue-500">
+      <h2 class="text-xl font-semibold mb-4">
+        <span class="bg-blue-500 text-white px-3 py-1 rounded mr-2">STEP 3</span>
+        🔐 사용자 서명 생성 (Frontend)
+      </h2>
+      <p class="text-sm text-gray-600 mb-4">프론트엔드에서 사용자가 EIP-712 서명을 생성합니다</p>
+
+      <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-sm">
+        <p class="font-semibold text-blue-800 mb-2">💡 User Nonce란?</p>
+        <p class="text-blue-700">사용자별 서명 재사용 방지 번호입니다. 프론트엔드가 컨트랙트에서 minUserNonce 조회 → 서명에 포함 → 컨트랙트 제출 시 자동 소비됨</p>
+      </div>
+
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-1">
+          User Nonce <span class="text-xs text-gray-500">(컨트랙트 조회)</span>
+        </label>
+        <input type="number" id="userNonce" class="w-full px-3 py-2 border rounded-md bg-gray-100" value="0" readonly>
+        <p class="text-xs text-gray-500 mt-1">서명 버튼 클릭 시 컨트랙트에서 자동 조회</p>
+      </div>
+
+      <button onclick="generateUserSignature()" class="w-full bg-blue-600 text-white px-4 py-3 rounded-md hover:bg-blue-700 font-semibold">
+        🔐 사용자 서명 생성
+      </button>
+
+      <div id="userSigSection" class="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200" style="display:none;">
+        <p class="text-sm font-semibold text-blue-800 mb-2">✅ 사용자 서명 완료</p>
+        <div class="bg-white p-3 rounded border border-blue-300">
+          <p class="text-xs text-gray-600 mb-1">이 데이터를 백엔드로 전송:</p>
+          <div class="relative">
+            <textarea id="userSignatureData" class="w-full h-32 px-2 py-1 border rounded font-mono text-xs bg-gray-50" readonly></textarea>
+            <button onclick="copyToClipboard('userSignatureData')" class="absolute top-2 right-2 bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700">
+              📋 복사
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 4: 백엔드 시뮬레이션 -->
+    <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-green-500">
+      <h2 class="text-xl font-semibold mb-4">
+        <span class="bg-green-600 text-white px-3 py-1 rounded mr-2">STEP 4</span>
+        🔐 Executor 서명 (Backend)
+      </h2>
+      <p class="text-sm text-gray-600 mb-4">백엔드 서버가 Executor 서명을 생성합니다</p>
+
+      <!-- Executor 등록 안내 -->
+      <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
+        <div class="flex">
+          <div class="flex-shrink-0">
+            <span class="text-2xl">⚠️</span>
+          </div>
+          <div class="ml-3">
+            <p class="text-sm font-semibold text-yellow-800">Executor 등록 필수</p>
+            <p class="text-sm text-yellow-700 mt-1">
+              컨트랙트에서 <code class="bg-yellow-100 px-1 rounded">setExecutorSigner</code> 함수를 호출하여
+              Executor를 등록해야 합니다.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-2">Executor 비밀키 (테스트 전용 - 실제로는 백엔드 서버가 보관)</label>
+        <input
+          type="text"
+          id="executorPrivateKey"
+          class="w-full px-3 py-2 border rounded-md bg-gray-50"
+          value="0x94d26f9b25e16734a747e9f789d71082cb80155d11810ba99a12f9fd163397ef"
+        >
+        <p class="text-xs text-gray-500 mt-1">
+          Executor 주소: <span id="executorAddress" class="font-mono">-</span>
+        </p>
+      </div>
+
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-1">
+          Batch Nonce <span class="text-xs text-gray-500">(컨트랙트 조회 후 관리)</span>
+        </label>
+        <input type="number" id="batchNonce" class="w-full px-3 py-2 border rounded-md bg-gray-100" value="0" readonly>
+        <p class="text-xs text-gray-500 mt-1">컨트랙트에서 minBatchNonce 조회 → 서명에 사용 → 다음 배치에서 +1 증가</p>
+      </div>
+
+      <button onclick="generateExecutorSignature()" class="w-full bg-green-600 text-white px-4 py-3 rounded-md hover:bg-green-700 font-semibold">
+        🔐 Executor 서명 생성
+      </button>
+
+      <div id="executorSigSection" class="mt-4 p-4 bg-green-50 rounded-lg border border-green-200" style="display:none;">
+        <p class="text-sm font-semibold text-green-800 mb-2">✅ Executor 서명 완료</p>
+        <div class="bg-white p-3 rounded border border-green-300">
+          <div class="mb-2">
+            <p class="text-xs text-gray-600">Batch Nonce:</p>
+            <code id="displayBatchNonce" class="bg-gray-100 px-2 py-1 rounded text-sm font-mono"></code>
+          </div>
+          <div>
+            <p class="text-xs text-gray-600">Executor Signature:</p>
+            <div class="relative">
+              <input id="executorSigDisplay" class="w-full px-2 py-1 border rounded font-mono text-xs bg-gray-50" readonly>
+              <button onclick="copyToClipboard('executorSigDisplay')" class="absolute top-0.5 right-1 bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700">
+                📋 복사
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="executorStatus" class="mt-4 p-3 rounded-md hidden"></div>
+    </div>
+
+    <!-- STEP 5: 컨트랙트 호출 (Remix IDE) -->
+    <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-purple-500" id="remixSection" style="display:none;">
+      <h2 class="text-xl font-semibold mb-4">
+        <span class="bg-purple-600 text-white px-3 py-1 rounded mr-2">STEP 5</span>
+        📜 컨트랙트 호출 (Remix IDE)
+      </h2>
+      <p class="text-sm text-gray-600 mb-4">Remix IDE에서 submitMultiUserBatch 함수를 호출합니다</p>
+
+      <div class="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-4 text-sm">
+        <p class="font-semibold text-purple-800 mb-2">📋 사용 방법</p>
+        <ol class="list-decimal list-inside text-purple-700 space-y-1">
+          <li>Remix IDE에서 MainVoting 컨트랙트의 submitMultiUserBatch 함수를 찾습니다</li>
+          <li>아래의 각 파라미터를 순서대로 복사하여 붙여넣습니다</li>
+          <li>트랜잭션을 실행합니다</li>
+        </ol>
+      </div>
+
+      <!-- 파라미터 0: records -->
+      <div class="mb-4 p-4 bg-white border-2 border-purple-200 rounded-lg">
+        <div class="flex justify-between items-center mb-2">
+          <div>
+            <span class="bg-purple-600 text-white px-2 py-1 rounded text-xs font-mono">파라미터 0</span>
+            <span class="ml-2 font-semibold">records</span>
+            <span class="ml-2 text-xs text-gray-500">tuple[]</span>
+          </div>
+          <button onclick="copyToClipboard('param0Records')" class="bg-purple-600 text-white px-4 py-2 rounded text-sm hover:bg-purple-700">
+            📋 복사
+          </button>
+        </div>
+        <textarea id="param0Records" class="w-full h-32 px-3 py-2 border rounded-md font-mono text-xs bg-gray-50" readonly></textarea>
+      </div>
+
+      <!-- 파라미터 1: userBatchSigs -->
+      <div class="mb-4 p-4 bg-white border-2 border-purple-200 rounded-lg">
+        <div class="flex justify-between items-center mb-2">
+          <div>
+            <span class="bg-purple-600 text-white px-2 py-1 rounded text-xs font-mono">파라미터 1</span>
+            <span class="ml-2 font-semibold">userBatchSigs</span>
+            <span class="ml-2 text-xs text-gray-500">tuple[]</span>
+          </div>
+          <button onclick="copyToClipboard('param1UserBatchSigs')" class="bg-purple-600 text-white px-4 py-2 rounded text-sm hover:bg-purple-700">
+            📋 복사
+          </button>
+        </div>
+        <textarea id="param1UserBatchSigs" class="w-full h-24 px-3 py-2 border rounded-md font-mono text-xs bg-gray-50" readonly></textarea>
+      </div>
+
+      <!-- 파라미터 2: batchNonce -->
+      <div class="mb-4 p-4 bg-white border-2 border-purple-200 rounded-lg">
+        <div class="flex justify-between items-center mb-2">
+          <div>
+            <span class="bg-purple-600 text-white px-2 py-1 rounded text-xs font-mono">파라미터 2</span>
+            <span class="ml-2 font-semibold">batchNonce</span>
+            <span class="ml-2 text-xs text-gray-500">uint256</span>
+          </div>
+          <button onclick="copyToClipboard('param2BatchNonce')" class="bg-purple-600 text-white px-4 py-2 rounded text-sm hover:bg-purple-700">
+            📋 복사
+          </button>
+        </div>
+        <input id="param2BatchNonce" class="w-full px-3 py-2 border rounded-md font-mono text-sm bg-gray-50" readonly>
+      </div>
+
+      <!-- 파라미터 3: executorSig -->
+      <div class="mb-4 p-4 bg-white border-2 border-purple-200 rounded-lg">
+        <div class="flex justify-between items-center mb-2">
+          <div>
+            <span class="bg-purple-600 text-white px-2 py-1 rounded text-xs font-mono">파라미터 3</span>
+            <span class="ml-2 font-semibold">executorSig</span>
+            <span class="ml-2 text-xs text-gray-500">bytes</span>
+          </div>
+          <button onclick="copyToClipboard('param3ExecutorSig')" class="bg-purple-600 text-white px-4 py-2 rounded text-sm hover:bg-purple-700">
+            📋 복사
+          </button>
+        </div>
+        <textarea id="param3ExecutorSig" class="w-full h-20 px-3 py-2 border rounded-md font-mono text-xs bg-gray-50" readonly></textarea>
+      </div>
+
+      <!-- 전체 복사 (편의 기능) -->
+      <div class="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-300">
+        <p class="text-sm font-semibold text-gray-700 mb-2">💡 전체 파라미터 한번에 복사 (JSON 형식)</p>
+        <div class="relative">
+          <textarea id="allParams" class="w-full h-40 px-3 py-2 border rounded-md font-mono text-xs bg-white" readonly></textarea>
+          <button onclick="copyToClipboard('allParams')" class="absolute top-2 right-2 bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
+            📋 전체 복사
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 결과 조회 -->
+    <div class="bg-white rounded-lg shadow p-6">
+      <h2 class="text-xl font-semibold mb-4">📊 결과 조회</h2>
+
+      <div class="grid grid-cols-2 gap-4 mb-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Mission ID</label>
+          <input type="number" id="queryMissionId" class="w-full px-3 py-2 border rounded-md" value="1">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Candidate ID</label>
+          <input type="number" id="queryCandidateId" class="w-full px-3 py-2 border rounded-md" value="1">
+        </div>
+      </div>
+
+      <button onclick="queryVotes()" class="bg-purple-500 text-white px-4 py-2 rounded-md hover:bg-purple-600 mb-4">
+        득표 조회
+      </button>
+
+      <div id="queryResult" class="bg-gray-50 rounded p-3 min-h-[80px]">
+        <p class="text-gray-400 text-sm">조회 버튼을 클릭하세요</p>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+
+    // ============================================
+    // 설정
+    // ============================================
+
+    const NETWORKS = {
+      opbnb: {
+        name: 'opBNB Testnet',
+        rpcUrl: 'https://opbnb-testnet-rpc.bnbchain.org',
+        chainId: 5611
+      },
+      bnb: {
+        name: 'BNB Testnet',
+        rpcUrl: 'https://data-seed-prebsc-1-s1.bnbchain.org:8545',
+        chainId: 97
+      }
+    };
+
+    function getNetworkConfig() {
+      const networkId = document.getElementById('network').value;
+      return NETWORKS[networkId];
+    }
+
+    function getContractAddress() {
+      return document.getElementById('contractAddress').value;
+    }
+
+    function getDomain() {
+      return {
+        name: 'MainVoting',
+        version: '1',
+        chainId: getNetworkConfig().chainId,
+        verifyingContract: getContractAddress()
+      };
+    }
+
+    // MainVoting ABI (필요한 함수만)
+    const ABI = [
+      'function submitMultiUserBatch(tuple(uint256 timestamp, uint256 missionId, uint256 votingId, address userAddress, uint256 candidateId, uint8 voteType, string userId, uint256 votingAmt)[] records, tuple(address user, uint256 userNonce, uint256[] recordIndices, bytes signature)[] userBatchSigs, uint256 batchNonce, bytes executorSig)',
+      'function getCandidateAggregates(uint256 missionId, uint256 candidateId) view returns (uint256 remember, uint256 forget, uint256 total)',
+      'function minUserNonce(address) view returns (uint256)',
+      'function minBatchNonce(address) view returns (uint256)'
+    ];
+
+    // ============================================
+    // 전역 변수
+    // ============================================
+
+    let records = [];
+    let userWallet = null;
+    let executorWallet = null;
+    let provider = null;
+    let userBatchSig = null;
+    let executorSig = null;
+    let batchNonce = null;
+
+    // ============================================
+    // 초기화
+    // ============================================
+
+    function init() {
+      if (typeof ethers === 'undefined') {
+        alert('ethers.js 로드 실패! 인터넷 연결을 확인하세요.');
+        return;
+      }
+
+      console.log('ethers.js 버전:', ethers.version);
+
+      // 초기 provider 설정
+      updateProvider();
+
+      // 이벤트 리스너 등록
+      document.getElementById('network').addEventListener('change', onNetworkChange);
+      document.getElementById('userPrivateKey').addEventListener('input', updateUserWallet);
+      document.getElementById('executorPrivateKey').addEventListener('input', updateExecutorWallet);
+
+      // 기본값이 입력되어 있으므로 초기화 시 자동 업데이트
+      updateUserWallet();
+      updateExecutorWallet();
+
+      console.log('초기화 완료');
+    }
+
+    function updateProvider() {
+      const config = getNetworkConfig();
+      provider = new ethers.JsonRpcProvider(config.rpcUrl);
+      console.log('Provider 업데이트:', config.name, 'Chain ID:', config.chainId);
+    }
+
+    function onNetworkChange() {
+      const config = getNetworkConfig();
+      document.getElementById('chainIdDisplay').value = config.chainId;
+      updateProvider();
+
+      // 지갑 재설정
+      updateUserWallet();
+      updateExecutorWallet();
+    }
+
+    function updateUserWallet() {
+      const key = document.getElementById('userPrivateKey').value;
+      if (!key || key.length !== 66) {
+        document.getElementById('userAddress').textContent = '-';
+        userWallet = null;
+        return;
+      }
+
+      try {
+        userWallet = new ethers.Wallet(key, provider);
+        document.getElementById('userAddress').textContent = userWallet.address;
+      } catch (e) {
+        document.getElementById('userAddress').textContent = '유효하지 않은 키';
+        userWallet = null;
+      }
+    }
+
+    function updateExecutorWallet() {
+      const key = document.getElementById('executorPrivateKey').value;
+      try {
+        executorWallet = new ethers.Wallet(key, provider);
+        document.getElementById('executorAddress').textContent = executorWallet.address;
+      } catch (e) {
+        document.getElementById('executorAddress').textContent = '유효하지 않은 키';
+        executorWallet = null;
+      }
+    }
+
+    // ============================================
+    // 레코드 관리
+    // ============================================
+
+    function addRecord() {
+      if (!userWallet) {
+        showStatus('사용자 비밀키를 먼저 입력하세요', 'error');
+        return;
+      }
+
+      if (records.length >= 20) {
+        showStatus('최대 20개까지만 추가 가능합니다', 'error');
+        return;
+      }
+
+      const record = {
+        timestamp: Math.floor(Date.now() / 1000),
+        missionId: parseInt(document.getElementById('missionId').value),
+        votingId: parseInt(document.getElementById('votingId').value),
+        userAddress: userWallet.address,
+        candidateId: parseInt(document.getElementById('candidateId').value),
+        voteType: parseInt(document.getElementById('voteType').value),
+        userId: document.getElementById('userId').value,
+        votingAmt: parseInt(document.getElementById('votingAmt').value)
+      };
+
+      records.push(record);
+      renderRecords();
+      showStatus('레코드가 추가되었습니다', 'success');
+    }
+
+    function removeRecord(index) {
+      records.splice(index, 1);
+      renderRecords();
+    }
+
+    function renderRecords() {
+      const container = document.getElementById('recordsList');
+      document.getElementById('recordCount').textContent = records.length;
+
+      if (records.length === 0) {
+        container.innerHTML = '<p class="text-gray-400 text-sm">레코드를 추가해주세요</p>';
+        return;
+      }
+
+      container.innerHTML = records.map((r, i) => `
+        <div class="bg-white p-2 rounded mb-2 text-sm flex justify-between items-center">
+          <div>
+            <span class="font-mono text-xs">Mission ${r.missionId}, Voting ${r.votingId}, Candidate ${r.candidateId}</span>
+            <span class="text-gray-600"> | ${r.voteType === 1 ? 'Remember' : 'Forget'} | ${r.votingAmt}점</span>
+          </div>
+          <button onclick="removeRecord(${i})" class="text-red-500 hover:text-red-700">삭제</button>
+        </div>
+      `).join('');
+    }
+
+    // ============================================
+    // 서명 로직
+    // ============================================
+
+    function hashVoteRecord(record) {
+      const VOTE_RECORD_TYPEHASH = ethers.keccak256(
+        ethers.toUtf8Bytes(
+          'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,bytes32 userIdHash,uint256 candidateId,uint8 voteType,uint256 votingAmt)'
+        )
+      );
+
+      const userIdHash = ethers.keccak256(ethers.toUtf8Bytes(record.userId));
+
+      return ethers.keccak256(
+        ethers.AbiCoder.defaultAbiCoder().encode(
+          ['bytes32', 'uint256', 'uint256', 'uint256', 'address', 'bytes32', 'uint256', 'uint8', 'uint256'],
+          [
+            VOTE_RECORD_TYPEHASH,
+            record.timestamp,
+            record.missionId,
+            record.votingId,
+            record.userAddress,
+            userIdHash,
+            record.candidateId,
+            record.voteType,
+            record.votingAmt
+          ]
+        )
+      );
+    }
+
+    async function signUserBatch(wallet, records, userNonce) {
+      const recordHashes = records.map(r => hashVoteRecord(r));
+      const recordsHash = ethers.keccak256(ethers.concat(recordHashes));
+
+      const signature = await wallet.signTypedData(
+        getDomain(),
+        {
+          UserBatch: [
+            { name: 'user', type: 'address' },
+            { name: 'userNonce', type: 'uint256' },
+            { name: 'recordsHash', type: 'bytes32' }
+          ]
+        },
+        { user: wallet.address, userNonce, recordsHash }
+      );
+
+      return {
+        user: wallet.address,
+        userNonce,
+        recordIndices: Array.from({ length: records.length }, (_, i) => i),
+        signature
+      };
+    }
+
+    async function signBatch(wallet, batchNonce) {
+      return await wallet.signTypedData(
+        getDomain(),
+        {
+          Batch: [{ name: 'batchNonce', type: 'uint256' }]
+        },
+        { batchNonce }
+      );
+    }
+
+    // ============================================
+    // STEP 3: 사용자 서명 생성
+    // ============================================
+
+    async function generateUserSignature() {
+      try {
+        if (!userWallet) {
+          showStatus('사용자 비밀키를 먼저 입력하세요', 'error');
+          return;
+        }
+
+        if (records.length === 0) {
+          showStatus('레코드를 먼저 추가하세요', 'error');
+          return;
+        }
+
+        showStatus('사용자 서명 생성 중...', 'info');
+
+        // User nonce 조회
+        const contract = new ethers.Contract(getContractAddress(), ABI, provider);
+        const userNonce = Number(await contract.minUserNonce(userWallet.address));
+        document.getElementById('userNonce').value = userNonce;
+
+        // 사용자 서명
+        userBatchSig = await signUserBatch(userWallet, records, userNonce);
+
+        // 백엔드로 보낼 데이터 표시
+        const frontendToBackend = {
+          records: records,
+          userBatchSigs: [userBatchSig]
+        };
+        document.getElementById('userSignatureData').value = JSON.stringify(frontendToBackend, null, 2);
+        document.getElementById('userSigSection').style.display = 'block';
+
+        showStatus('✅ 사용자 서명 완료! 다음 단계로 진행하세요', 'success');
+
+      } catch (error) {
+        console.error(error);
+        showStatus(`❌ 오류: ${error.message}`, 'error');
+      }
+    }
+
+    // ============================================
+    // STEP 4: Executor 서명 생성
+    // ============================================
+
+    async function generateExecutorSignature() {
+      try {
+        if (!userBatchSig) {
+          showStatus('먼저 사용자 서명을 생성하세요', 'error', 'executorStatus');
+          return;
+        }
+
+        if (!executorWallet) {
+          showStatus('Executor 비밀키를 확인하세요', 'error', 'executorStatus');
+          return;
+        }
+
+        showStatus('Executor 서명 생성 중...', 'info', 'executorStatus');
+
+        // Batch nonce를 컨트랙트에서 조회
+        const contract = new ethers.Contract(getContractAddress(), ABI, provider);
+        const currentBatchNonce = Number(await contract.minBatchNonce(executorWallet.address));
+        document.getElementById('batchNonce').value = currentBatchNonce;
+
+        batchNonce = currentBatchNonce; // 조회한 값으로 서명
+
+        // Executor 서명
+        executorSig = await signBatch(executorWallet, batchNonce);
+
+        // 백엔드 데이터 표시
+        document.getElementById('displayBatchNonce').textContent = batchNonce;
+        document.getElementById('executorSigDisplay').value = executorSig;
+        document.getElementById('executorSigSection').style.display = 'block';
+
+        // Remix 섹션 표시 및 데이터 설정
+        displayRemixParams();
+
+        showStatus('✅ Executor 서명 완료! 아래에서 Remix IDE용 파라미터를 복사하세요', 'success', 'executorStatus');
+
+        // Remix 섹션으로 스크롤
+        setTimeout(() => {
+          document.getElementById('remixSection').scrollIntoView({ behavior: 'smooth' });
+        }, 500);
+
+      } catch (error) {
+        console.error(error);
+        showStatus(`❌ 오류: ${error.message}`, 'error', 'executorStatus');
+      }
+    }
+
+    // ============================================
+    // STEP 5: Remix IDE 파라미터 표시
+    // ============================================
+
+    function displayRemixParams() {
+      // 파라미터 0: records
+      const remixRecords = records.map(r => [
+        r.timestamp,
+        r.missionId,
+        r.votingId,
+        r.userAddress,
+        r.candidateId,
+        r.voteType,
+        r.userId,
+        r.votingAmt
+      ]);
+      document.getElementById('param0Records').value = JSON.stringify(remixRecords, null, 2);
+
+      // 파라미터 1: userBatchSigs
+      const remixUserBatchSigs = [[
+        userBatchSig.user,
+        userBatchSig.userNonce,
+        userBatchSig.recordIndices,
+        userBatchSig.signature
+      ]];
+      document.getElementById('param1UserBatchSigs').value = JSON.stringify(remixUserBatchSigs, null, 2);
+
+      // 파라미터 2: batchNonce
+      document.getElementById('param2BatchNonce').value = batchNonce;
+
+      // 파라미터 3: executorSig
+      document.getElementById('param3ExecutorSig').value = `"${executorSig}"`;
+
+      // 전체 파라미터 (JSON 배열)
+      const allParams = [
+        remixRecords,
+        remixUserBatchSigs,
+        batchNonce,
+        executorSig
+      ];
+      document.getElementById('allParams').value = JSON.stringify(allParams, null, 2);
+
+      // Remix 섹션 표시
+      document.getElementById('remixSection').style.display = 'block';
+    }
+
+    // ============================================
+    // 복사 함수
+    // ============================================
+
+    function copyToClipboard(elementId) {
+      const element = document.getElementById(elementId);
+      element.select();
+      document.execCommand('copy');
+
+      // 복사 성공 피드백
+      const originalText = event.target.textContent;
+      event.target.textContent = '✅ 복사됨!';
+      event.target.classList.add('bg-green-600');
+
+      setTimeout(() => {
+        event.target.textContent = originalText;
+        event.target.classList.remove('bg-green-600');
+      }, 2000);
+    }
+
+    // ============================================
+    // 조회
+    // ============================================
+
+    async function queryVotes() {
+      try {
+        const missionId = parseInt(document.getElementById('queryMissionId').value);
+        const candidateId = parseInt(document.getElementById('queryCandidateId').value);
+
+        const contract = new ethers.Contract(getContractAddress(), ABI, provider);
+        const result = await contract.getCandidateAggregates(missionId, candidateId);
+
+        document.getElementById('queryResult').innerHTML = `
+          <div class="space-y-2">
+            <p><span class="font-semibold">Remember:</span> ${result[0].toString()}</p>
+            <p><span class="font-semibold">Forget:</span> ${result[1].toString()}</p>
+            <p><span class="font-semibold">Total:</span> ${result[2].toString()}</p>
+          </div>
+        `;
+      } catch (error) {
+        document.getElementById('queryResult').innerHTML = `<p class="text-red-500">${error.message}</p>`;
+      }
+    }
+
+    // ============================================
+    // UI 헬퍼
+    // ============================================
+
+    function showStatus(message, type, elementId = 'status') {
+      const statusEl = document.getElementById(elementId);
+      statusEl.className = `mt-4 p-3 rounded-md ${
+        type === 'success' ? 'bg-green-100 text-green-800' :
+        type === 'error' ? 'bg-red-100 text-red-800' :
+        'bg-blue-100 text-blue-800'
+      }`;
+      statusEl.textContent = message;
+      statusEl.classList.remove('hidden');
+    }
+
+    // 페이지 로드 시 초기화
+    window.addEventListener('DOMContentLoaded', init);
+
+  </script>
+</body>
+</html>
