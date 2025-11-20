@@ -43,8 +43,8 @@
     "outputs": [
       {
         "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "stateMutability": "view"
@@ -56,8 +56,8 @@
     "outputs": [
       {
         "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "stateMutability": "view"
@@ -236,6 +236,11 @@
         "name": "forget",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "total",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -351,6 +356,11 @@
       },
       {
         "name": "forget",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "total",
         "type": "uint256",
         "internalType": "uint256"
       }

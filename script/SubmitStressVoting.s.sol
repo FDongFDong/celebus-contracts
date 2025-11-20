@@ -14,14 +14,17 @@ contract SubmitStressVoting is Script {
         string memory filePath = _envOrString("STRESS_FILE", "stress-artifacts/stress-output.json");
         string memory json = vm.readFile(filePath);
 
-        MainVoting.VoteRecord[] memory records =
-            abi.decode(vm.parseJsonBytes(json, ".records"), (MainVoting.VoteRecord[]));
+        // 2차원 배열 구조로 변경 (VoteRecord[][])
+        MainVoting.VoteRecord[][] memory records =
+            abi.decode(vm.parseJsonBytes(json, ".records"), (MainVoting.VoteRecord[][]));
         MainVoting.UserBatchSig[] memory userBatchSigs =
             abi.decode(vm.parseJsonBytes(json, ".userBatchSigs"), (MainVoting.UserBatchSig[]));
+        // recordCounts 제거됨
         bytes memory executorSig = vm.parseJsonBytes(json, ".executorSig");
         uint256 batchNonce = vm.parseJsonUint(json, ".batchNonce");
 
         vm.startBroadcast(executorKey);
+        // recordCounts 파라미터 제거
         VOTING.submitMultiUserBatch(records, userBatchSigs, batchNonce, executorSig);
         vm.stopBroadcast();
 

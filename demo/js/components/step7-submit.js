@@ -1,0 +1,454 @@
+/**
+ * Step 7: 컨트랙트 제출
+ */
+
+import { CONFIG, getContractInstance } from '../config.js';
+
+export class Step7Submit {
+  constructor(state) {
+    this.state = state;
+  }
+
+  render() {
+    return `
+      <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-red-500">
+        <h2 class="text-xl font-semibold mb-4">
+          <span class="step-badge bg-red-500">STEP 7</span>
+          🚀 컨트랙트 제출(Backend)
+        </h2>
+        <p class="text-sm text-gray-600 mb-4">
+          모든 데이터를 컨트랙트에 제출합니다
+        </p>
+
+        <!-- 백엔드 userId 주입 시뮬레이션 -->
+        <div class="mb-6 p-4 bg-indigo-50 border-l-4 border-indigo-400 rounded">
+          <h3 class="font-semibold text-indigo-900 mb-2">
+            🔄 Backend: userId 자동 주입
+          </h3>
+          <p class="text-sm text-indigo-800 mb-3">
+            백엔드가 각 userAddress를 기반으로 DB에서 userId를 조회하여 레코드에 주입합니다.
+          </p>
+          <div id="userIdInjectionStatus" class="bg-white rounded border border-indigo-200 p-3">
+            <p class="text-xs text-gray-600 mb-2">DB 조회 결과:</p>
+            <div id="userIdMappingList" class="text-xs font-mono space-y-1">
+              <!-- 동적으로 채워짐 -->
+            </div>
+          </div>
+        </div>
+
+        <!-- 제출 전 요약 -->
+        <div class="bg-gray-50 border border-gray-200 rounded p-4 mb-4">
+          <p class="font-semibold text-gray-800 mb-2">📋 제출 데이터 요약:</p>
+          <ul class="text-sm text-gray-700 space-y-1">
+            <li>• 총 레코드: <span id="submitRecordCount">0</span>개</li>
+            <li>• User Batch 서명: <span id="submitUserSigCount">0</span>개</li>
+            <li>• 사용자별 레코드: <span id="submitUserRecordBreakdown">-</span></li>
+            <li>• Batch Nonce: <span id="submitBatchNonce">-</span></li>
+            <li>• Executor 서명: <span id="submitExecutorSig">없음</span></li>
+          </ul>
+        </div>
+
+        <!-- Remix 파라미터 표시 -->
+        <details class="mb-4">
+          <summary class="cursor-pointer text-blue-600 font-semibold hover:text-blue-800">
+            🔧 Remix 제출용 파라미터 보기
+          </summary>
+          <div id="remixParams" class="mt-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <p class="text-xs text-gray-600 mb-3">
+              📝 각 파라미터를 개별적으로 복사하여 Remix IDE에 붙여넣으세요
+            </p>
+
+            <!-- 1. records 파라미터 -->
+            <div class="mb-4 bg-white rounded border border-blue-300 p-3">
+              <div class="flex items-center justify-between mb-2">
+                <p class="font-semibold text-sm text-blue-900">1️⃣ records (VoteRecord[][])</p>
+                <button onclick="step7.copyParam('records')"
+                        class="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600">
+                  📋 복사
+                </button>
+              </div>
+              <textarea id="remixParam_records"
+                        class="w-full h-24 p-2 font-mono text-xs bg-gray-50 border rounded"
+                        readonly></textarea>
+            </div>
+
+            <!-- 2. userBatchSigs 파라미터 -->
+            <div class="mb-4 bg-white rounded border border-blue-300 p-3">
+              <div class="flex items-center justify-between mb-2">
+                <p class="font-semibold text-sm text-blue-900">2️⃣ userBatchSigs (UserBatchSig[])</p>
+                <button onclick="step7.copyParam('userBatchSigs')"
+                        class="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600">
+                  📋 복사
+                </button>
+              </div>
+              <textarea id="remixParam_userBatchSigs"
+                        class="w-full h-20 p-2 font-mono text-xs bg-gray-50 border rounded"
+                        readonly></textarea>
+            </div>
+
+            <!-- 3. batchNonce 파라미터 -->
+            <div class="mb-4 bg-white rounded border border-blue-300 p-3">
+              <div class="flex items-center justify-between mb-2">
+                <p class="font-semibold text-sm text-blue-900">3️⃣ batchNonce (uint256)</p>
+                <button onclick="step7.copyParam('batchNonce')"
+                        class="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600">
+                  📋 복사
+                </button>
+              </div>
+              <input id="remixParam_batchNonce"
+                     type="text"
+                     class="w-full p-2 font-mono text-sm bg-gray-50 border rounded"
+                     readonly>
+            </div>
+
+            <!-- 4. executorSig 파라미터 -->
+            <div class="mb-4 bg-white rounded border border-blue-300 p-3">
+              <div class="flex items-center justify-between mb-2">
+                <p class="font-semibold text-sm text-blue-900">4️⃣ executorSig (bytes)</p>
+                <button onclick="step7.copyParam('executorSig')"
+                        class="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600">
+                  📋 복사
+                </button>
+              </div>
+              <input id="remixParam_executorSig"
+                     type="text"
+                     class="w-full p-2 font-mono text-xs bg-gray-50 border rounded"
+                     readonly>
+            </div>
+
+            <div class="mt-3 bg-yellow-50 border border-yellow-300 rounded p-2">
+              <p class="text-xs text-yellow-900">
+                💡 <strong>Remix 사용법:</strong> 각 파라미터를 위에서 아래 순서대로 복사하여 Remix IDE의 submitMultiUserBatch 함수 입력란에 붙여넣으세요
+              </p>
+            </div>
+          </div>
+        </details>
+
+        <!-- 제출 버튼 -->
+        <button id="submitButton" onclick="step7.submit()"
+                class="bg-red-500 text-white px-6 py-3 rounded-md hover:bg-red-600 font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed">
+          <span id="submitButtonText">🚀 컨트랙트에 제출</span>
+        </button>
+        
+        <!-- 로딩 상태 -->
+        <div id="submitLoading" class="mt-4 hidden">
+          <div class="bg-blue-50 border border-blue-200 rounded p-4">
+            <div class="flex items-center">
+              <svg class="animate-spin h-5 w-5 text-blue-600 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <div>
+                <p class="font-semibold text-blue-900">트랜잭션 처리 중...</p>
+                <p class="text-sm text-blue-700" id="loadingStatusText">가스 추정 중...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 제출 결과 -->
+        <div id="submitResult" class="mt-4 hidden">
+          <div class="bg-green-50 border border-green-200 rounded p-4">
+            <p class="font-semibold text-green-900 mb-2">✅ 제출 성공!</p>
+            <p class="text-sm text-gray-700">
+              Transaction Hash: <span id="txHash" class="font-mono text-xs">-</span>
+            </p>
+            <a id="txLink" href="#" target="_blank"
+               class="text-blue-600 hover:underline text-sm">
+              🔍 Explorer에서 보기
+            </a>
+          </div>
+        </div>
+
+        <div id="submitError" class="mt-4 hidden">
+          <div class="bg-red-50 border border-red-200 rounded p-4">
+            <p class="font-semibold text-red-900 mb-2">❌ 제출 실패</p>
+            <p class="text-sm text-gray-700" id="errorMessage">-</p>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  updateSummary() {
+    // userId 매핑 표시 (백엔드 DB 조회 시뮬레이션)
+    if (this.state.records && this.state.records.length > 0) {
+      const uniqueUsers = new Map();
+      this.state.records.forEach(r => {
+        if (!uniqueUsers.has(r.userAddress)) {
+          uniqueUsers.set(r.userAddress, r.userId);
+        }
+      });
+
+      const mappingHTML = Array.from(uniqueUsers.entries()).map(([address, userId]) =>
+        `<div class="text-green-700">
+          ✓ ${address.slice(0, 6)}...${address.slice(-4)} → userId: "${userId}"
+        </div>`
+      ).join('');
+
+      document.getElementById('userIdMappingList').innerHTML = mappingHTML;
+    }
+
+    // 레코드 수
+    const recordCount = this.state.records ? this.state.records.length : 0;
+    document.getElementById('submitRecordCount').textContent = recordCount;
+
+    // User Batch 서명 수
+    const userSigCount = this.state.userBatchSigs ? this.state.userBatchSigs.length : 0;
+    document.getElementById('submitUserSigCount').textContent = userSigCount;
+
+    // 사용자별 레코드 수 계산
+    if (this.state.records && this.state.records.length > 0) {
+      const user1Count = this.state.records.filter(r => r.userIndex === 0).length;
+      const user2Count = this.state.records.filter(r => r.userIndex === 1).length;
+      const breakdown = [];
+      if (user1Count > 0) breakdown.push(`User 1: ${user1Count}개`);
+      if (user2Count > 0) breakdown.push(`User 2: ${user2Count}개`);
+      document.getElementById('submitUserRecordBreakdown').textContent = breakdown.join(', ');
+    }
+
+    // Batch Nonce
+    document.getElementById('submitBatchNonce').textContent = 
+      this.state.batchNonce !== undefined ? this.state.batchNonce : '-';
+
+    // Executor 서명
+    const execSig = this.state.executorSig ? '있음 ✅' : '없음 ❌';
+    document.getElementById('submitExecutorSig').textContent = execSig;
+  }
+
+  generateRemixParams() {
+    // 사용자별로 레코드 그룹화 (2D 배열 구조)
+    const user1Records = this.state.records
+      .filter(r => r.userIndex === 0)
+      .map(r => ({
+        timestamp: r.timestamp,
+        missionId: r.missionId,
+        votingId: r.votingId,
+        userAddress: r.userAddress,
+        candidateId: r.candidateId,
+        voteType: r.voteType,
+        userId: r.userId, // 백엔드가 DB에서 설정한 userId 사용
+        votingAmt: r.votingAmt
+      }));
+
+    const user2Records = this.state.records
+      .filter(r => r.userIndex === 1)
+      .map(r => ({
+        timestamp: r.timestamp,
+        missionId: r.missionId,
+        votingId: r.votingId,
+        userAddress: r.userAddress,
+        candidateId: r.candidateId,
+        voteType: r.voteType,
+        userId: r.userId, // 백엔드가 DB에서 설정한 userId 사용
+        votingAmt: r.votingAmt
+      }));
+
+    // 2D 배열 구조로 결합
+    const records = [];
+    if (user1Records.length > 0) records.push(user1Records);
+    if (user2Records.length > 0) records.push(user2Records);
+
+    // 각 파라미터를 개별적으로 설정
+    const recordsElement = document.getElementById('remixParam_records');
+    const userBatchSigsElement = document.getElementById('remixParam_userBatchSigs');
+    const batchNonceElement = document.getElementById('remixParam_batchNonce');
+    const executorSigElement = document.getElementById('remixParam_executorSig');
+
+    if (recordsElement) {
+      recordsElement.value = JSON.stringify(records, null, 2);
+    }
+
+    if (userBatchSigsElement) {
+      userBatchSigsElement.value = JSON.stringify(this.state.userBatchSigs, null, 2);
+    }
+
+    if (batchNonceElement) {
+      batchNonceElement.value = this.state.batchNonce !== undefined ? this.state.batchNonce : 0;
+    }
+
+    if (executorSigElement) {
+      executorSigElement.value = this.state.executorSig || '';
+    }
+  }
+
+  copyParam(paramName) {
+    const elementId = `remixParam_${paramName}`;
+    const element = document.getElementById(elementId);
+
+    if (!element) {
+      alert('❌ 파라미터를 찾을 수 없습니다.');
+      return;
+    }
+
+    // 값 복사
+    element.select();
+    element.setSelectionRange(0, 99999); // 모바일 대응
+
+    try {
+      document.execCommand('copy');
+
+      // 복사 성공 피드백
+      const button = event.target;
+      const originalText = button.textContent;
+      button.textContent = '✅ 복사됨!';
+      button.classList.remove('bg-blue-500', 'hover:bg-blue-600');
+      button.classList.add('bg-green-500');
+
+      setTimeout(() => {
+        button.textContent = originalText;
+        button.classList.remove('bg-green-500');
+        button.classList.add('bg-blue-500', 'hover:bg-blue-600');
+      }, 2000);
+
+    } catch (err) {
+      alert('❌ 복사에 실패했습니다: ' + err.message);
+    }
+
+    // 선택 해제
+    window.getSelection().removeAllRanges();
+  }
+
+  async submit() {
+    try {
+      // 데이터 검증
+      if (!this.state.records || this.state.records.length === 0) {
+        alert('레코드가 없습니다. Step 2에서 레코드를 추가해주세요.');
+        return;
+      }
+
+      if (!this.state.userBatchSigs || this.state.userBatchSigs.length === 0) {
+        alert('User Batch 서명이 없습니다. Step 3에서 서명해주세요.');
+        return;
+      }
+
+      if (!this.state.executorSig) {
+        alert('Executor 서명이 없습니다. Step 6에서 서명을 생성해주세요.');
+        return;
+      }
+
+      // Batch Nonce 검증
+      if (this.state.batchNonce === undefined || this.state.batchNonce === null) {
+        alert('Batch Nonce가 설정되지 않았습니다. Step 5에서 Struct Hash를 계산해주세요.');
+        return;
+      }
+
+      // 로딩 상태 시작
+      this.setLoadingState(true, '가스 추정 중...');
+      
+      // 기존 결과/에러 숨기기
+      document.getElementById('submitResult').classList.add('hidden');
+      document.getElementById('submitError').classList.add('hidden');
+
+      // 사용자별로 레코드 그룹화 (2D 배열 구조)
+      const user1Records = this.state.records
+        .filter(r => r.userIndex === 0)
+        .map(r => [
+          r.timestamp,
+          r.missionId,
+          r.votingId,
+          r.userAddress,
+          r.candidateId,
+          r.voteType,
+          r.userId, // 백엔드가 DB에서 설정한 userId 사용
+          r.votingAmt
+        ]);
+
+      const user2Records = this.state.records
+        .filter(r => r.userIndex === 1)
+        .map(r => [
+          r.timestamp,
+          r.missionId,
+          r.votingId,
+          r.userAddress,
+          r.candidateId,
+          r.voteType,
+          r.userId, // 백엔드가 DB에서 설정한 userId 사용
+          r.votingAmt
+        ]);
+
+      // 2D 배열 구조로 결합
+      const records = [];
+      if (user1Records.length > 0) records.push(user1Records);
+      if (user2Records.length > 0) records.push(user2Records);
+
+      // UserBatchSig 변환
+      const userBatchSigs = this.state.userBatchSigs.map(sig => [
+        sig.user,
+        sig.userNonce,
+        sig.signature
+      ]);
+
+      const batchNonce = this.state.batchNonce;
+      const executorSig = this.state.executorSig;
+
+      console.log('📤 Submitting to contract:', {
+        recordsPerUser: records.map(userRecs => userRecs.length),
+        totalRecords: records.reduce((sum, userRecs) => sum + userRecs.length, 0),
+        userBatchSigs: userBatchSigs.length,
+        batchNonce,
+        executorSig
+      });
+
+      // 컨트랙트 인스턴스 생성 (state의 contractAddress 사용)
+      this.setLoadingState(true, '컨트랙트 인스턴스 생성 중...');
+      const provider = new ethers.JsonRpcProvider(CONFIG.RPC_URL);
+      const signer = this.state.executorWallet.connect(provider);
+      const contract = getContractInstance(signer, this.state.contractAddress);
+
+      // 트랜잭션 제출 (recordCounts 파라미터 제거됨)
+      this.setLoadingState(true, '트랜잭션 전송 중...');
+      const tx = await contract.submitMultiUserBatch(
+        records,
+        userBatchSigs,
+        batchNonce,
+        executorSig
+      );
+
+      console.log('⏳ Transaction sent:', tx.hash);
+
+      // 트랜잭션 대기
+      this.setLoadingState(true, `트랜잭션 확인 대기 중... (TX: ${tx.hash.slice(0, 10)}...)`);
+      const receipt = await tx.wait();
+
+      console.log('✅ Transaction confirmed:', receipt);
+
+      // 성공 UI 업데이트
+      this.setLoadingState(false);
+      document.getElementById('txHash').textContent = tx.hash;
+      const explorerUrl = `https://testnet.opbnbscan.com/tx/${tx.hash}`;
+      document.getElementById('txLink').href = explorerUrl;
+      document.getElementById('submitResult').classList.remove('hidden');
+      document.getElementById('submitError').classList.add('hidden');
+
+    } catch (error) {
+      console.error('❌ Submit failed:', error);
+      this.setLoadingState(false);
+      document.getElementById('errorMessage').textContent = error.message;
+      document.getElementById('submitError').classList.remove('hidden');
+      document.getElementById('submitResult').classList.add('hidden');
+    }
+  }
+
+  setLoadingState(isLoading, statusText = '') {
+    const submitButton = document.getElementById('submitButton');
+    const submitButtonText = document.getElementById('submitButtonText');
+    const loadingDiv = document.getElementById('submitLoading');
+    const loadingStatusText = document.getElementById('loadingStatusText');
+
+    if (isLoading) {
+      // 로딩 시작
+      submitButton.disabled = true;
+      submitButtonText.textContent = '⏳ 처리 중...';
+      loadingDiv.classList.remove('hidden');
+      if (statusText) {
+        loadingStatusText.textContent = statusText;
+      }
+    } else {
+      // 로딩 종료
+      submitButton.disabled = false;
+      submitButtonText.textContent = '🚀 컨트랙트에 제출';
+      loadingDiv.classList.add('hidden');
+    }
+  }
+}

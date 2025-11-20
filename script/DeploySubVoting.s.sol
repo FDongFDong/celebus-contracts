@@ -6,17 +6,8 @@ import {SubVoting} from "../src/vote/SubVoting.sol";
 
 contract DeploySubVoting is Script {
     function run() external returns (SubVoting) {
-        // Private key 가져오기 (환경변수 또는 CLI 옵션)
-        uint256 deployerPrivateKey;
-        
-        try vm.envUint("PRIVATE_KEY") returns (uint256 key) {
-            deployerPrivateKey = key;
-            console.log("Using PRIVATE_KEY from environment variable");
-        } catch {
-            revert("PRIVATE_KEY environment variable not set. Use: export PRIVATE_KEY=0x... or forge script ... --private-key 0x...");
-        }
-
-        address deployer = vm.addr(deployerPrivateKey);
+        // msg.sender가 배포자 (CLI --private-key로 전달된 주소)
+        address deployer = msg.sender;
 
         console.log("========================================");
         console.log("Deploying SubVoting Contract");
@@ -25,7 +16,7 @@ contract DeploySubVoting is Script {
         console.log("Chain ID:", block.chainid);
         console.log("========================================");
 
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast();
 
         SubVoting voting = new SubVoting(deployer);
 

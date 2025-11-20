@@ -1,0 +1,16 @@
+
+# Demo build artifacts
+*-abi-extracted.json
+*-standard-json-input.json
+demo.zip
+
+# Logs
+*.log
+mint-*.log
+
+# Playwright
+.playwright-mcp/
+
+# Temporary files
+test.txt
+temp/
