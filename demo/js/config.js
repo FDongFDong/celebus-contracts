@@ -14,13 +14,13 @@ export const CONFIG = {
 
   // Contract ABI
   ABI: [
-    'function submitMultiUserBatch(tuple(uint256 timestamp, uint256 missionId, uint256 votingId, address userAddress, uint256 candidateId, uint8 voteType, string userId, uint256 votingAmt)[][] records, tuple(address user, uint256 userNonce, bytes signature)[] userBatchSigs, uint256 batchNonce, bytes executorSig)',
-    'function getCandidateAggregates(uint256 missionId, uint256 candidateId) view returns (uint256 remember, uint256 forget, uint256 total)',
+    'function submitMultiUserBatch(tuple(uint256 timestamp, uint256 missionId, uint256 votingId, address userAddress, uint256 artistId, uint8 voteType, string userId, uint256 votingAmt)[][] records, tuple(address user, uint256 userNonce, bytes signature)[] userBatchSigs, uint256 batchNonce, bytes executorSig)',
+    'function getArtistAggregates(uint256 missionId, uint256 artistId) view returns (uint256 remember, uint256 forget, uint256 total)',
     'function minUserNonce(address) view returns (uint256)',
     'function minBatchNonce(address) view returns (uint256)',
     'function setExecutorSigner(address _executorSigner)',
     'function setVoteTypeName(uint8 voteType, string memory name)',
-    'function setCandidate(uint256 missionId, uint256 candidateId, string memory name, bool allowed)'
+    'function setArtist(uint256 missionId, uint256 artistId, string memory name, bool allowed)'
   ],
 
   // EIP-712 Domain Configuration
@@ -46,7 +46,7 @@ export const CONFIG = {
     // Vote Record Defaults
     missionId: 1,
     votingId: 1,
-    candidateId: 1,
+    artistId: 1,
     voteType: 1, // 1 = Remember, 0 = Forget
     votingAmt: 100
   },

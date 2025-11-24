@@ -76,7 +76,7 @@ export function hashVoteRecord(record) {
   // VOTE_RECORD_TYPEHASH (userId 제외)
   const VOTE_RECORD_TYPEHASH = ethers.keccak256(
     ethers.toUtf8Bytes(
-      'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,uint256 candidateId,uint8 voteType,uint256 votingAmt)'
+      'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,uint256 artistId,uint8 voteType,uint256 votingAmt)'
     )
   );
 
@@ -89,7 +89,7 @@ export function hashVoteRecord(record) {
       record.missionId,
       record.votingId,
       record.userAddress,
-      record.candidateId,
+      record.artistId,
       record.voteType,
       record.votingAmt
     ]

@@ -212,7 +212,7 @@ export class Step3UserSigs {
             missionId: r.missionId,
             votingId: r.votingId,
             userAddress: r.userAddress,
-            candidateId: r.candidateId,
+            artistId: r.artistId,
             voteType: r.voteType,
             votingAmt: r.votingAmt
             // 주의: userId는 프론트엔드에서 전송하지 않음!

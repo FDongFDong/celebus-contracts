@@ -1,6 +1,6 @@
 /**
  * STEP 0: 컨트랙트 초기 설정
- * Owner 권한으로 Executor, Vote Type, Candidate를 설정합니다
+ * Owner 권한으로 Executor, Vote Type, Artist를 설정합니다
  */
 
 export class Step0Setup {
@@ -117,7 +117,7 @@ export class Step0Setup {
   /**
    * 후보 등록
    */
-  async registerCandidate() {
+  async registerArtist() {
     try {
       if (!this.ownerWallet) {
         this.showStatus('Owner 비밀키를 먼저 입력하세요', 'error', 'candidateStatus');
@@ -125,10 +125,10 @@ export class Step0Setup {
       }
 
       const missionId = parseInt(document.getElementById('candidateMissionId').value);
-      const candidateId = parseInt(document.getElementById('candidateCandidateId').value);
+      const artistId = parseInt(document.getElementById('candidateArtistId').value);
       const name = document.getElementById('candidateName').value.trim();
 
-      if (isNaN(missionId) || isNaN(candidateId) || !name) {
+      if (isNaN(missionId) || isNaN(artistId) || !name) {
         this.showStatus('모든 필드를 올바르게 입력하세요', 'error', 'candidateStatus');
         return;
       }
@@ -137,15 +137,15 @@ export class Step0Setup {
 
       const contract = new ethers.Contract(
         this.state.contractAddress,
-        ['function setCandidate(uint256 missionId, uint256 candidateId, string memory name, bool allowed)'],
+        ['function setArtist(uint256 missionId, uint256 artistId, string memory name, bool allowed)'],
         this.ownerWallet
       );
 
-      const tx = await contract.setCandidate(missionId, candidateId, name, true);
+      const tx = await contract.setArtist(missionId, artistId, name, true);
       this.showStatus(`트랜잭션 전송됨. 대기 중... (${tx.hash.substring(0, 10)}...)`, 'info', 'candidateStatus');
 
       await tx.wait();
-      this.showStatus(`✅ 후보 등록 완료!\n이름: ${name}\nMission ID: ${missionId}\nCandidate ID: ${candidateId}\nTX: ${tx.hash}`, 'success', 'candidateStatus');
+      this.showStatus(`✅ 후보 등록 완료!\n이름: ${name}\nMission ID: ${missionId}\nArtist ID: ${artistId}\nTX: ${tx.hash}`, 'success', 'candidateStatus');
 
     } catch (error) {
       console.error('후보 등록 실패:', error);
@@ -197,9 +197,9 @@ export class Step0Setup {
     }
 
     // 후보 등록 버튼
-    const candidateBtn = document.getElementById('registerCandidateBtn');
+    const candidateBtn = document.getElementById('registerArtistBtn');
     if (candidateBtn) {
-      candidateBtn.addEventListener('click', () => this.registerCandidate());
+      candidateBtn.addEventListener('click', () => this.registerArtist());
     }
 
     console.log('📝 STEP 0 Event Listeners Attached');

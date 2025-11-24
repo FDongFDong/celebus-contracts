@@ -71,8 +71,8 @@ export class Step2Records {
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Candidate ID</label>
-            <input type="number" id="candidateId" class="w-full px-3 py-2 border rounded-md" value="${CONFIG.DEFAULT_VALUES.candidateId}">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Artist ID</label>
+            <input type="number" id="artistId" class="w-full px-3 py-2 border rounded-md" value="${CONFIG.DEFAULT_VALUES.artistId}">
           </div>
 
           <div>
@@ -171,7 +171,7 @@ export class Step2Records {
       missionId: parseInt(document.getElementById('missionId').value),
       votingId: parseInt(votingIdValue),
       userAddress: wallet.address,
-      candidateId: parseInt(document.getElementById('candidateId').value),
+      artistId: parseInt(document.getElementById('artistId').value),
       voteType: parseInt(document.getElementById('voteType').value),
       userId: document.getElementById('userId').value, // userId 포함
       votingAmt: parseInt(document.getElementById('votingAmt').value)
@@ -209,7 +209,7 @@ export class Step2Records {
             ×
           </button>
           <p class="text-xs font-mono text-blue-700">
-            #${idx + 1}: M${r.missionId} V${r.votingId} C${r.candidateId}
+            #${idx + 1}: M${r.missionId} V${r.votingId} C${r.artistId}
             ${r.voteType === 1 ? '👍' : '👎'} ${r.votingAmt}
           </p>
           <p class="text-xs text-gray-500 mt-1">
@@ -237,7 +237,7 @@ export class Step2Records {
             ×
           </button>
           <p class="text-xs font-mono text-green-700">
-            #${idx + 1}: M${r.missionId} V${r.votingId} C${r.candidateId}
+            #${idx + 1}: M${r.missionId} V${r.votingId} C${r.artistId}
             ${r.voteType === 1 ? '👍' : '👎'} ${r.votingAmt}
           </p>
           <p class="text-xs text-gray-500 mt-1">

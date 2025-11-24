@@ -225,7 +225,7 @@ export class Step7Submit {
         missionId: r.missionId,
         votingId: r.votingId,
         userAddress: r.userAddress,
-        candidateId: r.candidateId,
+        artistId: r.artistId,
         voteType: r.voteType,
         userId: r.userId, // 백엔드가 DB에서 설정한 userId 사용
         votingAmt: r.votingAmt
@@ -238,7 +238,7 @@ export class Step7Submit {
         missionId: r.missionId,
         votingId: r.votingId,
         userAddress: r.userAddress,
-        candidateId: r.candidateId,
+        artistId: r.artistId,
         voteType: r.voteType,
         userId: r.userId, // 백엔드가 DB에서 설정한 userId 사용
         votingAmt: r.votingAmt
@@ -348,7 +348,7 @@ export class Step7Submit {
           r.missionId,
           r.votingId,
           r.userAddress,
-          r.candidateId,
+          r.artistId,
           r.voteType,
           r.userId, // 백엔드가 DB에서 설정한 userId 사용
           r.votingAmt
@@ -361,7 +361,7 @@ export class Step7Submit {
           r.missionId,
           r.votingId,
           r.userAddress,
-          r.candidateId,
+          r.artistId,
           r.voteType,
           r.userId, // 백엔드가 DB에서 설정한 userId 사용
           r.votingAmt
