@@ -6,17 +6,8 @@ import {Boosting} from "../src/vote/Boosting.sol";
 
 contract DeployBoosting is Script {
     function run() external returns (Boosting) {
-        // Private key 가져오기 (환경변수 또는 CLI 옵션)
-        uint256 deployerPrivateKey;
-        
-        try vm.envUint("PRIVATE_KEY") returns (uint256 key) {
-            deployerPrivateKey = key;
-            console.log("Using PRIVATE_KEY from environment variable");
-        } catch {
-            revert("PRIVATE_KEY environment variable not set. Use: export PRIVATE_KEY=0x... or forge script ... --private-key 0x...");
-        }
-
-        address deployer = vm.addr(deployerPrivateKey);
+        // Forge CLI 옵션(--private-key, --ledger, --account) 또는 환경변수 사용
+        address deployer = msg.sender;
 
         console.log("========================================");
         console.log("Deploying Boosting Contract");
@@ -25,7 +16,7 @@ contract DeployBoosting is Script {
         console.log("Chain ID:", block.chainid);
         console.log("========================================");
 
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast();
 
         Boosting boosting = new Boosting(deployer);
 

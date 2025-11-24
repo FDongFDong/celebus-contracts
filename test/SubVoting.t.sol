@@ -33,6 +33,14 @@ contract SubVotingTest is Test {
 
         voting = new SubVoting(owner);
         voting.setExecutorSigner(executorSigner);
+
+        // 질문과 선택지 설정 (missionId=1)
+        voting.setQuestion(1, 1, "Question1", true);
+        voting.setQuestion(1, 2, "Question2", true);
+        voting.setOption(1, 1, 1, "OptionA", true);
+        voting.setOption(1, 1, 2, "OptionB", true);
+        voting.setOption(1, 2, 1, "OptionC", true);
+        voting.setOption(1, 2, 2, "OptionD", true);
     }
 
     function _createVoteRecord(
@@ -40,8 +48,8 @@ contract SubVotingTest is Test {
         string memory userId,
         uint256 missionId,
         uint256 votingId,
-        string memory votingFor,
-        string memory votedOn,
+        uint256 questionId,
+        uint256 optionId,
         uint256 votingAmt
     ) internal view returns (SubVoting.VoteRecord memory) {
         return SubVoting.VoteRecord({
@@ -50,10 +58,9 @@ contract SubVotingTest is Test {
             votingId: votingId,
             userAddress: userAddress,
             userId: userId,
-            votingFor: votingFor,
-            votedOn: votedOn,
-            votingAmt: votingAmt,
-            deadline: block.timestamp + 1 hours
+            questionId: questionId,
+            optionId: optionId,
+            votingAmt: votingAmt
         });
     }
 
@@ -104,21 +111,44 @@ contract SubVotingTest is Test {
     }
 
     // ========================================
+    // 질문/선택지 설정 테스트
+    // ========================================
+
+    function test_SetQuestion() public {
+        voting.setQuestion(2, 1, "NewQuestion", true);
+        assertEq(voting.questionName(2, 1), "NewQuestion");
+        assertTrue(voting.allowedQuestion(2, 1));
+    }
+
+    function test_SetOption() public {
+        voting.setQuestion(2, 1, "Q", true);
+        voting.setOption(2, 1, 1, "NewOption", true);
+        assertEq(voting.optionName(2, 1, 1), "NewOption");
+        assertTrue(voting.allowedOption(2, 1, 1));
+    }
+
+    function test_RevertWhen_SetOptionInvalidId() public {
+        vm.expectRevert(abi.encodeWithSelector(SubVoting.InvalidOptionId.selector, 0));
+        voting.setOption(1, 1, 0, "Invalid", true);
+
+        vm.expectRevert(abi.encodeWithSelector(SubVoting.InvalidOptionId.selector, 11));
+        voting.setOption(1, 1, 11, "Invalid", true);
+    }
+
+    // ========================================
     // 투표 제출 성공 케이스
     // ========================================
 
     function test_SubmitSingleUserVote() public {
-        // 1명의 사용자가 1개의 투표
         SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](1);
         records[0] = _createVoteRecord(
-            user1, "user1", 1, 1, "Question1", "AnswerA", 100
+            user1, "user1", 1, 1, 1, 1, 100
         );
 
         SubVoting.UserSig[] memory userSigs = new SubVoting.UserSig[](1);
         userSigs[0] = SubVoting.UserSig({
             user: user1,
             userNonce: 0,
-            recordIndex: 0,
             signature: _signUserSig(user1PrivateKey, records[0], 0)
         });
 
@@ -127,35 +157,35 @@ contract SubVotingTest is Test {
         voting.submitMultiUserBatch(records, userSigs, 0, executorSig);
 
         // 검증
-        assertEq(voting.getVoteCount(1), 1);
         assertTrue(voting.userNonceUsed(user1, 0));
         assertTrue(voting.batchNonceUsed(executorSigner, 0));
+
+        // 집계 검증
+        (uint256[11] memory optionVotes, uint256 total) = voting.getQuestionAggregates(1, 1);
+        assertEq(optionVotes[1], 100);
+        assertEq(total, 100);
     }
 
     function test_SubmitMultipleUsersVotes() public {
-        // 3명의 사용자가 각각 1개의 투표
         SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](3);
-        records[0] = _createVoteRecord(user1, "user1", 1, 1, "Question1", "AnswerA", 100);
-        records[1] = _createVoteRecord(user2, "user2", 1, 2, "Question2", "AnswerB", 200);
-        records[2] = _createVoteRecord(user3, "user3", 1, 3, "Question3", "AnswerC", 150);
+        records[0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100);
+        records[1] = _createVoteRecord(user2, "user2", 1, 2, 1, 2, 200);
+        records[2] = _createVoteRecord(user3, "user3", 1, 3, 2, 1, 150);
 
         SubVoting.UserSig[] memory userSigs = new SubVoting.UserSig[](3);
         userSigs[0] = SubVoting.UserSig({
             user: user1,
             userNonce: 0,
-            recordIndex: 0,
             signature: _signUserSig(user1PrivateKey, records[0], 0)
         });
         userSigs[1] = SubVoting.UserSig({
             user: user2,
             userNonce: 0,
-            recordIndex: 1,
             signature: _signUserSig(user2PrivateKey, records[1], 0)
         });
         userSigs[2] = SubVoting.UserSig({
             user: user3,
             userNonce: 0,
-            recordIndex: 2,
             signature: _signUserSig(user3PrivateKey, records[2], 0)
         });
 
@@ -164,11 +194,21 @@ contract SubVotingTest is Test {
         voting.submitMultiUserBatch(records, userSigs, 0, executorSig);
 
         // 검증
-        assertEq(voting.getVoteCount(1), 3);
         assertTrue(voting.userNonceUsed(user1, 0));
         assertTrue(voting.userNonceUsed(user2, 0));
         assertTrue(voting.userNonceUsed(user3, 0));
         assertTrue(voting.batchNonceUsed(executorSigner, 0));
+
+        // 집계 검증 - Question1
+        (uint256[11] memory q1Votes, uint256 q1Total) = voting.getQuestionAggregates(1, 1);
+        assertEq(q1Votes[1], 100); // user1 voted option1
+        assertEq(q1Votes[2], 200); // user2 voted option2
+        assertEq(q1Total, 300);
+
+        // 집계 검증 - Question2
+        (uint256[11] memory q2Votes, uint256 q2Total) = voting.getQuestionAggregates(1, 2);
+        assertEq(q2Votes[1], 150); // user3 voted option1
+        assertEq(q2Total, 150);
     }
 
     // ========================================
@@ -177,13 +217,12 @@ contract SubVotingTest is Test {
 
     function test_RevertWhen_InvalidExecutorSignature() public {
         SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](1);
-        records[0] = _createVoteRecord(user1, "user1", 1, 1, "Question1", "AnswerA", 100);
+        records[0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100);
 
         SubVoting.UserSig[] memory userSigs = new SubVoting.UserSig[](1);
         userSigs[0] = SubVoting.UserSig({
             user: user1,
             userNonce: 0,
-            recordIndex: 0,
             signature: _signUserSig(user1PrivateKey, records[0], 0)
         });
 
@@ -196,13 +235,12 @@ contract SubVotingTest is Test {
 
     function test_RevertWhen_InvalidUserSignature() public {
         SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](1);
-        records[0] = _createVoteRecord(user1, "user1", 1, 1, "Question1", "AnswerA", 100);
+        records[0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100);
 
         SubVoting.UserSig[] memory userSigs = new SubVoting.UserSig[](1);
         userSigs[0] = SubVoting.UserSig({
             user: user1,
             userNonce: 0,
-            recordIndex: 0,
             // 잘못된 private key로 서명
             signature: _signUserSig(user2PrivateKey, records[0], 0)
         });
@@ -215,13 +253,12 @@ contract SubVotingTest is Test {
 
     function test_RevertWhen_UserNonceAlreadyUsed() public {
         SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](1);
-        records[0] = _createVoteRecord(user1, "user1", 1, 1, "Question1", "AnswerA", 100);
+        records[0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100);
 
         SubVoting.UserSig[] memory userSigs = new SubVoting.UserSig[](1);
         userSigs[0] = SubVoting.UserSig({
             user: user1,
             userNonce: 0,
-            recordIndex: 0,
             signature: _signUserSig(user1PrivateKey, records[0], 0)
         });
 
@@ -231,11 +268,10 @@ contract SubVotingTest is Test {
         voting.submitMultiUserBatch(records, userSigs, 0, executorSig);
 
         // 두 번째 제출 실패 (같은 user nonce)
-        records[0] = _createVoteRecord(user1, "user1", 1, 2, "Question2", "AnswerB", 150);
+        records[0] = _createVoteRecord(user1, "user1", 1, 2, 1, 2, 150);
         userSigs[0] = SubVoting.UserSig({
             user: user1,
             userNonce: 0, // 같은 nonce
-            recordIndex: 0,
             signature: _signUserSig(user1PrivateKey, records[0], 0)
         });
         bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 1);
@@ -246,13 +282,12 @@ contract SubVotingTest is Test {
 
     function test_RevertWhen_BatchNonceAlreadyUsed() public {
         SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](1);
-        records[0] = _createVoteRecord(user1, "user1", 1, 1, "Question1", "AnswerA", 100);
+        records[0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100);
 
         SubVoting.UserSig[] memory userSigs = new SubVoting.UserSig[](1);
         userSigs[0] = SubVoting.UserSig({
             user: user1,
             userNonce: 0,
-            recordIndex: 0,
             signature: _signUserSig(user1PrivateKey, records[0], 0)
         });
 
@@ -262,11 +297,10 @@ contract SubVotingTest is Test {
         voting.submitMultiUserBatch(records, userSigs, 0, executorSig);
 
         // 두 번째 제출 실패 (같은 batch nonce)
-        records[0] = _createVoteRecord(user1, "user1", 1, 2, "Question2", "AnswerB", 150);
+        records[0] = _createVoteRecord(user1, "user1", 1, 2, 1, 2, 150);
         userSigs[0] = SubVoting.UserSig({
             user: user1,
             userNonce: 1,
-            recordIndex: 0,
             signature: _signUserSig(user1PrivateKey, records[0], 1)
         });
         bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 0); // 같은 batch nonce
@@ -276,32 +310,115 @@ contract SubVotingTest is Test {
     }
 
     // ========================================
-    // View 함수 테스트
+    // 데이터 검증 실패 케이스
     // ========================================
 
-    function test_GetVotesByMissionVotingId() public {
-        SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](3);
-        records[0] = _createVoteRecord(user1, "user1", 1, 1, "Question1", "AnswerA", 100);
-        records[1] = _createVoteRecord(user2, "user2", 1, 2, "Question2", "AnswerB", 200);
-        records[2] = _createVoteRecord(user3, "user3", 1, 1, "Question1", "AnswerC", 150); // 같은 votingId
+    function test_RevertWhen_QuestionNotAllowed() public {
+        SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](1);
+        records[0] = _createVoteRecord(user1, "user1", 1, 1, 99, 1, 100); // questionId 99 not allowed
 
-        SubVoting.UserSig[] memory userSigs = new SubVoting.UserSig[](3);
+        SubVoting.UserSig[] memory userSigs = new SubVoting.UserSig[](1);
         userSigs[0] = SubVoting.UserSig({
             user: user1,
             userNonce: 0,
-            recordIndex: 0,
+            signature: _signUserSig(user1PrivateKey, records[0], 0)
+        });
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+
+        vm.expectRevert(abi.encodeWithSelector(SubVoting.QuestionNotAllowed.selector, 1, 99));
+        voting.submitMultiUserBatch(records, userSigs, 0, executorSig);
+    }
+
+    function test_RevertWhen_OptionNotAllowed() public {
+        SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](1);
+        records[0] = _createVoteRecord(user1, "user1", 1, 1, 1, 5, 100); // optionId 5 not allowed for question 1
+
+        SubVoting.UserSig[] memory userSigs = new SubVoting.UserSig[](1);
+        userSigs[0] = SubVoting.UserSig({
+            user: user1,
+            userNonce: 0,
+            signature: _signUserSig(user1PrivateKey, records[0], 0)
+        });
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+
+        vm.expectRevert(abi.encodeWithSelector(SubVoting.OptionNotAllowed.selector, 1, 5));
+        voting.submitMultiUserBatch(records, userSigs, 0, executorSig);
+    }
+
+    function test_RevertWhen_InvalidOptionId() public {
+        SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](1);
+        records[0] = _createVoteRecord(user1, "user1", 1, 1, 1, 0, 100); // optionId 0 invalid
+
+        SubVoting.UserSig[] memory userSigs = new SubVoting.UserSig[](1);
+        userSigs[0] = SubVoting.UserSig({
+            user: user1,
+            userNonce: 0,
+            signature: _signUserSig(user1PrivateKey, records[0], 0)
+        });
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+
+        vm.expectRevert(abi.encodeWithSelector(SubVoting.InvalidOptionId.selector, 0));
+        voting.submitMultiUserBatch(records, userSigs, 0, executorSig);
+    }
+
+    // ========================================
+    // 0 포인트 투표 스킵 테스트
+    // ========================================
+
+    function test_SkipZeroAmountVote() public {
+        SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](2);
+        records[0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 0); // 0 포인트 - 스킵됨
+        records[1] = _createVoteRecord(user2, "user2", 1, 2, 1, 1, 100);
+
+        SubVoting.UserSig[] memory userSigs = new SubVoting.UserSig[](2);
+        userSigs[0] = SubVoting.UserSig({
+            user: user1,
+            userNonce: 0,
             signature: _signUserSig(user1PrivateKey, records[0], 0)
         });
         userSigs[1] = SubVoting.UserSig({
             user: user2,
             userNonce: 0,
-            recordIndex: 1,
+            signature: _signUserSig(user2PrivateKey, records[1], 0)
+        });
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+
+        voting.submitMultiUserBatch(records, userSigs, 0, executorSig);
+
+        // 집계 검증 - 0 포인트 투표는 스킵되어 100만 집계됨
+        (uint256[11] memory optionVotes, uint256 total) = voting.getQuestionAggregates(1, 1);
+        assertEq(optionVotes[1], 100);
+        assertEq(total, 100);
+    }
+
+    // ========================================
+    // View 함수 테스트
+    // ========================================
+
+    function test_GetVotesByMissionVotingId() public {
+        SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](3);
+        records[0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100);
+        records[1] = _createVoteRecord(user2, "user2", 1, 2, 1, 2, 200);
+        records[2] = _createVoteRecord(user3, "user3", 1, 1, 2, 1, 150); // 같은 votingId
+
+        SubVoting.UserSig[] memory userSigs = new SubVoting.UserSig[](3);
+        userSigs[0] = SubVoting.UserSig({
+            user: user1,
+            userNonce: 0,
+            signature: _signUserSig(user1PrivateKey, records[0], 0)
+        });
+        userSigs[1] = SubVoting.UserSig({
+            user: user2,
+            userNonce: 0,
             signature: _signUserSig(user2PrivateKey, records[1], 0)
         });
         userSigs[2] = SubVoting.UserSig({
             user: user3,
             userNonce: 0,
-            recordIndex: 2,
             signature: _signUserSig(user3PrivateKey, records[2], 0)
         });
 
@@ -320,42 +437,100 @@ contract SubVotingTest is Test {
         assertEq(votingId2[0].userId, "user2");
     }
 
-    function test_GetVoteCountByVotingId() public {
+    function test_GetOptionVotes() public {
         SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](3);
-        records[0] = _createVoteRecord(user1, "user1", 1, 1, "Question1", "AnswerA", 100);
-        records[1] = _createVoteRecord(user2, "user2", 1, 1, "Question1", "AnswerB", 200);
-        records[2] = _createVoteRecord(user3, "user3", 1, 2, "Question2", "AnswerC", 150);
+        records[0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100);
+        records[1] = _createVoteRecord(user2, "user2", 1, 2, 1, 1, 200);
+        records[2] = _createVoteRecord(user3, "user3", 1, 3, 1, 2, 150);
 
         SubVoting.UserSig[] memory userSigs = new SubVoting.UserSig[](3);
         userSigs[0] = SubVoting.UserSig({
             user: user1,
             userNonce: 0,
-            recordIndex: 0,
             signature: _signUserSig(user1PrivateKey, records[0], 0)
         });
         userSigs[1] = SubVoting.UserSig({
             user: user2,
             userNonce: 0,
-            recordIndex: 1,
             signature: _signUserSig(user2PrivateKey, records[1], 0)
         });
         userSigs[2] = SubVoting.UserSig({
             user: user3,
             userNonce: 0,
-            recordIndex: 2,
             signature: _signUserSig(user3PrivateKey, records[2], 0)
         });
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
         voting.submitMultiUserBatch(records, userSigs, 0, executorSig);
 
-        // 개수 확인
-        assertEq(voting.getVoteCountByVotingId(1, 1), 2); // user1 + user2
-        assertEq(voting.getVoteCountByVotingId(1, 2), 1); // user3
+        // 선택지별 득표 확인
+        assertEq(voting.getOptionVotes(1, 1, 1), 300); // user1 + user2
+        assertEq(voting.getOptionVotes(1, 1, 2), 150); // user3
+    }
+
+    function test_GetQuestionWithOptions() public {
+        // 투표 제출
+        SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](2);
+        records[0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100);
+        records[1] = _createVoteRecord(user2, "user2", 1, 2, 1, 2, 200);
+
+        SubVoting.UserSig[] memory userSigs = new SubVoting.UserSig[](2);
+        userSigs[0] = SubVoting.UserSig({
+            user: user1,
+            userNonce: 0,
+            signature: _signUserSig(user1PrivateKey, records[0], 0)
+        });
+        userSigs[1] = SubVoting.UserSig({
+            user: user2,
+            userNonce: 0,
+            signature: _signUserSig(user2PrivateKey, records[1], 0)
+        });
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(records, userSigs, 0, executorSig);
+
+        // 질문 정보 조회
+        SubVoting.QuestionInfo memory info = voting.getQuestionWithOptions(1, 1);
+        assertEq(info.questionText, "Question1");
+        assertTrue(info.questionAllowed);
+        assertEq(info.totalVotes, 300);
+        assertEq(info.options.length, 2);
+        assertEq(info.options[0].optionId, 1);
+        assertEq(info.options[0].votes, 100);
+        assertEq(info.options[1].optionId, 2);
+        assertEq(info.options[1].votes, 200);
     }
 
     function test_DomainSeparator() public view {
         bytes32 separator = voting.domainSeparator();
         assertTrue(separator != bytes32(0));
+    }
+
+    // ========================================
+    // Nonce 취소 테스트
+    // ========================================
+
+    function test_CancelUserNonce() public {
+        voting.cancelAllUserNonceUpTo(user1, 10);
+        assertEq(voting.minUserNonce(user1), 10);
+    }
+
+    function test_RevertWhen_CancelUserNonceTooLow() public {
+        voting.cancelAllUserNonceUpTo(user1, 10);
+
+        vm.expectRevert(SubVoting.UserNonceTooLow.selector);
+        voting.cancelAllUserNonceUpTo(user1, 5);
+    }
+
+    function test_CancelBatchNonce() public {
+        voting.cancelAllBatchNonceUpTo(10);
+        assertEq(voting.minBatchNonce(executorSigner), 10);
+    }
+
+    function test_RevertWhen_CancelBatchNonceTooLow() public {
+        voting.cancelAllBatchNonceUpTo(10);
+
+        vm.expectRevert(SubVoting.BatchNonceTooLow.selector);
+        voting.cancelAllBatchNonceUpTo(5);
     }
 }

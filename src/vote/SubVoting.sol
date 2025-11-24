@@ -26,18 +26,18 @@ contract SubVoting is Ownable2Step, EIP712 {
     // ========================================
     bytes4 private constant ERC1271_MAGICVALUE = 0x1626ba7e;
 
-    uint256 public constant MAX_RECORDS_PER_BATCH = 5000;
+    uint256 public constant MAX_RECORDS_PER_BATCH = 2000;
     uint256 public constant MAX_STRING_LENGTH = 100;
 
-    // 답변 개수 제한 (1~10)
-    uint256 public constant MAX_ANSWER_ID = 10;
+    // 선택지 개수 제한 (1~10)
+    uint256 public constant MAX_OPTION_ID = 10;
 
     // ========================================
     // EIP-712 Type Hashes
     // ========================================
     bytes32 private constant VOTE_RECORD_TYPEHASH =
         keccak256(
-            "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,bytes32 userIdHash,uint256 questionId,uint256 answerId,uint256 votingAmt)"
+            "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,uint256 questionId,uint256 optionId,uint256 votingAmt)"
         );
 
     bytes32 private constant USER_SIG_TYPEHASH =
@@ -56,17 +56,13 @@ contract SubVoting is Ownable2Step, EIP712 {
     error UserNonceTooLow();
     error BatchNonceAlreadyUsed();
     error BatchNonceTooLow();
-    error InvalidRecordIndex();
     error BatchTooLarge();
-    error QueryLimitExceeded();
     error StringTooLong();
-    error UncoveredRecord(uint256 index);
-    error DuplicateIndex(uint256 index);
     error LengthMismatch();
     error NotOwnerOrExecutor();
     error QuestionNotAllowed(uint256 missionId, uint256 questionId);
-    error AnswerNotAllowed(uint256 missionId, uint256 answerId);
-    error InvalidAnswerId(uint256 answerId);
+    error OptionNotAllowed(uint256 missionId, uint256 optionId);
+    error InvalidOptionId(uint256 optionId);
 
     // ========================================
     // Data Structures
@@ -78,14 +74,13 @@ contract SubVoting is Ownable2Step, EIP712 {
         address userAddress;
         string userId;
         uint256 questionId; // 질문 ID (사전 등록)
-        uint256 answerId; // 답변 ID (1~10)
+        uint256 optionId; // 선택지 ID (1~10)
         uint256 votingAmt;
     }
 
     struct UserSig {
         address user;
         uint256 userNonce;
-        uint256 recordIndex;
         bytes signature;
     }
 
@@ -116,20 +111,22 @@ contract SubVoting is Ownable2Step, EIP712 {
     // 질문 허용 여부: missionId => questionId => allowed
     mapping(uint256 => mapping(uint256 => bool)) public allowedQuestion;
 
-    // 답변 이름: missionId => questionId => answerId => text
-    mapping(uint256 => mapping(uint256 => mapping(uint256 => string))) public answerName;
+    // 선택지 이름: missionId => questionId => optionId => text
+    mapping(uint256 => mapping(uint256 => mapping(uint256 => string)))
+        public optionName;
 
-    // 답변 허용 여부: missionId => questionId => answerId => allowed
-    mapping(uint256 => mapping(uint256 => mapping(uint256 => bool))) public allowedAnswer;
+    // 선택지 허용 여부: missionId => questionId => optionId => allowed
+    mapping(uint256 => mapping(uint256 => mapping(uint256 => bool)))
+        public allowedOption;
 
     // === 실시간 집계 (MainVoting 패턴) ===
 
     /**
-     * @notice 질문별 답변 득표 통계
-     * @dev answerId (1~10) → 총 투표 포인트
+     * @notice 질문별 선택지 득표 통계
+     * @dev optionId (1~10) → 총 투표 포인트
      */
     struct QuestionStats {
-        uint256[11] answerVotes; // answerVotes[1~10] 사용 (0번 인덱스 미사용)
+        uint256[11] optionVotes; // optionVotes[1~10] 사용 (0번 인덱스 미사용)
         uint256 total; // 전체 투표 포인트 합계
     }
 
@@ -147,8 +144,7 @@ contract SubVoting is Ownable2Step, EIP712 {
     event UserVoteProcessed(
         bytes32 indexed batchDigest,
         address indexed user,
-        uint256 userNonce,
-        uint256 recordIndex
+        uint256 userNonce
     );
     event BatchProcessed(
         bytes32 indexed batchDigest,
@@ -170,10 +166,10 @@ contract SubVoting is Ownable2Step, EIP712 {
         string text,
         bool allowed
     );
-    event AnswerSet(
+    event OptionSet(
         uint256 indexed missionId,
         uint256 indexed questionId,
-        uint256 indexed answerId,
+        uint256 indexed optionId,
         string text,
         bool allowed
     );
@@ -202,40 +198,34 @@ contract SubVoting is Ownable2Step, EIP712 {
         string calldata text,
         bool allowed_
     ) external onlyOwner {
-        // 덮어쓰기 방지: 질문이 이미 설정된 경우 수정 불가
-        require(bytes(questionName[missionId][questionId]).length == 0, "Question already exists");
-        
         questionName[missionId][questionId] = text;
         allowedQuestion[missionId][questionId] = allowed_;
         emit QuestionSet(missionId, questionId, text, allowed_);
     }
 
     /**
-     * @notice 답변 등록 및 활성화 관리
-     * @dev answerId는 1~10만 허용
+     * @notice 선택지 등록 및 활성화 관리
+     * @dev optionId는 1~10만 허용
      * @param missionId 미션 ID
      * @param questionId 질문 ID
-     * @param answerId 답변 ID (1~10)
-     * @param text 답변 텍스트
+     * @param optionId 선택지 ID (1~10)
+     * @param text 선택지 텍스트
      * @param allowed_ 투표 허용 여부
      */
-    function setAnswer(
+    function setOption(
         uint256 missionId,
         uint256 questionId,
-        uint256 answerId,
+        uint256 optionId,
         string calldata text,
         bool allowed_
     ) external onlyOwner {
-        if (answerId == 0 || answerId > MAX_ANSWER_ID) {
-            revert InvalidAnswerId(answerId);
+        if (optionId == 0 || optionId > MAX_OPTION_ID) {
+            revert InvalidOptionId(optionId);
         }
-        
-        // 덮어쓰기 방지: 답변이 이미 설정된 경우 수정 불가
-        require(bytes(answerName[missionId][questionId][answerId]).length == 0, "Answer already exists");
-        
-        answerName[missionId][questionId][answerId] = text;
-        allowedAnswer[missionId][questionId][answerId] = allowed_;
-        emit AnswerSet(missionId, questionId, answerId, text, allowed_);
+
+        optionName[missionId][questionId][optionId] = text;
+        allowedOption[missionId][questionId][optionId] = allowed_;
+        emit OptionSet(missionId, questionId, optionId, text, allowed_);
     }
 
     // ========================================
@@ -252,6 +242,8 @@ contract SubVoting is Ownable2Step, EIP712 {
         }
 
         executorSigner = s;
+        // 새 executor의 minBatchNonce를 0으로 초기화 (재등록 시 uint256.max 방지)
+        minBatchNonce[s] = 0;
         emit ExecutorSignerChanged(oldSigner, s, oldMinNonce);
     }
 
@@ -292,9 +284,8 @@ contract SubVoting is Ownable2Step, EIP712 {
                     record.missionId,
                     record.votingId,
                     record.userAddress,
-                    keccak256(bytes(record.userId)),
                     record.questionId,
-                    record.answerId,
+                    record.optionId,
                     record.votingAmt
                 )
             );
@@ -362,8 +353,8 @@ contract SubVoting is Ownable2Step, EIP712 {
     }
 
     function _validateRecordCommon(VoteRecord calldata record) internal view {
-        if (record.answerId == 0 || record.answerId > MAX_ANSWER_ID) {
-            revert InvalidAnswerId(record.answerId);
+        if (record.optionId == 0 || record.optionId > MAX_OPTION_ID) {
+            revert InvalidOptionId(record.optionId);
         }
         if (record.userAddress == address(0)) {
             revert ZeroAddress();
@@ -371,8 +362,10 @@ contract SubVoting is Ownable2Step, EIP712 {
         if (!allowedQuestion[record.missionId][record.questionId]) {
             revert QuestionNotAllowed(record.missionId, record.questionId);
         }
-        if (!allowedAnswer[record.missionId][record.questionId][record.answerId]) {
-            revert AnswerNotAllowed(record.missionId, record.answerId);
+        if (
+            !allowedOption[record.missionId][record.questionId][record.optionId]
+        ) {
+            revert OptionNotAllowed(record.missionId, record.optionId);
         }
     }
 
@@ -395,22 +388,13 @@ contract SubVoting is Ownable2Step, EIP712 {
     // Internal: User Signature Verification (1:1)
     // ========================================
     function _verifyUserSignature(
-        VoteRecord[] calldata records,
+        VoteRecord calldata record,
         UserSig calldata userSig,
-        bool[] memory covered,
-        bytes32[] memory recordDigests,
+        bytes32 recordHash,
         bytes32 batchDigest
     ) internal {
-        uint256 idx = userSig.recordIndex;
-
-        if (idx >= records.length) revert InvalidRecordIndex();
-        if (covered[idx]) revert DuplicateIndex(idx);
-        covered[idx] = true;
-
-        VoteRecord calldata record = records[idx];
         if (record.userAddress != userSig.user) revert InvalidSignature();
 
-        bytes32 recordHash = recordDigests[idx];
         bytes32 userSigDigest = _hashUserSig(
             userSig.user,
             userSig.userNonce,
@@ -423,12 +407,7 @@ contract SubVoting is Ownable2Step, EIP712 {
 
         _consumeUserNonce(userSig.user, userSig.userNonce);
 
-        emit UserVoteProcessed(
-            batchDigest,
-            userSig.user,
-            userSig.userNonce,
-            idx
-        );
+        emit UserVoteProcessed(batchDigest, userSig.user, userSig.userNonce);
     }
 
     function _verifyBatchSignature(
@@ -446,31 +425,21 @@ contract SubVoting is Ownable2Step, EIP712 {
     function _verifyAllUserCoverage(
         VoteRecord[] calldata records,
         UserSig[] calldata userSigs,
-        bool[] memory covered,
         bytes32[] memory recordDigests,
         bytes32 batchDigest
     ) internal {
-        uint256 userSigLen = userSigs.length;
-        if (userSigLen != records.length) revert LengthMismatch();
+        uint256 len = records.length;
+        if (len != userSigs.length) revert LengthMismatch();
 
-        for (uint256 i; i < userSigLen; ) {
+        for (uint256 i; i < len; ) {
             _verifyUserSignature(
-                records,
+                records[i],
                 userSigs[i],
-                covered,
-                recordDigests,
+                recordDigests[i],
                 batchDigest
             );
             unchecked {
                 ++i;
-            }
-        }
-
-        uint256 len = records.length;
-        for (uint256 k; k < len; ) {
-            if (!covered[k]) revert UncoveredRecord(k);
-            unchecked {
-                ++k;
             }
         }
     }
@@ -533,7 +502,7 @@ contract SubVoting is Ownable2Step, EIP712 {
                 record.questionId
             ];
 
-            stats.answerVotes[record.answerId] += record.votingAmt;
+            stats.optionVotes[record.optionId] += record.votingAmt;
             stats.total += record.votingAmt;
 
             unchecked {
@@ -561,14 +530,7 @@ contract SubVoting is Ownable2Step, EIP712 {
 
         bytes32[] memory recordDigests = _buildRecordDigests(records);
 
-        bool[] memory covered = new bool[](len);
-        _verifyAllUserCoverage(
-            records,
-            userSigs,
-            covered,
-            recordDigests,
-            batchDigest
-        );
+        _verifyAllUserCoverage(records, userSigs, recordDigests, batchDigest);
         uint256 userSigLen = userSigs.length;
 
         uint256 stored = _storeVoteRecords(records, recordDigests);
@@ -586,37 +548,37 @@ contract SubVoting is Ownable2Step, EIP712 {
     // ========================================
 
     /**
-     * @notice 질문별 답변 득표 현황 조회
-     * @dev MainVoting의 getCandidateAggregates와 동일 패턴
+     * @notice 질문별 선택지 득표 현황 조회
+     * @dev MainVoting의 getArtistAggregates와 동일 패턴
      * @param missionId 미션 ID
      * @param questionId 질문 ID
-     * @return answerVotes 답변별 득표 (1~10)
+     * @return optionVotes 선택지별 득표 (1~10)
      * @return total 전체 투표 포인트 합계
      */
     function getQuestionAggregates(
         uint256 missionId,
         uint256 questionId
-    ) external view returns (uint256[11] memory answerVotes, uint256 total) {
+    ) external view returns (uint256[11] memory optionVotes, uint256 total) {
         QuestionStats storage s = questionStats[missionId][questionId];
-        return (s.answerVotes, s.total);
+        return (s.optionVotes, s.total);
     }
 
     /**
-     * @notice 특정 답변의 득표 조회
+     * @notice 특정 선택지의 득표 조회
      * @param missionId 미션 ID
      * @param questionId 질문 ID
-     * @param answerId 답변 ID (1~10)
-     * @return 해당 답변의 총 투표 포인트
+     * @param optionId 선택지 ID (1~10)
+     * @return 해당 선택지의 총 투표 포인트
      */
-    function getAnswerVotes(
+    function getOptionVotes(
         uint256 missionId,
         uint256 questionId,
-        uint256 answerId
+        uint256 optionId
     ) external view returns (uint256) {
-        if (answerId == 0 || answerId > MAX_ANSWER_ID) {
-            revert InvalidAnswerId(answerId);
+        if (optionId == 0 || optionId > MAX_OPTION_ID) {
+            revert InvalidOptionId(optionId);
         }
-        return questionStats[missionId][questionId].answerVotes[answerId];
+        return questionStats[missionId][questionId].optionVotes[optionId];
     }
 
     // ========================================
@@ -624,11 +586,11 @@ contract SubVoting is Ownable2Step, EIP712 {
     // ========================================
 
     /**
-     * @notice 답변 정보 구조체
+     * @notice 선택지 정보 구조체
      */
-    struct AnswerInfo {
-        uint256 answerId;
-        string answerText;
+    struct OptionInfo {
+        uint256 optionId;
+        string optionText;
         uint256 votes;
         bool allowed;
     }
@@ -639,18 +601,18 @@ contract SubVoting is Ownable2Step, EIP712 {
     struct QuestionInfo {
         string questionText;
         bool questionAllowed;
-        AnswerInfo[] answers;
+        OptionInfo[] options;
         uint256 totalVotes;
     }
 
     /**
-     * @notice 특정 질문과 모든 답변 정보 조회
-     * @dev answerId 1~10을 순회하며 등록된 답변만 반환
+     * @notice 특정 질문과 모든 선택지 정보 조회
+     * @dev optionId 1~10을 순회하며 등록된 선택지만 반환
      * @param missionId 미션 ID
      * @param questionId 질문 ID
-     * @return QuestionInfo 질문 텍스트, 답변 목록, 총 득표수
+     * @return QuestionInfo 질문 텍스트, 선택지 목록, 총 득표수
      */
-    function getQuestionWithAnswers(
+    function getQuestionWithOptions(
         uint256 missionId,
         uint256 questionId
     ) external view returns (QuestionInfo memory) {
@@ -658,12 +620,12 @@ contract SubVoting is Ownable2Step, EIP712 {
         bool qAllowed = allowedQuestion[missionId][questionId];
         QuestionStats storage stats = questionStats[missionId][questionId];
 
-        // 등록된 답변 개수 세기
-        uint256 answerCount = 0;
-        for (uint256 i = 1; i <= MAX_ANSWER_ID; ) {
-            if (bytes(answerName[missionId][questionId][i]).length > 0) {
+        // 등록된 선택지 개수 세기
+        uint256 optionCount = 0;
+        for (uint256 i = 1; i <= MAX_OPTION_ID; ) {
+            if (bytes(optionName[missionId][questionId][i]).length > 0) {
                 unchecked {
-                    ++answerCount;
+                    ++optionCount;
                 }
             }
             unchecked {
@@ -671,18 +633,18 @@ contract SubVoting is Ownable2Step, EIP712 {
             }
         }
 
-        // 답변 배열 생성
-        AnswerInfo[] memory answers = new AnswerInfo[](answerCount);
+        // 선택지 배열 생성
+        OptionInfo[] memory options = new OptionInfo[](optionCount);
         uint256 index = 0;
 
-        for (uint256 i = 1; i <= MAX_ANSWER_ID; ) {
-            string memory aText = answerName[missionId][questionId][i];
-            if (bytes(aText).length > 0) {
-                answers[index] = AnswerInfo({
-                    answerId: i,
-                    answerText: aText,
-                    votes: stats.answerVotes[i],
-                    allowed: allowedAnswer[missionId][questionId][i]
+        for (uint256 i = 1; i <= MAX_OPTION_ID; ) {
+            string memory oText = optionName[missionId][questionId][i];
+            if (bytes(oText).length > 0) {
+                options[index] = OptionInfo({
+                    optionId: i,
+                    optionText: oText,
+                    votes: stats.optionVotes[i],
+                    allowed: allowedOption[missionId][questionId][i]
                 });
                 unchecked {
                     ++index;
@@ -693,33 +655,34 @@ contract SubVoting is Ownable2Step, EIP712 {
             }
         }
 
-        return QuestionInfo({
-            questionText: qText,
-            questionAllowed: qAllowed,
-            answers: answers,
-            totalVotes: stats.total
-        });
+        return
+            QuestionInfo({
+                questionText: qText,
+                questionAllowed: qAllowed,
+                options: options,
+                totalVotes: stats.total
+            });
     }
 
     /**
-     * @notice 답변 목록만 간단히 조회
-     * @dev 질문 정보 없이 답변 목록만 반환
+     * @notice 선택지 목록만 간단히 조회
+     * @dev 질문 정보 없이 선택지 목록만 반환
      * @param missionId 미션 ID
      * @param questionId 질문 ID
-     * @return AnswerInfo[] 답변 배열
+     * @return OptionInfo[] 선택지 배열
      */
-    function getAnswerList(
+    function getOptionList(
         uint256 missionId,
         uint256 questionId
-    ) external view returns (AnswerInfo[] memory) {
+    ) external view returns (OptionInfo[] memory) {
         QuestionStats storage stats = questionStats[missionId][questionId];
 
-        // 등록된 답변 개수 세기
-        uint256 answerCount = 0;
-        for (uint256 i = 1; i <= MAX_ANSWER_ID; ) {
-            if (bytes(answerName[missionId][questionId][i]).length > 0) {
+        // 등록된 선택지 개수 세기
+        uint256 optionCount = 0;
+        for (uint256 i = 1; i <= MAX_OPTION_ID; ) {
+            if (bytes(optionName[missionId][questionId][i]).length > 0) {
                 unchecked {
-                    ++answerCount;
+                    ++optionCount;
                 }
             }
             unchecked {
@@ -727,18 +690,18 @@ contract SubVoting is Ownable2Step, EIP712 {
             }
         }
 
-        // 답변 배열 생성
-        AnswerInfo[] memory answers = new AnswerInfo[](answerCount);
+        // 선택지 배열 생성
+        OptionInfo[] memory options = new OptionInfo[](optionCount);
         uint256 index = 0;
 
-        for (uint256 i = 1; i <= MAX_ANSWER_ID; ) {
-            string memory aText = answerName[missionId][questionId][i];
-            if (bytes(aText).length > 0) {
-                answers[index] = AnswerInfo({
-                    answerId: i,
-                    answerText: aText,
-                    votes: stats.answerVotes[i],
-                    allowed: allowedAnswer[missionId][questionId][i]
+        for (uint256 i = 1; i <= MAX_OPTION_ID; ) {
+            string memory oText = optionName[missionId][questionId][i];
+            if (bytes(oText).length > 0) {
+                options[index] = OptionInfo({
+                    optionId: i,
+                    optionText: oText,
+                    votes: stats.optionVotes[i],
+                    allowed: allowedOption[missionId][questionId][i]
                 });
                 unchecked {
                     ++index;
@@ -749,7 +712,7 @@ contract SubVoting is Ownable2Step, EIP712 {
             }
         }
 
-        return answers;
+        return options;
     }
 
     // ========================================
@@ -763,13 +726,6 @@ contract SubVoting is Ownable2Step, EIP712 {
         bytes32 voteHash
     ) external view returns (VoteRecord memory) {
         return votes[voteHash];
-    }
-
-    function getVoteCountByVotingId(
-        uint256 missionId,
-        uint256 votingId
-    ) external view returns (uint256) {
-        return voteHashesByMissionVotingId[missionId][votingId].length;
     }
 
     function getVotesByMissionVotingId(
@@ -799,14 +755,14 @@ contract SubVoting is Ownable2Step, EIP712 {
         uint256 votingId;
         string userId;
         string questionText; // questionName에서 조회
-        string answerText; // answerName에서 조회
+        string optionText; // optionName에서 조회
         uint256 votingAmt;
     }
 
     /**
      * @notice 투표 요약 조회 (문자열 변환)
      * @dev MainVoting의 getVoteSummariesByMissionVotingId와 동일 패턴
-     *      questionId/answerId를 questionName/answerName으로 변환
+     *      questionId/optionId를 questionName/optionName으로 변환
      */
     function getVoteSummariesByMissionVotingId(
         uint256 missionId,
@@ -824,9 +780,9 @@ contract SubVoting is Ownable2Step, EIP712 {
             string memory question = questionName[record.missionId][
                 record.questionId
             ];
-            string memory answer = answerName[record.missionId][
+            string memory option = optionName[record.missionId][
                 record.questionId
-            ][record.answerId];
+            ][record.optionId];
 
             result[i] = VoteRecordSummary({
                 timestamp: record.timestamp,
@@ -834,7 +790,7 @@ contract SubVoting is Ownable2Step, EIP712 {
                 votingId: record.votingId,
                 userId: record.userId,
                 questionText: question,
-                answerText: answer,
+                optionText: option,
                 votingAmt: record.votingAmt
             });
             unchecked {

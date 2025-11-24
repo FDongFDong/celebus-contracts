@@ -22,7 +22,7 @@ const RECORD_TUPLE = {
     { name: 'missionId', type: 'uint256' },
     { name: 'votingId', type: 'uint256' },
     { name: 'userAddress', type: 'address' },
-    { name: 'candidateId', type: 'uint256' },
+    { name: 'artistId', type: 'uint256' },
     { name: 'voteType', type: 'uint8' },
     { name: 'userId', type: 'string' },
     { name: 'votingAmt', type: 'uint256' },
@@ -34,7 +34,6 @@ const USER_SIG_TUPLE = {
   components: [
     { name: 'user', type: 'address' },
     { name: 'userNonce', type: 'uint256' },
-    { name: 'recordIndices', type: 'uint256[]' },
     { name: 'signature', type: 'bytes' },
   ],
 };
@@ -99,21 +98,18 @@ function decodeRecords(encoded) {
     missionId: BigInt(r.missionId),
     votingId: BigInt(r.votingId),
     userAddress: getAddress(r.userAddress),
-    candidateId: BigInt(r.candidateId),
+    artistId: BigInt(r.artistId),
     voteType: Number(r.voteType),
     userId: r.userId,
     votingAmt: BigInt(r.votingAmt),
   }));
 }
 
-// recordNonces는 V1에서 제거됨 (불필요)
-
 function decodeUserBatchSigs(encoded) {
   const [sigs] = decodeAbiParameters([USER_SIG_TUPLE], encoded);
   return sigs.map((sig) => ({
     user: getAddress(sig.user),
     userNonce: BigInt(sig.userNonce),
-    recordIndices: sig.recordIndices.map((idx) => BigInt(idx)),
     signature: sig.signature,
   }));
 }

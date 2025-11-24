@@ -19,11 +19,11 @@ const DEFAULT_VOTING_ADDRESS = '0x10Fb9C7BFec7d2059b65c9e70B4F58E2E6fd0eFE';
 const DEFAULT_TOTAL_VOTES = 100;
 const DEFAULT_USER_COUNT = 20;
 const DEFAULT_MISSION_ID = 1;
-const MAX_RECORDS_PER_BATCH = 5000;
-const MAX_RECORDS_PER_USER_BATCH = 50;
-// V1: deadline 제거, candidateId + voteType 사용
+const MAX_RECORDS_PER_BATCH = 2000;
+const MAX_RECORDS_PER_USER_BATCH = 20;
+// V2: userIdHash 제거, candidateId → artistId
 const VOTE_RECORD_TYPESTRING =
-  'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,bytes32 userIdHash,uint256 candidateId,uint8 voteType,uint256 votingAmt)';
+  'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,uint256 artistId,uint8 voteType,uint256 votingAmt)';
 const VOTE_RECORD_TYPEHASH = keccak256(stringToHex(VOTE_RECORD_TYPESTRING));
 
 const USER_BATCH_TYPES = {
@@ -47,7 +47,7 @@ const RECORD_TUPLE = {
     { name: 'missionId', type: 'uint256' },
     { name: 'votingId', type: 'uint256' },
     { name: 'userAddress', type: 'address' },
-    { name: 'candidateId', type: 'uint256' },
+    { name: 'artistId', type: 'uint256' },
     { name: 'voteType', type: 'uint8' },
     { name: 'userId', type: 'string' },
     { name: 'votingAmt', type: 'uint256' },
@@ -59,7 +59,6 @@ const USER_SIG_TUPLE = {
   components: [
     { name: 'user', type: 'address' },
     { name: 'userNonce', type: 'uint256' },
-    { name: 'recordIndices', type: 'uint256[]' },
     { name: 'signature', type: 'bytes' },
   ],
 };
@@ -116,7 +115,6 @@ function hashVoteRecord(record) {
         { type: 'uint256' },
         { type: 'uint256' },
         { type: 'address' },
-        { type: 'bytes32' },
         { type: 'uint256' },
         { type: 'uint8' },
         { type: 'uint256' },
@@ -127,8 +125,7 @@ function hashVoteRecord(record) {
         record.missionId,
         record.votingId,
         record.userAddress,
-        keccak256(stringToHex(record.userId)),
-        record.candidateId,
+        record.artistId,
         record.voteType,
         record.votingAmt,
       ]
@@ -250,7 +247,6 @@ async function main() {
     const userAccount = privateKeyToAccount(userKey);
     const perUserRecords = [];
     const perUserHashes = [];
-    const recordIndices = [];
 
     const votingIdBase = votingBase + BigInt(u) + (randomSalt % 1_000_000_000n) + 1n;
     const votingId = (votingIdBase % 1_000_000_000n) + 1n;
@@ -258,18 +254,17 @@ async function main() {
     const userId = `stress-${u}`;
 
     for (let j = 0; j < votesPerUser; j++) {
-      const idx = records.length;
       const votingAmt = BigInt(10 + j);
-      // V1: voteType 0=Forget, 1=Remember
+      // voteType 0=Forget, 1=Remember
       const voteType = j < rememberCount ? 1 : 0;
-      // candidateId는 투표별로 1~10 범위로 순환 분산 (각 사용자가 다양한 후보에게 투표)
-      const candidateId = BigInt((j % 10) + 1);
+      // artistId는 투표별로 1~10 범위로 순환 분산 (각 사용자가 다양한 아티스트에게 투표)
+      const artistId = BigInt((j % 10) + 1);
       const record = {
         timestamp,
         missionId,
         votingId,
         userAddress: userAccount.address,
-        candidateId,
+        artistId,
         voteType,
         userId,
         votingAmt,
@@ -281,7 +276,6 @@ async function main() {
 
       perUserRecords.push(record);
       perUserHashes.push(digest);
-      recordIndices.push(BigInt(idx));
     }
 
     const recordsHash = keccak256(concatHex(perUserHashes));
@@ -299,7 +293,6 @@ async function main() {
     userBatchSigs.push({
       user: userAccount.address,
       userNonce,
-      recordIndices,
       signature,
     });
   }

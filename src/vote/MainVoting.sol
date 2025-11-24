@@ -29,7 +29,7 @@ contract MainVoting is Ownable2Step, EIP712 {
     bytes4 private constant ERC1271_MAGICVALUE = 0x1626ba7e;
 
     // 한 트랜잭션에 포함 가능한 최대 투표 레코드 수 (전체 합)
-    uint256 public constant MAX_RECORDS_PER_BATCH = 5000;
+    uint256 public constant MAX_RECORDS_PER_BATCH = 2000;
 
     // 한 사용자가 한 배치에서 서명할 수 있는 최대 레코드 수
     uint16 public constant MAX_RECORDS_PER_USER_BATCH = 20;
@@ -48,7 +48,7 @@ contract MainVoting is Ownable2Step, EIP712 {
 
     bytes32 private constant VOTE_RECORD_TYPEHASH =
         keccak256(
-            "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,uint256 candidateId,uint8 voteType,uint256 votingAmt)"
+            "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,uint256 artistId,uint8 voteType,uint256 votingAmt)"
         );
 
     bytes32 private constant USER_BATCH_TYPEHASH =
@@ -75,7 +75,7 @@ contract MainVoting is Ownable2Step, EIP712 {
     error UserBatchTooLarge();
     error StringTooLong();
     error NotOwnerOrExecutor();
-    error CandidateNotAllowed(uint256 missionId, uint256 candidateId);
+    error ArtistNotAllowed(uint256 missionId, uint256 artistId);
     error InvalidVoteType(uint8 value);
 
     // ========================================
@@ -87,7 +87,7 @@ contract MainVoting is Ownable2Step, EIP712 {
         uint256 missionId;
         uint256 votingId;
         address userAddress;
-        uint256 candidateId;
+        uint256 artistId;
         uint8 voteType;
         string userId;
         uint256 votingAmt;
@@ -109,7 +109,7 @@ contract MainVoting is Ownable2Step, EIP712 {
         uint256 votingAmt;
     }
 
-    struct CandidateStats {
+    struct ArtistStats {
         uint256 remember;
         uint256 forget;
         uint256 total;
@@ -134,12 +134,11 @@ contract MainVoting is Ownable2Step, EIP712 {
     uint256 public immutable CHAIN_ID;
     address public executorSigner;
 
-    mapping(uint256 => mapping(uint256 => string)) public candidateName;
-    mapping(uint256 => mapping(uint256 => bool)) public allowedCandidate;
+    mapping(uint256 => mapping(uint256 => string)) public artistName;
+    mapping(uint256 => mapping(uint256 => bool)) public allowedArtist;
     mapping(uint8 => string) public voteTypeName;
 
-    mapping(uint256 => mapping(uint256 => CandidateStats))
-        public candidateStats;
+    mapping(uint256 => mapping(uint256 => ArtistStats)) public artistStats;
 
     // ========================================
     // 이벤트
@@ -172,9 +171,9 @@ contract MainVoting is Ownable2Step, EIP712 {
         address indexed executorSigner,
         uint256 newMinBatchNonce
     );
-    event CandidateSet(
+    event ArtistSet(
         uint256 indexed missionId,
-        uint256 indexed candidateId,
+        uint256 indexed artistId,
         string name,
         bool allowed
     );
@@ -211,15 +210,15 @@ contract MainVoting is Ownable2Step, EIP712 {
         emit ExecutorSignerChanged(oldSigner, s, oldMinNonce);
     }
 
-    function setCandidate(
+    function setArtist(
         uint256 missionId,
-        uint256 candidateId,
+        uint256 artistId,
         string calldata name,
         bool allowed_
     ) external onlyOwner {
-        candidateName[missionId][candidateId] = name;
-        allowedCandidate[missionId][candidateId] = allowed_;
-        emit CandidateSet(missionId, candidateId, name, allowed_);
+        artistName[missionId][artistId] = name;
+        allowedArtist[missionId][artistId] = allowed_;
+        emit ArtistSet(missionId, artistId, name, allowed_);
     }
 
     function setVoteTypeName(
@@ -266,7 +265,7 @@ contract MainVoting is Ownable2Step, EIP712 {
                     record.missionId,
                     record.votingId,
                     record.userAddress,
-                    record.candidateId,
+                    record.artistId,
                     record.voteType,
                     record.votingAmt
                 )
@@ -423,8 +422,8 @@ contract MainVoting is Ownable2Step, EIP712 {
         if (record.userAddress == address(0)) {
             revert ZeroAddress();
         }
-        if (!allowedCandidate[record.missionId][record.candidateId]) {
-            revert CandidateNotAllowed(record.missionId, record.candidateId);
+        if (!allowedArtist[record.missionId][record.artistId]) {
+            revert ArtistNotAllowed(record.missionId, record.artistId);
         }
     }
 
@@ -461,8 +460,8 @@ contract MainVoting is Ownable2Step, EIP712 {
                     .push(recordDigest);
 
                 // 집계
-                CandidateStats storage stats = candidateStats[record.missionId][
-                    record.candidateId
+                ArtistStats storage stats = artistStats[record.missionId][
+                    record.artistId
                 ];
                 if (record.voteType == VOTE_TYPE_REMEMBER) {
                     stats.remember += record.votingAmt;
@@ -483,7 +482,7 @@ contract MainVoting is Ownable2Step, EIP712 {
     }
 
     // ========================================
-    // 메인 엔트리 포인트 (수정됨)
+    // 메인 엔트리 포인트
     // ========================================
 
     /**
@@ -559,13 +558,6 @@ contract MainVoting is Ownable2Step, EIP712 {
         return _domainSeparatorV4();
     }
 
-    function getVoteCountByVotingId(
-        uint256 missionId,
-        uint256 votingId
-    ) external view returns (uint256) {
-        return voteHashesByMissionVotingId[missionId][votingId].length;
-    }
-
     function getVoteSummariesByMissionVotingId(
         uint256 missionId,
         uint256 votingId
@@ -578,8 +570,8 @@ contract MainVoting is Ownable2Step, EIP712 {
 
         for (uint256 i; i < totalCount; ) {
             VoteRecord storage record = votes[allHashes[i]];
-            string memory candidate = candidateName[record.missionId][
-                record.candidateId
+            string memory candidate = artistName[record.missionId][
+                record.artistId
             ];
             string memory voteTypeLabel = voteTypeName[record.voteType];
 
@@ -599,11 +591,11 @@ contract MainVoting is Ownable2Step, EIP712 {
         return result;
     }
 
-    function getCandidateAggregates(
+    function getArtistAggregates(
         uint256 missionId,
-        uint256 candidateId
+        uint256 artistId
     ) external view returns (uint256 remember, uint256 forget, uint256 total) {
-        CandidateStats storage s = candidateStats[missionId][candidateId];
+        ArtistStats storage s = artistStats[missionId][artistId];
         return (s.remember, s.forget, s.total);
     }
 }
