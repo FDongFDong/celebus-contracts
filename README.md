@@ -24,7 +24,7 @@ Celebus 투표 시스템은 다중 사용자의 투표를 효율적으로 처리
 
 - **네트워크**: opBNB Testnet (Chain ID: 5611)
 - **최신 배포**: [DEPLOYMENT.md](./DEPLOYMENT.md) 참조
-- **Explorer**: https://testnet.opbnbscan.com/
+- **Explorer**: <https://testnet.opbnbscan.com/>
 
 ## 빠른 시작
 
@@ -66,11 +66,94 @@ forge test --gas-report
 ```bash
 # 환경변수 설정
 export PRIVATE_KEY=0xYOUR_PRIVATE_KEY
+export RPC_URL=https://opbnb-testnet-rpc.bnbchain.org
 
 # MainVoting 배포
 forge script script/DeployMainVoting.s.sol:DeployMainVoting \
-  --rpc-url https://opbnb-testnet-rpc.bnbchain.org \
-  --broadcast -vvv
+    --rpc-url $RPC_URL \
+    --private-key $PRIVATE_KEY \
+    --broadcast
+
+# SubVoting 배포
+forge script script/DeploySubVoting.s.sol:DeploySubVoting \
+    --rpc-url $RPC_URL \
+    --private-key $PRIVATE_KEY \
+    --broadcast
+
+# Boosting 배포
+forge script script/DeployBoosting.s.sol:DeployBoosting \
+    --rpc-url $RPC_URL \
+    --private-key $PRIVATE_KEY \
+    --broadcast
+
+# NFT 배포
+forge script script/DeployNFT.s.sol:DeployNFT \
+    --rpc-url $RPC_URL \
+    --private-key $PRIVATE_KEY \
+    --broadcast
+```
+
+### ABI 생성
+
+```bash
+# 먼저 빌드 실행
+forge build
+
+# MainVoting ABI
+jq '.abi' out/MainVoting.sol/MainVoting.json > ./demo/MainVoting-abi.json
+
+# SubVoting ABI
+jq '.abi' out/SubVoting.sol/SubVoting.json > ./sub_demo/SubVoting-abi.json
+
+# Boosting ABI
+jq '.abi' out/Boosting.sol/Boosting.json > ./boosting_demo/Boosting-abi.json
+
+# NFT ABI
+jq '.abi' out/CelebusNFT.sol/CelebusNFT.json > ./nft_demo/CelebusNFT-abi.json
+```
+
+### 컨트랙트 검증 (Constructor Args 생성)
+
+```bash
+# MainVoting constructor args
+cast abi-encode "constructor(address)" 0xYOUR_OWNER_ADDRESS > ./demo/constructor-args.txt
+
+# SubVoting constructor args
+cast abi-encode "constructor(address)" 0xYOUR_OWNER_ADDRESS > ./sub_demo/constructor-args.txt
+
+# Boosting constructor args
+cast abi-encode "constructor(address)" 0xYOUR_OWNER_ADDRESS > ./boosting_demo/constructor-args.txt
+
+# NFT constructor args
+cast abi-encode "constructor(address)" 0xYOUR_OWNER_ADDRESS > ./nft_demo/constructor-args.txt
+```
+
+### 컨트랙트 검증 (Standard JSON Input 생성)
+
+```bash
+# MainVoting 검증용 JSON 생성
+forge verify-contract 0xYOUR_MAINVOTING_ADDRESS \
+    src/vote/MainVoting.sol:MainVoting \
+    --chain opbnb-testnet \
+    --show-standard-json-input > ./demo/standard-json-input.json
+
+# SubVoting 검증용 JSON 생성
+forge verify-contract 0xYOUR_SUBVOTING_ADDRESS \
+    src/vote/SubVoting.sol:SubVoting \
+    --chain opbnb-testnet \
+    --show-standard-json-input > ./sub_demo/standard-json-input.json
+
+# Boosting 검증용 JSON 생성
+forge verify-contract 0xYOUR_BOOSTING_ADDRESS \
+    src/vote/Boosting.sol:Boosting \
+    --chain opbnb-testnet \
+    --show-standard-json-input > ./boosting_demo/standard-json-input.json
+
+# NFT 검증용 JSON 생성
+forge verify-contract 0xYOUR_NFT_ADDRESS \
+    src/nft/CelebusNFT.sol:CelebusNFT \
+    --chain opbnb-testnet \
+    --show-standard-json-input > ./nft_demo/standard-json-input.json
 ```
 
 ## 주요 명령어
@@ -109,13 +192,6 @@ contracts/
 ├── script/                # 배포 스크립트
 └── lib/                   # 외부 라이브러리
 ```
-
-## 문서
-
-- [CLAUDE.md](./CLAUDE.md) – 개발 가이드 및 코딩 컨벤션
-- [DEPLOYMENT_LATEST.md](./DEPLOYMENT_LATEST.md) – 최신 배포/기능 노트
-- [VERIFICATION_GUIDE_v2.md](./VERIFICATION_GUIDE_v2.md) – opBNBScan 검증 절차
-- [VERIFICATION_GUIDE.md](./VERIFICATION_GUIDE.md) – 레거시 검증(참고용)
 
 ## 스트레스 테스트 스크립트
 

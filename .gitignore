@@ -23,4 +23,21 @@ stress-artifacts/
 
 # Standard JSON input (verification용 1회성)
 standard-input*.json
+*-standard-json-input.json
+
+# Build & Deployment artifacts (1회성)
+*-abi.json
+*-constructor-args.txt
+constructor-args.json
+constructor-args.txt
+abi-encoder.js
+
+# IDE 설정
+.vscode/
+
+# 데모별 생성 스크립트 디렉토리
+demo/scripts/
+sub_demo/scripts/
+boosting_demo/scripts/
+
 node_modules
