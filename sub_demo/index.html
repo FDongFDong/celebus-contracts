@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SubVoting 통합 데모</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/ethers@6.7.0/dist/ethers.umd.min.js"></script>
+</head>
+<body class="bg-gray-100 p-8">
+  <div class="max-w-4xl mx-auto">
+
+    <!-- 헤더 -->
+    <div class="bg-white rounded-lg shadow p-6 mb-6">
+      <h1 class="text-2xl font-bold text-gray-800">SubVoting 데모</h1>
+      <p class="text-sm text-gray-600 mt-2">EIP-712 서명 기반 단일 투표 시스템 (1레코드 = 1서명)</p>
+
+      <!-- 실제 프로덕션 환경 설명 -->
+      <div class="mt-4 bg-yellow-50 border-l-4 border-yellow-400 p-4">
+        <div class="flex">
+          <div class="flex-shrink-0">
+            <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+            </svg>
+          </div>
+          <div class="ml-3">
+            <p class="text-sm text-yellow-700">
+              <strong>⚠️ 이 데모는 프론트엔드 통합 테스트용입니다</strong>
+            </p>
+            <div class="mt-2 text-sm text-yellow-700">
+              <p class="font-semibold mb-1">📱 실제 프로덕션 환경:</p>
+              <ul class="list-disc list-inside space-y-1 ml-2">
+                <li><strong>User 1의 기기</strong>: 질문 1개 답변 → 서명 → 백엔드 전송</li>
+                <li><strong>User 2의 기기</strong>: 같은 질문 답변 → 서명 → 백엔드 전송</li>
+                <li><strong>백엔드 서버</strong>: 개별 서명 수집 → 배치 결합 → Executor 서명 → 컨트랙트 제출</li>
+              </ul>
+              <p class="mt-2 text-xs">💡 이 데모에서는 편의상 한 페이지에서 모든 역할을 시뮬레이션합니다</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4 mt-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">네트워크</label>
+          <select id="network" class="w-full px-3 py-2 border rounded-md">
+            <option value="opbnb">opBNB Testnet</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">Chain ID</label>
+          <input
+            type="text"
+            id="chainIdDisplay"
+            class="w-full px-3 py-2 border rounded-md bg-gray-100"
+            value="5611"
+            readonly
+          >
+        </div>
+      </div>
+
+      <div class="mt-4">
+        <label class="block text-sm font-medium text-gray-700 mb-2">컨트랙트 주소</label>
+        <input
+          type="text"
+          id="contractAddress"
+          class="w-full px-3 py-2 border rounded-md"
+          value="0x3779650F74676B9df554f7aE8A3584af9eB99E8b"
+          placeholder="0x..."
+        >
+        <p class="text-xs text-gray-500 mt-1">배포된 SubVoting 컨트랙트 주소</p>
+      </div>
+    </div>
+
+    <!-- STEP 0: 컨트랙트 초기 설정 -->
+    <section id="step0" class="bg-white rounded-lg shadow p-6 mb-6">
+      <h2 class="text-xl font-bold text-gray-800 mb-2">STEP 0 ⚙️ 컨트랙트 초기 설정</h2>
+      <p class="text-sm text-gray-600 mb-4">Owner 권한으로 컨트랙트를 설정합니다</p>
+
+      <!-- Owner 지갑 -->
+      <div class="mb-6 p-4 bg-gray-50 rounded-lg border-2 border-gray-200">
+        <h3 class="text-lg font-semibold text-gray-700 mb-3">🔐 Owner 지갑</h3>
+        <div class="mb-3">
+          <label class="block text-sm font-medium text-gray-700 mb-2">비밀키 (0x...)</label>
+          <input
+            type="text"
+            id="ownerPrivateKey"
+            class="w-full px-3 py-2 border rounded-md font-mono text-sm"
+            placeholder="0x..."
+            value="0x94d26f9b25e16734a747e9f789d71082cb80155d11810ba99a12f9fd163397ef"
+          >
+          <p class="text-xs text-gray-500 mt-1">주소: <span id="ownerAddress" class="font-mono">-</span></p>
+        </div>
+        <div id="ownerWalletStatus" class="hidden"></div>
+      </div>
+
+      <!-- 1. Executor 등록 -->
+      <div class="mb-4 p-4 bg-white border-2 border-yellow-200 rounded-lg">
+        <h3 class="text-md font-semibold text-gray-700 mb-2">1️⃣ Executor 등록</h3>
+        <div class="mb-3">
+          <label class="block text-sm font-medium text-gray-700 mb-2">Executor 주소</label>
+          <input
+            type="text"
+            id="executorAddressToSet"
+            class="w-full px-3 py-2 border rounded-md font-mono text-sm"
+            value="0x240eCdd1C5a7C30149D43987ce5A3Eb4e9E97897"
+            placeholder="0x..."
+          >
+        </div>
+        <button
+          id="setExecutorBtn"
+          class="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition"
+        >
+          ✅ Executor 등록 실행
+        </button>
+        <div id="executorSetStatus" class="hidden"></div>
+      </div>
+
+      <!-- 2. 질문 등록 -->
+      <div class="mb-4 p-4 bg-white border-2 border-yellow-200 rounded-lg">
+        <h3 class="text-md font-semibold text-gray-700 mb-2">2️⃣ 질문 등록 <span class="text-xs text-blue-500 font-normal">(💡 동일 ID로 재등록 시 덮어쓰기)</span></h3>
+        <div class="grid grid-cols-3 gap-3 mb-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Mission ID</label>
+            <input
+              type="number"
+              id="questionMissionId"
+              class="w-full px-3 py-2 border rounded-md"
+              value="1"
+            >
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Question ID</label>
+            <input
+              type="number"
+              id="questionQuestionId"
+              class="w-full px-3 py-2 border rounded-md"
+              value="1"
+            >
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">질문 텍스트</label>
+            <input
+              type="text"
+              id="questionText"
+              class="w-full px-3 py-2 border rounded-md"
+              value="좋아하는 색은?"
+            >
+          </div>
+        </div>
+        <button
+          id="registerQuestionBtn"
+          class="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition"
+        >
+          ✅ 질문 등록 실행
+        </button>
+        <div id="questionStatus" class="hidden"></div>
+      </div>
+
+      <!-- 3. 답변 등록 -->
+      <div class="mb-4 p-4 bg-white border-2 border-yellow-200 rounded-lg">
+        <h3 class="text-md font-semibold text-gray-700 mb-2">3️⃣ 답변 등록 (1~10) <span class="text-xs text-blue-500 font-normal">(💡 동일 ID로 재등록 시 덮어쓰기)</span></h3>
+        <div class="grid grid-cols-4 gap-3 mb-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Mission ID</label>
+            <input
+              type="number"
+              id="optionMissionId"
+              class="w-full px-3 py-2 border rounded-md"
+              value="1"
+            >
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Question ID</label>
+            <input
+              type="number"
+              id="optionQuestionId"
+              class="w-full px-3 py-2 border rounded-md"
+              value="1"
+            >
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Option ID (1~10)</label>
+            <input
+              type="number"
+              id="optionOptionId"
+              class="w-full px-3 py-2 border rounded-md"
+              value="1"
+              min="1"
+              max="10"
+            >
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">답변 텍스트</label>
+            <input
+              type="text"
+              id="optionText"
+              class="w-full px-3 py-2 border rounded-md"
+              value="파란색"
+            >
+          </div>
+        </div>
+        <button
+          id="registerOptionBtn"
+          class="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition"
+        >
+          ✅ 답변 등록 실행
+        </button>
+        <div id="optionStatus" class="hidden"></div>
+      </div>
+    </section>
+
+    <!-- 애플리케이션 컨테이너 -->
+    <div id="app">
+      <!-- Step 컴포넌트들이 동적으로 렌더링됩니다 -->
+      <div class="text-center py-12">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+        <p class="mt-4 text-gray-600">Loading...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Application Scripts (ES6 Modules) -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
