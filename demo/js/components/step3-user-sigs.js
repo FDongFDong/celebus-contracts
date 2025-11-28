@@ -3,7 +3,7 @@
  */
 
 import { CONFIG, getDomain } from '../config.js';
-import { hashVoteRecord, hashUserBatch } from '../utils/eip712.js';
+import { hashVoteRecord } from '../utils/eip712.js';
 
 export class Step3UserSigs {
   constructor(state) {
@@ -130,9 +130,6 @@ export class Step3UserSigs {
       // User nonce 가져오기 - STEP 2에서 설정한 값 사용
       const userNonce = userIndex === 0 ? (this.state.user1Nonce || 0) : (this.state.user2Nonce || 0);
 
-      // UserBatch 해시 계산
-      const userBatchHash = hashUserBatch(userRecords, userNonce);
-
       // EIP-712 서명 (컨트랙트 규격: UserBatch(address user,uint256 userNonce,bytes32 recordsHash))
       const domain = getDomain(this.state.contractAddress);
       const types = {
@@ -203,20 +200,20 @@ export class Step3UserSigs {
 
       // 각 사용자별로 백엔드 전송 데이터 생성
       this.userBatchSigs.forEach((sig, index) => {
-        const userRecords = this.state.records.filter(r => r.userAddress === sig.user);
+        const userRecords = this.state.records.filter(r => r.userIndex === index);
 
+        // 컨트랙트 규격: UserVoteBatch { records, userBatchSig }
+        // user 주소는 userBatchSig.user에만 포함 (중복 제거)
         const userBackendData = {
-          userAddress: sig.user,
           records: userRecords.map(r => ({
             timestamp: r.timestamp,
             missionId: r.missionId,
             votingId: r.votingId,
-            userAddress: r.userAddress,
-            artistId: r.artistId,
+            optionId: r.optionId,
             voteType: r.voteType,
             votingAmt: r.votingAmt
             // 주의: userId는 프론트엔드에서 전송하지 않음!
-            // 백엔드가 userAddress로 DB 조회하여 자동 주입
+            // 백엔드가 userBatchSig.user 주소로 DB 조회하여 자동 주입
           })),
           userBatchSig: {
             user: sig.user,
@@ -240,8 +237,8 @@ export class Step3UserSigs {
   calculateRecordCounts() {
     // 각 사용자별 레코드 개수 계산
     const counts = [];
-    this.userBatchSigs.forEach(sig => {
-      const userRecords = this.state.records.filter(r => r.userAddress === sig.user);
+    this.userBatchSigs.forEach((sig, index) => {
+      const userRecords = this.state.records.filter(r => r.userIndex === index);
       counts.push(userRecords.length);
     });
     return counts;

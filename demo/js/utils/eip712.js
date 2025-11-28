@@ -68,28 +68,27 @@ export function calculateDigest(domainSeparator, structHash) {
 }
 
 /**
- * Vote Record Hash 계산 (userId 제외)
+ * Vote Record Hash 계산 (userId, userAddress 제외)
  * @param {Object} record - Vote record 객체
  * @returns {string} Record hash
  */
 export function hashVoteRecord(record) {
-  // VOTE_RECORD_TYPEHASH (userId 제외)
+  // VOTE_RECORD_TYPEHASH (userId, userAddress 제외 - V3)
   const VOTE_RECORD_TYPEHASH = ethers.keccak256(
     ethers.toUtf8Bytes(
-      'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,uint256 artistId,uint8 voteType,uint256 votingAmt)'
+      'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 optionId,uint8 voteType,uint256 votingAmt)'
     )
   );
 
-  // Record 데이터 인코딩 (userId 제외)
+  // Record 데이터 인코딩 (userId, userAddress 제외)
   const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
-    ['bytes32', 'uint256', 'uint256', 'uint256', 'address', 'uint256', 'uint8', 'uint256'],
+    ['bytes32', 'uint256', 'uint256', 'uint256', 'uint256', 'uint8', 'uint256'],
     [
       VOTE_RECORD_TYPEHASH,
       record.timestamp,
       record.missionId,
       record.votingId,
-      record.userAddress,
-      record.artistId,
+      record.optionId,
       record.voteType,
       record.votingAmt
     ]
@@ -98,34 +97,8 @@ export function hashVoteRecord(record) {
   return ethers.keccak256(encoded);
 }
 
-/**
- * User Batch Hash 계산
- * @param {Array} userRecords - 사용자의 레코드 배열
- * @param {number} userNonce - 사용자 nonce
- * @returns {string} User batch hash
- */
-export function hashUserBatch(userRecords, userNonce) {
-  // 각 레코드의 해시 계산
-  const recordHashes = userRecords.map(record => hashVoteRecord(record));
-
-  // USER_BATCH_TYPEHASH
-  const USER_BATCH_TYPEHASH = ethers.keccak256(
-    ethers.toUtf8Bytes('UserBatch(bytes32[] recordHashes,uint256 userNonce)')
-  );
-
-  // recordHashes 배열 해시
-  const recordHashesHash = ethers.keccak256(
-    ethers.AbiCoder.defaultAbiCoder().encode(['bytes32[]'], [recordHashes])
-  );
-
-  // UserBatch 데이터 인코딩
-  const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
-    ['bytes32', 'bytes32', 'uint256'],
-    [USER_BATCH_TYPEHASH, recordHashesHash, userNonce]
-  );
-
-  return ethers.keccak256(encoded);
-}
+// NOTE: hashUserBatch 함수 삭제됨 - 컨트랙트와 불일치하고 사용되지 않음
+// 실제 UserBatch 서명은 step3-user-sigs.js에서 signTypedData()로 직접 수행
 
 /**
  * Batch Digest 계산 (모든 사용자 배치)

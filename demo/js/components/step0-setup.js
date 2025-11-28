@@ -1,12 +1,138 @@
 /**
- * STEP 0: 컨트랙트 초기 설정
- * Owner 권한으로 Executor, Vote Type, Artist를 설정합니다
+ * STEP 0: 컨트랙트 배포 및 초기 설정
+ * 컨트랙트 배포 + Owner 권한으로 Executor, Vote Type, Artist를 설정합니다
  */
+
+import { MAINVOTING_BYTECODE } from '../config.js';
 
 export class Step0Setup {
   constructor(state) {
     this.state = state;
     this.ownerWallet = null;
+    this.deployerWallet = null;
+    this.deployedAddress = null;
+    this.bytecode = MAINVOTING_BYTECODE; // 임베디드 바이트코드 사용
+  }
+
+  /**
+   * 바이트코드 로드 (이제 즉시 사용 가능)
+   */
+  async loadBytecode() {
+    // 임베디드 바이트코드 사용, fetch() 불필요
+    if (this.bytecode) {
+      console.log('✅ 바이트코드 로드 완료 (embedded):', this.bytecode.substring(0, 50) + '...');
+      return true;
+    } else {
+      console.error('❌ 바이트코드가 없습니다');
+      return false;
+    }
+  }
+
+  /**
+   * 배포자 지갑 초기화
+   */
+  updateDeployerWallet() {
+    const privateKey = document.getElementById('deployerPrivateKey')?.value.trim();
+    const addressEl = document.getElementById('deployerAddress');
+
+    if (!privateKey) {
+      this.deployerWallet = null;
+      if (addressEl) addressEl.textContent = '-';
+      return;
+    }
+
+    try {
+      this.deployerWallet = new ethers.Wallet(privateKey, this.state.provider);
+      if (addressEl) addressEl.textContent = this.deployerWallet.address;
+    } catch (error) {
+      console.error('배포자 지갑 초기화 실패:', error);
+      this.deployerWallet = null;
+      if (addressEl) addressEl.textContent = '-';
+    }
+  }
+
+  /**
+   * 컨트랙트 배포
+   */
+  async deployContract() {
+    try {
+      if (!this.deployerWallet) {
+        this.showStatus('배포자 비밀키를 먼저 입력하세요', 'error', 'deployStatus');
+        return;
+      }
+
+      // 바이트코드 로드 확인
+      if (!this.bytecode) {
+        this.showStatus('바이트코드 로드 중...', 'info', 'deployStatus');
+        const loaded = await this.loadBytecode();
+        if (!loaded) {
+          this.showStatus('❌ 바이트코드 파일을 로드할 수 없습니다', 'error', 'deployStatus');
+          return;
+        }
+      }
+
+      this.showStatus('🚀 컨트랙트 배포 중...', 'info', 'deployStatus');
+
+      // ContractFactory 생성 (ABI + Bytecode)
+      const abi = [
+        'constructor(address initialOwner)',
+        'function setExecutorSigner(address _executorSigner)',
+        'function setVoteTypeName(uint8 voteType, string memory name)',
+        'function setArtist(uint256 missionId, uint256 artistId, string memory name, bool allowed)'
+      ];
+
+      const factory = new ethers.ContractFactory(abi, this.bytecode, this.deployerWallet);
+
+      // 배포 (initialOwner = 배포자 주소)
+      const contract = await factory.deploy(this.deployerWallet.address);
+
+      this.showStatus(`📤 트랜잭션 전송됨. 대기 중...\nTX: ${contract.deploymentTransaction().hash}`, 'info', 'deployStatus');
+
+      // 배포 완료 대기
+      await contract.waitForDeployment();
+
+      const deployedAddress = await contract.getAddress();
+      this.deployedAddress = deployedAddress;
+
+      // UI 업데이트
+      this.showStatus(`✅ 배포 완료!\n주소: ${deployedAddress}`, 'success', 'deployStatus');
+
+      // 배포된 주소 표시
+      const displayEl = document.getElementById('deployedAddressDisplay');
+      const addressEl = document.getElementById('newContractAddress');
+      const useBtn = document.getElementById('useDeployedAddressBtn');
+
+      if (displayEl) displayEl.classList.remove('hidden');
+      if (addressEl) addressEl.textContent = deployedAddress;
+      if (useBtn) useBtn.classList.remove('hidden');
+
+    } catch (error) {
+      console.error('컨트랙트 배포 실패:', error);
+      this.showStatus(`❌ 배포 실패: ${error.message}`, 'error', 'deployStatus');
+    }
+  }
+
+  /**
+   * 배포된 주소를 컨트랙트 주소로 적용
+   */
+  applyDeployedAddress() {
+    if (!this.deployedAddress) {
+      console.error('배포된 주소가 없습니다');
+      return;
+    }
+
+    // 상단 컨트랙트 주소 입력란 업데이트
+    const contractInput = document.getElementById('contractAddress');
+    if (contractInput) {
+      contractInput.value = this.deployedAddress;
+      // 이벤트 트리거 (다른 컴포넌트가 감지할 수 있도록)
+      contractInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    // state 업데이트
+    this.state.contractAddress = this.deployedAddress;
+
+    this.showStatus(`✅ 컨트랙트 주소가 업데이트되었습니다: ${this.deployedAddress}`, 'success', 'deployStatus');
   }
 
   /**
@@ -178,6 +304,24 @@ export class Step0Setup {
    * 이벤트 리스너 등록
    */
   attachEventListeners() {
+    // 배포자 지갑 입력 변경 시
+    const deployerInput = document.getElementById('deployerPrivateKey');
+    if (deployerInput) {
+      deployerInput.addEventListener('input', () => this.updateDeployerWallet());
+    }
+
+    // 배포 버튼
+    const deployBtn = document.getElementById('deployContractBtn');
+    if (deployBtn) {
+      deployBtn.addEventListener('click', () => this.deployContract());
+    }
+
+    // 배포된 주소 사용 버튼
+    const useBtn = document.getElementById('useDeployedAddressBtn');
+    if (useBtn) {
+      useBtn.addEventListener('click', () => this.applyDeployedAddress());
+    }
+
     // Owner 지갑 입력 변경 시
     const ownerInput = document.getElementById('ownerPrivateKey');
     if (ownerInput) {
@@ -208,9 +352,14 @@ export class Step0Setup {
   /**
    * 초기화
    */
-  init() {
+  async init() {
     this.attachEventListeners();
+    this.updateDeployerWallet();
     this.updateOwnerWallet();
-    console.log('✅ STEP 0 Setup Component Initialized');
+
+    // 바이트코드 미리 로드
+    await this.loadBytecode();
+
+    console.log('✅ STEP 0 Setup Component Initialized (with Deploy)');
   }
 }

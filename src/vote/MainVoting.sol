@@ -18,8 +18,7 @@ interface IERC1271 {
 }
 
 /**
- * @title MainVoting - 투표 시스템 (Nested Array Version)
- * @notice VoteRecord[][] 구조를 사용하여 유저별 투표 묶음을 직관적으로 처리
+ * @title MainVoting - 투표 시스템
  */
 contract MainVoting is Ownable2Step, EIP712 {
     // ========================================
@@ -48,7 +47,7 @@ contract MainVoting is Ownable2Step, EIP712 {
 
     bytes32 private constant VOTE_RECORD_TYPEHASH =
         keccak256(
-            "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,uint256 artistId,uint8 voteType,uint256 votingAmt)"
+            "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 optionId,uint8 voteType,uint256 votingAmt)"
         );
 
     bytes32 private constant USER_BATCH_TYPEHASH =
@@ -70,12 +69,12 @@ contract MainVoting is Ownable2Step, EIP712 {
     error UserNonceTooLow();
     error BatchNonceAlreadyUsed();
     error BatchNonceTooLow();
-    error InvalidRecordIndices(); // 배열 길이 불일치 등
+    error InvalidRecordIndices();
     error BatchTooLarge();
     error UserBatchTooLarge();
     error StringTooLong();
     error NotOwnerOrExecutor();
-    error ArtistNotAllowed(uint256 missionId, uint256 artistId);
+    error ArtistNotAllowed(uint256 missionId, uint256 optionId);
     error InvalidVoteType(uint8 value);
 
     // ========================================
@@ -86,17 +85,20 @@ contract MainVoting is Ownable2Step, EIP712 {
         uint256 timestamp;
         uint256 missionId;
         uint256 votingId;
-        address userAddress;
-        uint256 artistId;
+        uint256 optionId;
         uint8 voteType;
         string userId;
         uint256 votingAmt;
     }
-
     struct UserBatchSig {
         address user;
         uint256 userNonce;
         bytes signature;
+    }
+
+    struct UserVoteBatch {
+        VoteRecord[] records; // 이 유저의 투표 레코드들
+        UserBatchSig userBatchSig; // 이 유저의 서명 정보
     }
 
     struct VoteRecordSummary {
@@ -154,8 +156,7 @@ contract MainVoting is Ownable2Step, EIP712 {
         bytes32 indexed batchDigest,
         address indexed user,
         uint256 userNonce,
-        uint256 recordCount,
-        uint256 storedCount
+        uint256 recordCount
     );
 
     event BatchProcessed(
@@ -173,7 +174,7 @@ contract MainVoting is Ownable2Step, EIP712 {
     );
     event ArtistSet(
         uint256 indexed missionId,
-        uint256 indexed artistId,
+        uint256 indexed optionId,
         string name,
         bool allowed
     );
@@ -203,7 +204,6 @@ contract MainVoting is Ownable2Step, EIP712 {
             minBatchNonce[oldSigner] = type(uint256).max;
         }
 
-        // [수정 완료] 새 서명자의 Nonce를 0으로 초기화하여 재고용 시 DoS 방지
         minBatchNonce[s] = 0;
 
         executorSigner = s;
@@ -212,13 +212,13 @@ contract MainVoting is Ownable2Step, EIP712 {
 
     function setArtist(
         uint256 missionId,
-        uint256 artistId,
+        uint256 optionId,
         string calldata name,
         bool allowed_
     ) external onlyOwner {
-        artistName[missionId][artistId] = name;
-        allowedArtist[missionId][artistId] = allowed_;
-        emit ArtistSet(missionId, artistId, name, allowed_);
+        artistName[missionId][optionId] = name;
+        allowedArtist[missionId][optionId] = allowed_;
+        emit ArtistSet(missionId, optionId, name, allowed_);
     }
 
     function setVoteTypeName(
@@ -264,8 +264,7 @@ contract MainVoting is Ownable2Step, EIP712 {
                     record.timestamp,
                     record.missionId,
                     record.votingId,
-                    record.userAddress,
-                    record.artistId,
+                    record.optionId,
                     record.voteType,
                     record.votingAmt
                 )
@@ -331,86 +330,60 @@ contract MainVoting is Ownable2Step, EIP712 {
         }
     }
 
-    /**
-     * @notice 2차원 레코드 배열을 순회하며 해시 생성 (Nested)
-     */
-    function _buildRecordDigests(
-        VoteRecord[][] calldata records
-    ) internal pure returns (bytes32[][] memory recordDigests) {
-        uint256 userCount = records.length;
-        recordDigests = new bytes32[][](userCount);
+    /// @notice 단일 유저의 레코드 배열에서 해시 배열 생성
+    function _buildRecordDigestsForUser(
+        VoteRecord[] calldata records
+    ) internal pure returns (bytes32[] memory recordDigests) {
+        uint256 len = records.length;
+        recordDigests = new bytes32[](len);
 
-        for (uint256 i; i < userCount; ) {
-            uint256 userRecordLen = records[i].length;
-            recordDigests[i] = new bytes32[](userRecordLen);
-
-            for (uint256 j; j < userRecordLen; ) {
-                _validateStrings(records[i][j]);
-                recordDigests[i][j] = _hashVoteRecord(records[i][j]);
-                unchecked {
-                    ++j;
-                }
-            }
+        for (uint256 j; j < len; ) {
+            _validateStrings(records[j]);
+            recordDigests[j] = _hashVoteRecord(records[j]);
             unchecked {
-                ++i;
+                ++j;
             }
         }
     }
 
     // ========================================
-    // 사용자 배치 검증 (수정됨)
+    // 사용자 배치 검증
     // ========================================
 
-    /**
-     * @notice 단일 유저의 레코드 배열 전체 검증
-     * @dev records[i] 전체가 한 유저의 것임이 보장됨 (구조적)
-     */
+    /// @notice 단일 유저의 배치 서명 검증
     function _verifyUserBatchSignature(
-        VoteRecord[] calldata userRecords, // 해당 유저의 레코드들
-        UserBatchSig calldata userBatch,
-        bytes32[] memory userRecordDigests, // 미리 계산된 해시들
+        UserVoteBatch calldata batch,
+        bytes32[] memory userRecordDigests,
         bytes32 batchDigest
     ) internal {
-        uint256 count = userRecords.length;
+        uint256 count = batch.records.length;
+        UserBatchSig calldata userSig = batch.userBatchSig;
 
         // [1단계] 유저 배치 크기 검증
         if (count > MAX_RECORDS_PER_USER_BATCH) revert UserBatchTooLarge();
 
-        // [2단계] 소유권 확인 (모든 레코드가 userBatch.user의 것인지)
-        for (uint256 j; j < count; ) {
-            if (userRecords[j].userAddress != userBatch.user) {
-                revert InvalidSignature();
-            }
-            unchecked {
-                ++j;
-            }
-        }
-
-        // [3단계] recordsHash 계산
+        // [2단계] recordsHash 계산
         bytes32 recordsHash = keccak256(abi.encodePacked(userRecordDigests));
 
         // [4단계] 서명 검증
         bytes32 userBatchDigest = _hashUserBatch(
-            userBatch.user,
-            userBatch.userNonce,
+            userSig.user,
+            userSig.userNonce,
             recordsHash
         );
 
-        if (
-            !_isValidSig(userBatch.user, userBatchDigest, userBatch.signature)
-        ) {
+        if (!_isValidSig(userSig.user, userBatchDigest, userSig.signature)) {
             revert InvalidSignature();
         }
 
         // [5단계] nonce 소비
-        _consumeUserNonce(userBatch.user, userBatch.userNonce);
+        _consumeUserNonce(userSig.user, userSig.userNonce);
 
         // [6단계] 이벤트 발생
         emit UserBatchProcessed(
             batchDigest,
-            userBatch.user,
-            userBatch.userNonce,
-            count,
+            userSig.user,
+            userSig.userNonce,
             count
         );
     }
@@ -419,28 +392,24 @@ contract MainVoting is Ownable2Step, EIP712 {
         if (record.voteType > MAX_VOTE_TYPE) {
             revert InvalidVoteType(record.voteType);
         }
-        if (record.userAddress == address(0)) {
-            revert ZeroAddress();
-        }
-        if (!allowedArtist[record.missionId][record.artistId]) {
-            revert ArtistNotAllowed(record.missionId, record.artistId);
+        if (!allowedArtist[record.missionId][record.optionId]) {
+            revert ArtistNotAllowed(record.missionId, record.optionId);
         }
     }
 
-    /**
-     * @notice 투표 저장 (Nested 구조 지원)
-     */
+    /// @notice 투표 저장 (UserVoteBatch[] 구조 지원)
     function _storeVoteRecords(
-        VoteRecord[][] calldata records,
+        UserVoteBatch[] calldata batches,
         bytes32[][] memory recordDigests
     ) internal returns (uint256 storedCount) {
-        uint256 userCount = records.length;
+        uint256 userCount = batches.length;
 
         for (uint256 i; i < userCount; ) {
-            uint256 userRecordLen = records[i].length;
+            VoteRecord[] calldata userRecords = batches[i].records;
+            uint256 userRecordLen = userRecords.length;
 
             for (uint256 j; j < userRecordLen; ) {
-                VoteRecord calldata record = records[i][j];
+                VoteRecord calldata record = userRecords[j];
                 bytes32 recordDigest = recordDigests[i][j];
 
                 // 스킵 로직 (0포인트, 중복)
@@ -461,7 +430,7 @@ contract MainVoting is Ownable2Step, EIP712 {
 
                 // 집계
                 ArtistStats storage stats = artistStats[record.missionId][
-                    record.artistId
+                    record.optionId
                 ];
                 if (record.voteType == VOTE_TYPE_REMEMBER) {
                     stats.remember += record.votingAmt;
@@ -486,26 +455,22 @@ contract MainVoting is Ownable2Step, EIP712 {
     // ========================================
 
     /**
-     * @notice 배치 제출 함수 (Nested Array 방식)
-     * @param records 유저별로 그룹화된 투표 레코드 (2차원 배열) [[A,A], [B,B]]
-     * @param userBatchSigs 유저별 서명 [SigA, SigB]
+     * @param batches 유저별 투표 배치 배열
      * @param batchNonce 배치 nonce
      * @param executorSig 실행자 서명
      */
     function submitMultiUserBatch(
-        VoteRecord[][] calldata records,
-        UserBatchSig[] calldata userBatchSigs,
-        // recordCounts 삭제됨!
+        UserVoteBatch[] calldata batches,
         uint256 batchNonce,
         bytes calldata executorSig
     ) external {
-        // [1단계] 배열 길이 일치 및 전체 크기 검증
-        uint256 userCount = records.length;
-        if (userCount != userBatchSigs.length) revert InvalidRecordIndices();
+        uint256 userCount = batches.length;
+        if (userCount == 0) revert InvalidRecordIndices();
 
-        uint256 totalRecords = 0;
+        // [1단계] 전체 레코드 수 검증
+        uint256 totalRecords;
         for (uint256 i; i < userCount; ) {
-            totalRecords += records[i].length;
+            totalRecords += batches[i].records.length;
             unchecked {
                 ++i;
             }
@@ -522,14 +487,19 @@ contract MainVoting is Ownable2Step, EIP712 {
         }
         _consumeBatchNonce(executorSigner, batchNonce);
 
-        // [3단계] 레코드 다이제스트 생성 (Nested)
-        bytes32[][] memory recordDigests = _buildRecordDigests(records);
+        // [3단계] 레코드 다이제스트 생성
+        bytes32[][] memory recordDigests = new bytes32[][](userCount);
+        for (uint256 i; i < userCount; ) {
+            recordDigests[i] = _buildRecordDigestsForUser(batches[i].records);
+            unchecked {
+                ++i;
+            }
+        }
 
         // [4단계] 유저 서명 검증
         for (uint256 i; i < userCount; ) {
             _verifyUserBatchSignature(
-                records[i], // 이 유저의 레코드 배열 통째로 전달
-                userBatchSigs[i],
+                batches[i],
                 recordDigests[i],
                 batchDigest
             );
@@ -539,7 +509,7 @@ contract MainVoting is Ownable2Step, EIP712 {
         }
 
         // [5단계] 저장 및 집계
-        uint256 stored = _storeVoteRecords(records, recordDigests);
+        uint256 stored = _storeVoteRecords(batches, recordDigests);
 
         emit BatchProcessed(
             batchDigest,
@@ -551,7 +521,7 @@ contract MainVoting is Ownable2Step, EIP712 {
     }
 
     // ========================================
-    // View / Utils (기존 유지)
+    // View / Utils
     // ========================================
 
     function domainSeparator() external view returns (bytes32) {
@@ -570,8 +540,8 @@ contract MainVoting is Ownable2Step, EIP712 {
 
         for (uint256 i; i < totalCount; ) {
             VoteRecord storage record = votes[allHashes[i]];
-            string memory candidate = artistName[record.missionId][
-                record.artistId
+            string memory artist = artistName[record.missionId][
+                record.optionId
             ];
             string memory voteTypeLabel = voteTypeName[record.voteType];
 
@@ -580,7 +550,7 @@ contract MainVoting is Ownable2Step, EIP712 {
                 missionId: record.missionId,
                 votingId: record.votingId,
                 userId: record.userId,
-                votingFor: candidate,
+                votingFor: artist,
                 votedOn: voteTypeLabel,
                 votingAmt: record.votingAmt
             });
@@ -593,9 +563,9 @@ contract MainVoting is Ownable2Step, EIP712 {
 
     function getArtistAggregates(
         uint256 missionId,
-        uint256 artistId
+        uint256 optionId
     ) external view returns (uint256 remember, uint256 forget, uint256 total) {
-        ArtistStats storage s = artistStats[missionId][artistId];
+        ArtistStats storage s = artistStats[missionId][optionId];
         return (s.remember, s.forget, s.total);
     }
 }

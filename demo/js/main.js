@@ -11,6 +11,7 @@ import { Step4Domain } from './components/step4-domain.js';
 import { Step5Struct } from './components/step5-struct.js';
 import { Step6Digest } from './components/step6-digest.js';
 import { Step7Submit } from './components/step7-submit.js';
+import { Step8Query } from './components/step8-query.js';
 
 class MainVotingApp {
   constructor() {
@@ -53,22 +54,23 @@ class MainVotingApp {
       step4: new Step4Domain(this.state),
       step5: new Step5Struct(this.state),
       step6: new Step6Digest(this.state),
-      step7: new Step7Submit(this.state)
+      step7: new Step7Submit(this.state),
+      step8: new Step8Query(this.state)
     };
 
     this.init();
   }
 
-  init() {
+  async init() {
     console.log('🚀 MainVoting App Initializing...');
     this.render();
     this.attachEventListeners();
     this.setupInterStepCommunication();
     this.setupContractAddressSync();
 
-    // STEP 0 초기화
+    // STEP 0 초기화 (배포 기능 포함 - async)
     if (this.steps.step0) {
-      this.steps.step0.init();
+      await this.steps.step0.init();
     }
 
     console.log('✅ MainVoting App Ready!');
@@ -109,6 +111,7 @@ class MainVotingApp {
         ${this.steps.step5.render()}
         ${this.steps.step6.render()}
         ${this.steps.step7.render()}
+        ${this.steps.step8.render()}
       </div>
     `;
   }
@@ -123,6 +126,7 @@ class MainVotingApp {
     window.step5 = this.steps.step5;
     window.step6 = this.steps.step6;
     window.step7 = this.steps.step7;
+    window.step8 = this.steps.step8;
 
     // State 변경 감지 (디버깅용)
     console.log('📡 Event Listeners Attached');
