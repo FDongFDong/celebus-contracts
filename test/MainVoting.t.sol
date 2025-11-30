@@ -21,7 +21,7 @@ contract MainVotingTest is Test {
     // EIP-712 Type Hashes (컨트랙트와 동일)
     bytes32 private constant VOTE_RECORD_TYPEHASH =
         keccak256(
-            "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,uint256 artistId,uint8 voteType,uint256 votingAmt)"
+            "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 optionId,uint8 voteType,uint256 votingAmt)"
         );
 
     bytes32 private constant USER_BATCH_TYPEHASH =
@@ -48,7 +48,7 @@ contract MainVotingTest is Test {
         voting = new MainVoting(owner);
         voting.setExecutorSigner(executorSigner);
 
-        // 아티스트 설정 (missionId=1)
+        // 후보자 설정 (missionId=1)
         voting.setArtist(1, 1, "Artist1", true);
         voting.setArtist(1, 2, "Artist2", true);
         voting.setArtist(1, 3, "Artist3", true);
@@ -79,11 +79,10 @@ contract MainVotingTest is Test {
     }
 
     function _createVoteRecord(
-        address userAddress,
         string memory userId,
         uint256 missionId,
         uint256 votingId,
-        uint256 artistId,
+        uint256 optionId,
         uint8 voteType,
         uint256 votingAmt
     ) internal view returns (MainVoting.VoteRecord memory) {
@@ -91,8 +90,7 @@ contract MainVotingTest is Test {
             timestamp: block.timestamp,
             missionId: missionId,
             votingId: votingId,
-            userAddress: userAddress,
-            artistId: artistId,
+            optionId: optionId,
             voteType: voteType,
             userId: userId,
             votingAmt: votingAmt
@@ -106,8 +104,7 @@ contract MainVotingTest is Test {
                 record.timestamp,
                 record.missionId,
                 record.votingId,
-                record.userAddress,
-                record.artistId,
+                record.optionId,
                 record.voteType,
                 record.votingAmt
             )
@@ -152,6 +149,23 @@ contract MainVotingTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
+    /// @notice 새 구조에 맞는 UserVoteBatch 생성 헬퍼
+    function _createUserVoteBatch(
+        MainVoting.VoteRecord[] memory records,
+        address user,
+        uint256 userNonce,
+        uint256 privateKey
+    ) internal view returns (MainVoting.UserVoteBatch memory) {
+        return MainVoting.UserVoteBatch({
+            records: records,
+            userBatchSig: MainVoting.UserBatchSig({
+                user: user,
+                userNonce: userNonce,
+                signature: _signUserBatch(privateKey, records, userNonce)
+            })
+        });
+    }
+
     // ========================================
     // 기본 기능 테스트
     // ========================================
@@ -180,7 +194,7 @@ contract MainVotingTest is Test {
     }
 
     // ========================================
-    // 아티스트/투표타입 설정 테스트
+    // 후보자/투표타입 설정 테스트
     // ========================================
 
     function test_SetArtist() public {
@@ -200,25 +214,20 @@ contract MainVotingTest is Test {
     }
 
     // ========================================
-    // 투표 제출 성공 케이스
+    // 투표 제출 성공 케이스 (새 구조 UserVoteBatch[])
     // ========================================
 
     function test_SubmitSingleUserVote() public {
         // 1명의 사용자가 1개의 투표
-        MainVoting.VoteRecord[][] memory records = new MainVoting.VoteRecord[][](1);
-        records[0] = new MainVoting.VoteRecord[](1);
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100); // Remember
+        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](1);
+        records[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100); // Remember
 
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserBatch(user1PrivateKey, records[0], 0)
-        });
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
+        batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
-        voting.submitMultiUserBatch(records, userBatchSigs, 0, executorSig);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
 
         // 검증
         assertTrue(voting.userNonceUsed(user1, 0));
@@ -233,37 +242,26 @@ contract MainVotingTest is Test {
 
     function test_SubmitMultipleUsersVotes() public {
         // 3명의 사용자가 각각 1개의 투표
-        MainVoting.VoteRecord[][] memory records = new MainVoting.VoteRecord[][](3);
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](3);
 
-        records[0] = new MainVoting.VoteRecord[](1);
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100); // Remember
+        // User1
+        MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](1);
+        records1[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100); // Remember
+        batches[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);
 
-        records[1] = new MainVoting.VoteRecord[](1);
-        records[1][0] = _createVoteRecord(user2, "user2", 1, 2, 2, 0, 200); // Forget
+        // User2
+        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
+        records2[0] = _createVoteRecord("user2", 1, 2, 2, 0, 200); // Forget
+        batches[1] = _createUserVoteBatch(records2, user2, 0, user2PrivateKey);
 
-        records[2] = new MainVoting.VoteRecord[](1);
-        records[2][0] = _createVoteRecord(user3, "user3", 1, 3, 3, 1, 150); // Remember
-
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](3);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserBatch(user1PrivateKey, records[0], 0)
-        });
-        userBatchSigs[1] = MainVoting.UserBatchSig({
-            user: user2,
-            userNonce: 0,
-            signature: _signUserBatch(user2PrivateKey, records[1], 0)
-        });
-        userBatchSigs[2] = MainVoting.UserBatchSig({
-            user: user3,
-            userNonce: 0,
-            signature: _signUserBatch(user3PrivateKey, records[2], 0)
-        });
+        // User3
+        MainVoting.VoteRecord[] memory records3 = new MainVoting.VoteRecord[](1);
+        records3[0] = _createVoteRecord("user3", 1, 3, 3, 1, 150); // Remember
+        batches[2] = _createUserVoteBatch(records3, user3, 0, user3PrivateKey);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
-        voting.submitMultiUserBatch(records, userBatchSigs, 0, executorSig);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
 
         // 검증
         assertTrue(voting.userNonceUsed(user1, 0));
@@ -292,22 +290,17 @@ contract MainVotingTest is Test {
 
     function test_SubmitUserWithMultipleRecords() public {
         // 1명의 사용자가 3개의 투표
-        MainVoting.VoteRecord[][] memory records = new MainVoting.VoteRecord[][](1);
-        records[0] = new MainVoting.VoteRecord[](3);
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100); // Remember Artist1
-        records[0][1] = _createVoteRecord(user1, "user1", 1, 2, 2, 0, 50);  // Forget Artist2
-        records[0][2] = _createVoteRecord(user1, "user1", 1, 3, 1, 1, 80);  // Remember Artist1
+        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](3);
+        records[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100); // Remember Artist1
+        records[1] = _createVoteRecord("user1", 1, 2, 2, 0, 50);  // Forget Artist2
+        records[2] = _createVoteRecord("user1", 1, 3, 1, 1, 80);  // Remember Artist1
 
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserBatch(user1PrivateKey, records[0], 0)
-        });
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
+        batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
-        voting.submitMultiUserBatch(records, userBatchSigs, 0, executorSig);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
 
         // 집계 검증 - Artist1 (Remember: 100 + 80)
         (uint256 r1, uint256 f1, uint256 t1) = voting.getArtistAggregates(1, 1);
@@ -323,22 +316,17 @@ contract MainVotingTest is Test {
     }
 
     function test_SubmitMixedVoteTypes() public {
-        // 1명의 사용자가 같은 아티스트에게 Remember + Forget
-        MainVoting.VoteRecord[][] memory records = new MainVoting.VoteRecord[][](1);
-        records[0] = new MainVoting.VoteRecord[](2);
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100); // Remember Artist1
-        records[0][1] = _createVoteRecord(user1, "user1", 1, 2, 1, 0, 50);  // Forget Artist1
+        // 1명의 사용자가 같은 후보자에게 Remember + Forget
+        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](2);
+        records[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100); // Remember Artist1
+        records[1] = _createVoteRecord("user1", 1, 2, 1, 0, 50);  // Forget Artist1
 
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserBatch(user1PrivateKey, records[0], 0)
-        });
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
+        batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
-        voting.submitMultiUserBatch(records, userBatchSigs, 0, executorSig);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
 
         // 집계 검증 - Artist1 (Remember: 100, Forget: 50)
         (uint256 r1, uint256 f1, uint256 t1) = voting.getArtistAggregates(1, 1);
@@ -352,121 +340,90 @@ contract MainVotingTest is Test {
     // ========================================
 
     function test_RevertWhen_InvalidExecutorSignature() public {
-        MainVoting.VoteRecord[][] memory records = new MainVoting.VoteRecord[][](1);
-        records[0] = new MainVoting.VoteRecord[](1);
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100);
+        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](1);
+        records[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
 
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserBatch(user1PrivateKey, records[0], 0)
-        });
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
+        batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
 
         // 잘못된 private key로 서명
         bytes memory wrongExecutorSig = _signBatchSig(user1PrivateKey, 0);
 
         vm.expectRevert(MainVoting.InvalidSignature.selector);
-        voting.submitMultiUserBatch(records, userBatchSigs, 0, wrongExecutorSig);
+        voting.submitMultiUserBatch(batches, 0, wrongExecutorSig);
     }
 
     function test_RevertWhen_InvalidUserSignature() public {
-        MainVoting.VoteRecord[][] memory records = new MainVoting.VoteRecord[][](1);
-        records[0] = new MainVoting.VoteRecord[](1);
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100);
+        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](1);
+        records[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
 
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            // 잘못된 private key로 서명
-            signature: _signUserBatch(user2PrivateKey, records[0], 0)
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
+        // 잘못된 private key로 서명
+        batches[0] = MainVoting.UserVoteBatch({
+            records: records,
+            userBatchSig: MainVoting.UserBatchSig({
+                user: user1,
+                userNonce: 0,
+                signature: _signUserBatch(user2PrivateKey, records, 0) // 잘못된 키
+            })
         });
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
         vm.expectRevert(MainVoting.InvalidSignature.selector);
-        voting.submitMultiUserBatch(records, userBatchSigs, 0, executorSig);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
     }
 
-    function test_RevertWhen_UserAddressMismatch() public {
-        MainVoting.VoteRecord[][] memory records = new MainVoting.VoteRecord[][](1);
-        records[0] = new MainVoting.VoteRecord[](1);
-        // 레코드의 userAddress는 user1이지만
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100);
-
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
-        // 서명은 user2로 함
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user2,
-            userNonce: 0,
-            signature: _signUserBatch(user2PrivateKey, records[0], 0)
-        });
-
-        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
-
-        vm.expectRevert(MainVoting.InvalidSignature.selector);
-        voting.submitMultiUserBatch(records, userBatchSigs, 0, executorSig);
-    }
+    // test_RevertWhen_UserAddressMismatch 삭제됨 - userAddress 필드가 제거되어 더 이상 유효하지 않음
 
     function test_RevertWhen_UserNonceAlreadyUsed() public {
-        MainVoting.VoteRecord[][] memory records = new MainVoting.VoteRecord[][](1);
-        records[0] = new MainVoting.VoteRecord[](1);
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100);
+        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](1);
+        records[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
 
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserBatch(user1PrivateKey, records[0], 0)
-        });
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
+        batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
         // 첫 번째 제출 성공
-        voting.submitMultiUserBatch(records, userBatchSigs, 0, executorSig);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
 
         // 두 번째 제출 실패 (같은 user nonce)
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 2, 2, 0, 150);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0, // 같은 nonce
-            signature: _signUserBatch(user1PrivateKey, records[0], 0)
-        });
+        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
+        records2[0] = _createVoteRecord("user1", 1, 2, 2, 0, 150);
+
+        MainVoting.UserVoteBatch[] memory batches2 = new MainVoting.UserVoteBatch[](1);
+        batches2[0] = _createUserVoteBatch(records2, user1, 0, user1PrivateKey); // 같은 nonce
+
         bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 1);
 
         vm.expectRevert(MainVoting.UserNonceAlreadyUsed.selector);
-        voting.submitMultiUserBatch(records, userBatchSigs, 1, executorSig2);
+        voting.submitMultiUserBatch(batches2, 1, executorSig2);
     }
 
     function test_RevertWhen_BatchNonceAlreadyUsed() public {
-        MainVoting.VoteRecord[][] memory records = new MainVoting.VoteRecord[][](1);
-        records[0] = new MainVoting.VoteRecord[](1);
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100);
+        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](1);
+        records[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
 
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserBatch(user1PrivateKey, records[0], 0)
-        });
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
+        batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
         // 첫 번째 제출 성공
-        voting.submitMultiUserBatch(records, userBatchSigs, 0, executorSig);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
 
         // 두 번째 제출 실패 (같은 batch nonce)
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 2, 2, 0, 150);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 1,
-            signature: _signUserBatch(user1PrivateKey, records[0], 1)
-        });
+        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
+        records2[0] = _createVoteRecord("user1", 1, 2, 2, 0, 150);
+
+        MainVoting.UserVoteBatch[] memory batches2 = new MainVoting.UserVoteBatch[](1);
+        batches2[0] = _createUserVoteBatch(records2, user1, 1, user1PrivateKey);
+
         bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 0); // 같은 batch nonce
 
         vm.expectRevert(MainVoting.BatchNonceAlreadyUsed.selector);
-        voting.submitMultiUserBatch(records, userBatchSigs, 0, executorSig2);
+        voting.submitMultiUserBatch(batches2, 0, executorSig2);
     }
 
     // ========================================
@@ -474,60 +431,38 @@ contract MainVotingTest is Test {
     // ========================================
 
     function test_RevertWhen_ArtistNotAllowed() public {
-        MainVoting.VoteRecord[][] memory records = new MainVoting.VoteRecord[][](1);
-        records[0] = new MainVoting.VoteRecord[](1);
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 1, 99, 1, 100); // artistId 99 not allowed
+        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](1);
+        records[0] = _createVoteRecord("user1", 1, 1, 99, 1, 100); // optionId 99 not allowed
 
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserBatch(user1PrivateKey, records[0], 0)
-        });
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
+        batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
         vm.expectRevert(abi.encodeWithSelector(MainVoting.ArtistNotAllowed.selector, 1, 99));
-        voting.submitMultiUserBatch(records, userBatchSigs, 0, executorSig);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
     }
 
     function test_RevertWhen_InvalidVoteType() public {
-        MainVoting.VoteRecord[][] memory records = new MainVoting.VoteRecord[][](1);
-        records[0] = new MainVoting.VoteRecord[](1);
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 1, 1, 5, 100); // voteType 5 invalid
+        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](1);
+        records[0] = _createVoteRecord("user1", 1, 1, 1, 5, 100); // voteType 5 invalid
 
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserBatch(user1PrivateKey, records[0], 0)
-        });
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
+        batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
         vm.expectRevert(abi.encodeWithSelector(MainVoting.InvalidVoteType.selector, 5));
-        voting.submitMultiUserBatch(records, userBatchSigs, 0, executorSig);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
     }
 
-    function test_RevertWhen_InvalidRecordIndices() public {
-        MainVoting.VoteRecord[][] memory records = new MainVoting.VoteRecord[][](2);
-        records[0] = new MainVoting.VoteRecord[](1);
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100);
-        records[1] = new MainVoting.VoteRecord[](1);
-        records[1][0] = _createVoteRecord(user2, "user2", 1, 2, 2, 0, 200);
-
-        // userBatchSigs 길이 불일치
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserBatch(user1PrivateKey, records[0], 0)
-        });
+    function test_RevertWhen_EmptyBatches() public {
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](0);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
         vm.expectRevert(MainVoting.InvalidRecordIndices.selector);
-        voting.submitMultiUserBatch(records, userBatchSigs, 0, executorSig);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
     }
 
     // ========================================
@@ -535,21 +470,16 @@ contract MainVotingTest is Test {
     // ========================================
 
     function test_SkipZeroAmountVote() public {
-        MainVoting.VoteRecord[][] memory records = new MainVoting.VoteRecord[][](1);
-        records[0] = new MainVoting.VoteRecord[](2);
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 0);   // 0 포인트 - 스킵됨
-        records[0][1] = _createVoteRecord(user1, "user1", 1, 2, 1, 1, 100);
+        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](2);
+        records[0] = _createVoteRecord("user1", 1, 1, 1, 1, 0);   // 0 포인트 - 스킵됨
+        records[1] = _createVoteRecord("user1", 1, 2, 1, 1, 100);
 
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](1);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserBatch(user1PrivateKey, records[0], 0)
-        });
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
+        batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
-        voting.submitMultiUserBatch(records, userBatchSigs, 0, executorSig);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
 
         // 집계 검증 - 0 포인트 투표는 스킵되어 100만 집계됨
         (uint256 remember, uint256 forget, uint256 total) = voting.getArtistAggregates(1, 1);
@@ -563,29 +493,21 @@ contract MainVotingTest is Test {
     // ========================================
 
     function test_GetArtistAggregates() public {
-        MainVoting.VoteRecord[][] memory records = new MainVoting.VoteRecord[][](2);
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](2);
 
-        records[0] = new MainVoting.VoteRecord[](2);
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100); // Remember Artist1
-        records[0][1] = _createVoteRecord(user1, "user1", 1, 2, 1, 0, 50);  // Forget Artist1
+        // User1 - 2개 투표
+        MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](2);
+        records1[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100); // Remember Artist1
+        records1[1] = _createVoteRecord("user1", 1, 2, 1, 0, 50);  // Forget Artist1
+        batches[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);
 
-        records[1] = new MainVoting.VoteRecord[](1);
-        records[1][0] = _createVoteRecord(user2, "user2", 1, 3, 1, 1, 200); // Remember Artist1
-
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](2);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserBatch(user1PrivateKey, records[0], 0)
-        });
-        userBatchSigs[1] = MainVoting.UserBatchSig({
-            user: user2,
-            userNonce: 0,
-            signature: _signUserBatch(user2PrivateKey, records[1], 0)
-        });
+        // User2 - 1개 투표
+        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
+        records2[0] = _createVoteRecord("user2", 1, 3, 1, 1, 200); // Remember Artist1
+        batches[1] = _createUserVoteBatch(records2, user2, 0, user2PrivateKey);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
-        voting.submitMultiUserBatch(records, userBatchSigs, 0, executorSig);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
 
         // 집계 검증 - Artist1 (Remember: 100 + 200, Forget: 50)
         (uint256 remember, uint256 forget, uint256 total) = voting.getArtistAggregates(1, 1);
@@ -595,28 +517,20 @@ contract MainVotingTest is Test {
     }
 
     function test_GetVoteSummariesByMissionVotingId() public {
-        MainVoting.VoteRecord[][] memory records = new MainVoting.VoteRecord[][](2);
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](2);
 
-        records[0] = new MainVoting.VoteRecord[](1);
-        records[0][0] = _createVoteRecord(user1, "user1", 1, 1, 1, 1, 100);
+        // User1
+        MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](1);
+        records1[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
+        batches[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);
 
-        records[1] = new MainVoting.VoteRecord[](1);
-        records[1][0] = _createVoteRecord(user2, "user2", 1, 1, 2, 0, 200); // 같은 votingId
-
-        MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](2);
-        userBatchSigs[0] = MainVoting.UserBatchSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserBatch(user1PrivateKey, records[0], 0)
-        });
-        userBatchSigs[1] = MainVoting.UserBatchSig({
-            user: user2,
-            userNonce: 0,
-            signature: _signUserBatch(user2PrivateKey, records[1], 0)
-        });
+        // User2 - 같은 votingId
+        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
+        records2[0] = _createVoteRecord("user2", 1, 1, 2, 0, 200);
+        batches[1] = _createUserVoteBatch(records2, user2, 0, user2PrivateKey);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
-        voting.submitMultiUserBatch(records, userBatchSigs, 0, executorSig);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
 
         // votingId 1로 조회
         MainVoting.VoteRecordSummary[] memory summaries = voting.getVoteSummariesByMissionVotingId(1, 1);
@@ -675,32 +589,28 @@ contract MainVotingTest is Test {
     function test_SequentialBatches() public {
         // 순차적인 여러 배치 제출
         for (uint256 batchIdx = 0; batchIdx < 3; batchIdx++) {
-            MainVoting.VoteRecord[][] memory records = new MainVoting.VoteRecord[][](2);
+            MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](2);
 
-            records[0] = new MainVoting.VoteRecord[](1);
-            records[0][0] = _createVoteRecord(
-                user1, "user1", 1, batchIdx * 2 + 1, 1, 1, 100
+            // User1
+            MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](1);
+            records1[0] = _createVoteRecord(
+                "user1", 1, batchIdx * 2 + 1, 1, 1, 100
+            );
+            batches[0] = _createUserVoteBatch(
+                records1, user1, batchIdx, user1PrivateKey
             );
 
-            records[1] = new MainVoting.VoteRecord[](1);
-            records[1][0] = _createVoteRecord(
-                user2, "user2", 1, batchIdx * 2 + 2, 2, 0, 200
+            // User2
+            MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
+            records2[0] = _createVoteRecord(
+                "user2", 1, batchIdx * 2 + 2, 2, 0, 200
             );
-
-            MainVoting.UserBatchSig[] memory userBatchSigs = new MainVoting.UserBatchSig[](2);
-            userBatchSigs[0] = MainVoting.UserBatchSig({
-                user: user1,
-                userNonce: batchIdx,
-                signature: _signUserBatch(user1PrivateKey, records[0], batchIdx)
-            });
-            userBatchSigs[1] = MainVoting.UserBatchSig({
-                user: user2,
-                userNonce: batchIdx,
-                signature: _signUserBatch(user2PrivateKey, records[1], batchIdx)
-            });
+            batches[1] = _createUserVoteBatch(
+                records2, user2, batchIdx, user2PrivateKey
+            );
 
             bytes memory executorSig = _signBatchSig(executorPrivateKey, batchIdx);
-            voting.submitMultiUserBatch(records, userBatchSigs, batchIdx, executorSig);
+            voting.submitMultiUserBatch(batches, batchIdx, executorSig);
         }
 
         // 집계 검증 - Artist1 (Remember: 100 * 3)

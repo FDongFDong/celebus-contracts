@@ -208,40 +208,39 @@ export class Step3UserSigs {
         `총 ${this.userSigs.length}개 서명 완료 (User1: ${user1Sigs.length}개, User2: ${user2Sigs.length}개)`;
       document.getElementById('batchSigSummary').classList.remove('hidden');
 
-      // 각 사용자별로 백엔드 전송 데이터 생성
+      // 각 사용자별로 백엔드 전송 데이터 생성 - UserBoostBatch[] 형태 (sub_demo 패턴)
       [this.state.user1Wallet, this.state.user2Wallet].forEach((wallet, index) => {
         if (!wallet) return;
 
-        const userRecords = this.state.records.filter(r => r.userAddress === wallet.address);
+        const userRecords = this.state.records.filter(r => r.signerAddress === wallet.address);
         const userSignatures = this.userSigs.filter(sig => sig.user === wallet.address);
 
-        if (userRecords.length === 0) return;
+        if (userRecords.length === 0 || userSignatures.length === 0) return;
 
-        const userBackendData = {
-          userAddress: wallet.address,
-          records: userRecords.map(r => ({
+        // record와 userSig를 쌍으로 묶어서 UserBoostBatch 생성 (userAddress 제거됨)
+        const userBatches = userRecords.map((r, idx) => ({
+          record: {
             timestamp: r.timestamp,
             missionId: r.missionId,
             boostingId: r.boostingId,
-            userAddress: r.userAddress,
             artistId: r.artistId,
             boostingWith: r.boostingWith,
             amt: r.amt
-            // 주의: userId는 프론트엔드에서 전송하지 않음!
-            // 백엔드가 userAddress로 DB 조회하여 자동 주입
-          })),
-          userSigs: userSignatures.map(sig => ({
-            user: sig.user,
-            userNonce: sig.userNonce,
-            signature: sig.signature
-          }))
-        };
+            // userId는 백엔드가 signerAddress로 DB 조회하여 자동 주입
+            // userAddress는 userSig.user로 식별 (SubVoting 패턴)
+          },
+          userSig: {
+            user: userSignatures[idx].user,
+            userNonce: userSignatures[idx].userNonce,
+            signature: userSignatures[idx].signature
+          }
+        }));
 
         // User 1 또는 User 2 데이터 표시
         const elementId = index === 0 ? 'user1BackendData' : 'user2BackendData';
         const element = document.getElementById(elementId);
         if (element) {
-          element.textContent = JSON.stringify(userBackendData, null, 2);
+          element.textContent = JSON.stringify(userBatches, null, 2);
         }
       });
 

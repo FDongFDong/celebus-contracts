@@ -171,12 +171,13 @@ export class Step7Submit {
   }
 
   updateSummary() {
-    // userId 매핑 표시 (백엔드 DB 조회 시뮬레이션)
+    // userId 매핑 표시 (백엔드 DB 조회 시뮬레이션) - signerAddress 사용
     if (this.state.records && this.state.records.length > 0) {
       const uniqueUsers = new Map();
       this.state.records.forEach(r => {
-        if (!uniqueUsers.has(r.userAddress)) {
-          uniqueUsers.set(r.userAddress, r.userId);
+        const address = r.signerAddress;
+        if (address && !uniqueUsers.has(address)) {
+          uniqueUsers.set(address, r.userId);
         }
       });
 
@@ -217,12 +218,11 @@ export class Step7Submit {
   }
 
   generateRemixParams() {
-    // Boosting: 단일 배열 구조로 전체 레코드 변환
+    // Boosting: 단일 배열 구조로 전체 레코드 변환 (userAddress 제거됨)
     const records = this.state.records.map(r => ({
       timestamp: r.timestamp,
       missionId: r.missionId,
       boostingId: r.boostingId,
-      userAddress: r.userAddress,
       userId: r.userId, // 백엔드가 DB에서 설정한 userId 사용
       artistId: r.artistId,
       boostingWith: r.boostingWith, // 0=CELB, 1=BP
@@ -326,31 +326,31 @@ export class Step7Submit {
       document.getElementById('submitResult').classList.add('hidden');
       document.getElementById('submitError').classList.add('hidden');
 
-      // Boosting: 단일 배열 구조로 전체 레코드 변환
-      const records = this.state.records.map(r => [
-        r.timestamp,
-        r.missionId,
-        r.boostingId,
-        r.userAddress,
-        r.userId, // 백엔드가 DB에서 설정한 userId 사용
-        r.artistId,
-        r.boostingWith, // 0=CELB, 1=BP
-        r.amt
-      ]);
-
-      // UserSig 변환 (Boosting: 1투표 1서명)
-      const userSigs = this.state.userSigs.map(sig => [
-        sig.user,
-        sig.userNonce,
-        sig.signature
+      // UserBoostBatch[] 형태로 데이터 구성 (record + userSig 쌍)
+      const batches = this.state.records.map((r, idx) => [
+        // record tuple: [timestamp, missionId, boostingId, userId, optionId, boostingWith, amt]
+        [
+          r.timestamp,
+          r.missionId,
+          r.boostingId,
+          r.userId, // 백엔드가 DB에서 설정한 userId 사용
+          r.artistId, // optionId
+          r.boostingWith, // 0=CELB, 1=BP
+          r.amt
+        ],
+        // userSig tuple: [user, userNonce, signature]
+        [
+          this.state.userSigs[idx].user,
+          this.state.userSigs[idx].userNonce,
+          this.state.userSigs[idx].signature
+        ]
       ]);
 
       const batchNonce = this.state.batchNonce;
       const executorSig = this.state.executorSig;
 
       console.log('📤 Submitting to contract:', {
-        totalRecords: records.length,
-        userSigs: userSigs.length,
+        totalBatches: batches.length,
         batchNonce,
         executorSig
       });
@@ -364,8 +364,7 @@ export class Step7Submit {
       // 트랜잭션 제출 (submitBoostBatch 사용)
       this.setLoadingState(true, '트랜잭션 전송 중...');
       const tx = await contract.submitBoostBatch(
-        records,
-        userSigs,
+        batches,
         batchNonce,
         executorSig
       );

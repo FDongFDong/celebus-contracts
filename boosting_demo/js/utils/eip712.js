@@ -68,29 +68,28 @@ export function calculateDigest(domainSeparator, structHash) {
 }
 
 /**
- * Boost Record Hash 계산 (userId 제외)
+ * Boost Record Hash 계산 (userAddress 제거됨 - SubVoting 패턴)
  * @param {Object} record - Boost record 객체
  * @returns {string} Record hash
  */
 export function hashBoostRecord(record) {
-  // BOOST_RECORD_TYPEHASH (userId 제외, SubVoting 패턴)
+  // BOOST_RECORD_TYPEHASH (userAddress 제거 - SubVoting 패턴과 동일)
   const BOOST_RECORD_TYPEHASH = ethers.keccak256(
     ethers.toUtf8Bytes(
-      'BoostRecord(uint256 timestamp,uint256 missionId,uint256 boostingId,address userAddress,uint256 artistId,uint8 boostingWith,uint256 amt)'
+      'BoostRecord(uint256 timestamp,uint256 missionId,uint256 boostingId,uint256 optionId,uint8 boostingWith,uint256 amt)'
     )
   );
 
-  // Record 데이터 인코딩 (userId 제외, boostingWith는 uint8)
+  // Record 데이터 인코딩 (userAddress 제거, optionId = artistId)
   const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
-    ['bytes32', 'uint256', 'uint256', 'uint256', 'address', 'uint256', 'uint8', 'uint256'],
+    ['bytes32', 'uint256', 'uint256', 'uint256', 'uint256', 'uint8', 'uint256'],
     [
       BOOST_RECORD_TYPEHASH,
       record.timestamp,
       record.missionId,
       record.boostingId,
-      record.userAddress,
-      record.artistId,
-      record.boostingWith, // 0=CELB, 1=BP (해싱 제거)
+      record.artistId, // optionId
+      record.boostingWith, // 0=CELB, 1=BP
       record.amt
     ]
   );

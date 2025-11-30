@@ -1,13 +1,138 @@
 /**
  * STEP 0: 컨트랙트 초기 설정
- * Owner 권한으로 Executor, Boosting Type, Artist를 설정합니다
+ * 컨트랙트 배포, Executor 등록, Boosting Type, Artist를 설정합니다
  */
+
+import { BOOSTING_BYTECODE } from '../config.js';
 
 export class Step0Setup {
   constructor(state) {
     this.state = state;
     this.ownerWallet = null;
+    this.deployerWallet = null;
   }
+
+  // ========================================
+  // 컨트랙트 배포 관련
+  // ========================================
+
+  /**
+   * Deployer 지갑 초기화
+   */
+  loadDeployerWallet() {
+    const pk = document.getElementById('deployerPrivateKey').value.trim();
+    if (!pk || !pk.startsWith('0x')) {
+      return;
+    }
+
+    try {
+      const wallet = new ethers.Wallet(pk, this.state.provider);
+      this.deployerWallet = wallet;
+      this.state.deployerWallet = wallet;
+
+      const deployerAddressSpan = document.getElementById('deployerAddress');
+      if (deployerAddressSpan) {
+        deployerAddressSpan.textContent = wallet.address;
+      }
+
+      console.log('✅ Deployer wallet loaded:', wallet.address);
+    } catch (error) {
+      console.error('❌ Failed to load deployer wallet:', error);
+    }
+  }
+
+  /**
+   * Boosting 컨트랙트 배포
+   */
+  async deployContract() {
+    if (!this.deployerWallet) {
+      this.loadDeployerWallet();
+    }
+
+    if (!this.deployerWallet) {
+      this.showStatus('배포자 비밀키를 먼저 입력하세요', 'error', 'deployStatus');
+      return;
+    }
+
+    const statusDiv = document.getElementById('deployStatus');
+    statusDiv.className = 'mt-4 p-3 bg-blue-50 border border-blue-200 rounded';
+    statusDiv.textContent = '⏳ Boosting 컨트랙트 배포 중...';
+    statusDiv.classList.remove('hidden');
+
+    try {
+      // Boosting ABI (constructor: address initialOwner)
+      const abi = ['constructor(address initialOwner)'];
+
+      const factory = new ethers.ContractFactory(
+        abi,
+        BOOSTING_BYTECODE,
+        this.deployerWallet
+      );
+
+      // Deploy with deployer address as initialOwner
+      const contract = await factory.deploy(this.deployerWallet.address);
+
+      statusDiv.textContent = `⏳ 트랜잭션 전송됨, 컨펌 대기 중...`;
+
+      await contract.waitForDeployment();
+      const deployedAddress = await contract.getAddress();
+
+      // 성공 UI 표시
+      document.getElementById('deployedAddress').textContent = deployedAddress;
+      document.getElementById('deployedAddressDisplay').classList.remove('hidden');
+      statusDiv.className = 'mt-4 p-3 bg-green-50 border border-green-200 rounded';
+      statusDiv.textContent = `✅ 배포 완료! 주소: ${deployedAddress}`;
+
+      console.log('✅ Boosting deployed at:', deployedAddress);
+    } catch (error) {
+      console.error('❌ Failed to deploy contract:', error);
+      statusDiv.className = 'mt-4 p-3 bg-red-50 border border-red-200 rounded';
+      statusDiv.textContent = `❌ 배포 실패: ${error.message}`;
+    }
+  }
+
+  /**
+   * 배포된 주소 적용
+   */
+  applyDeployedAddress() {
+    const deployedAddress = document.getElementById('deployedAddress').textContent;
+    if (!deployedAddress || deployedAddress === '-') {
+      console.error('배포된 주소가 없습니다');
+      return;
+    }
+
+    // 컨트랙트 주소 필드에 적용
+    const contractAddressInput = document.getElementById('contractAddress');
+    if (contractAddressInput) {
+      contractAddressInput.value = deployedAddress;
+      contractAddressInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    // state 업데이트
+    this.state.contractAddress = deployedAddress;
+
+    // Owner 지갑도 deployer와 동일하게 설정 (배포자 = owner)
+    const ownerPkInput = document.getElementById('ownerPrivateKey');
+    const deployerPkInput = document.getElementById('deployerPrivateKey');
+    if (ownerPkInput && deployerPkInput) {
+      ownerPkInput.value = deployerPkInput.value;
+      this.updateOwnerWallet();
+    }
+
+    // 상태 메시지 표시
+    const statusDiv = document.getElementById('deployStatus');
+    if (statusDiv) {
+      statusDiv.className = 'mt-4 p-3 bg-green-50 border border-green-200 rounded';
+      statusDiv.textContent = `✅ 컨트랙트 주소가 업데이트되었습니다: ${deployedAddress}`;
+      statusDiv.classList.remove('hidden');
+    }
+
+    console.log('✅ Applied deployed address:', deployedAddress);
+  }
+
+  // ========================================
+  // Owner 설정 관련
+  // ========================================
 
   /**
    * Owner 지갑 초기화
@@ -178,6 +303,24 @@ export class Step0Setup {
    * 이벤트 리스너 등록
    */
   attachEventListeners() {
+    // Deployer 지갑 입력 변경 시
+    const deployerPkInput = document.getElementById('deployerPrivateKey');
+    if (deployerPkInput) {
+      deployerPkInput.addEventListener('input', () => this.loadDeployerWallet());
+    }
+
+    // 컨트랙트 배포 버튼
+    const deployContractBtn = document.getElementById('deployContractBtn');
+    if (deployContractBtn) {
+      deployContractBtn.addEventListener('click', () => this.deployContract());
+    }
+
+    // 배포된 주소 적용 버튼
+    const useDeployedAddressBtn = document.getElementById('useDeployedAddressBtn');
+    if (useDeployedAddressBtn) {
+      useDeployedAddressBtn.addEventListener('click', () => this.applyDeployedAddress());
+    }
+
     // Owner 지갑 입력 변경 시
     const ownerInput = document.getElementById('ownerPrivateKey');
     if (ownerInput) {
@@ -210,7 +353,16 @@ export class Step0Setup {
    */
   init() {
     this.attachEventListeners();
+
+    // Deployer 지갑 자동 로드
+    const deployerPkInput = document.getElementById('deployerPrivateKey');
+    if (deployerPkInput && deployerPkInput.value) {
+      this.loadDeployerWallet();
+    }
+
+    // Owner 지갑 자동 로드
     this.updateOwnerWallet();
+
     console.log('✅ STEP 0 Setup Component Initialized');
   }
 }

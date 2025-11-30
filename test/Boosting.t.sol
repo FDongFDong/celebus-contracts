@@ -45,11 +45,10 @@ contract BoostingTest is Test {
     }
 
     function _createBoostRecord(
-        address userAddress,
         string memory userId,
         uint256 missionId,
         uint256 boostingId,
-        uint256 artistId,
+        uint256 optionId,
         uint8 boostingWith,
         uint256 amt
     ) internal view returns (Boosting.BoostRecord memory) {
@@ -57,9 +56,8 @@ contract BoostingTest is Test {
             timestamp: block.timestamp,
             missionId: missionId,
             boostingId: boostingId,
-            userAddress: userAddress,
             userId: userId,
-            artistId: artistId,
+            optionId: optionId,
             boostingWith: boostingWith,
             amt: amt
         });
@@ -89,6 +87,30 @@ contract BoostingTest is Test {
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
         return abi.encodePacked(r, s, v);
+    }
+
+    function _createUserBoostBatch(
+        uint256 privateKey,
+        address userAddress,
+        string memory userId,
+        uint256 missionId,
+        uint256 boostingId,
+        uint256 optionId,
+        uint8 boostingWith,
+        uint256 amt,
+        uint256 userNonce
+    ) internal view returns (Boosting.UserBoostBatch memory) {
+        Boosting.BoostRecord memory record = _createBoostRecord(
+            userId, missionId, boostingId, optionId, boostingWith, amt
+        );
+        return Boosting.UserBoostBatch({
+            record: record,
+            userSig: Boosting.UserSig({
+                user: userAddress,
+                userNonce: userNonce,
+                signature: _signUserSig(privateKey, record, userNonce)
+            })
+        });
     }
 
     // ========================================
@@ -143,19 +165,12 @@ contract BoostingTest is Test {
     // ========================================
 
     function test_SubmitSingleUserBoost() public {
-        Boosting.BoostRecord[] memory records = new Boosting.BoostRecord[](1);
-        records[0] = _createBoostRecord(user1, "user1", 1, 1, 1, 0, 100);
-
-        Boosting.UserSig[] memory userSigs = new Boosting.UserSig[](1);
-        userSigs[0] = Boosting.UserSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserSig(user1PrivateKey, records[0], 0)
-        });
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
-        boosting.submitBoostBatch(records, userSigs, 0, executorSig);
+        boosting.submitBoostBatch(batches, 0, executorSig);
 
         // 검증
         assertEq(boosting.boostCount(1, 1), 1);
@@ -168,31 +183,14 @@ contract BoostingTest is Test {
     }
 
     function test_SubmitMultipleUsersBoosts() public {
-        Boosting.BoostRecord[] memory records = new Boosting.BoostRecord[](3);
-        records[0] = _createBoostRecord(user1, "user1", 1, 1, 1, 0, 100);
-        records[1] = _createBoostRecord(user2, "user2", 1, 2, 2, 1, 200);
-        records[2] = _createBoostRecord(user3, "user3", 1, 3, 3, 0, 150);
-
-        Boosting.UserSig[] memory userSigs = new Boosting.UserSig[](3);
-        userSigs[0] = Boosting.UserSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserSig(user1PrivateKey, records[0], 0)
-        });
-        userSigs[1] = Boosting.UserSig({
-            user: user2,
-            userNonce: 0,
-            signature: _signUserSig(user2PrivateKey, records[1], 0)
-        });
-        userSigs[2] = Boosting.UserSig({
-            user: user3,
-            userNonce: 0,
-            signature: _signUserSig(user3PrivateKey, records[2], 0)
-        });
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](3);
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0);
+        batches[1] = _createUserBoostBatch(user2PrivateKey, user2, "user2", 1, 2, 2, 1, 200, 0);
+        batches[2] = _createUserBoostBatch(user3PrivateKey, user3, "user3", 1, 3, 3, 0, 150, 0);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
-        boosting.submitBoostBatch(records, userSigs, 0, executorSig);
+        boosting.submitBoostBatch(batches, 0, executorSig);
 
         // 검증
         assertEq(boosting.boostCountByMission(1), 3);
@@ -209,43 +207,16 @@ contract BoostingTest is Test {
 
     function test_SubmitMixedUsersAndBoosts() public {
         // 실제 시나리오: 다양한 사용자의 다양한 부스팅
-        Boosting.BoostRecord[] memory records = new Boosting.BoostRecord[](5);
-        records[0] = _createBoostRecord(user1, "alice", 1, 1, 1, 0, 100);
-        records[1] = _createBoostRecord(user2, "bob", 1, 2, 2, 1, 200);
-        records[2] = _createBoostRecord(user3, "charlie", 1, 3, 3, 0, 150);
-        records[3] = _createBoostRecord(user1, "alice", 1, 4, 1, 1, 80);
-        records[4] = _createBoostRecord(user2, "bob", 1, 5, 2, 0, 120);
-
-        Boosting.UserSig[] memory userSigs = new Boosting.UserSig[](5);
-        userSigs[0] = Boosting.UserSig({
-            user: user1,
-            userNonce: 0, // user1 첫 번째 부스팅
-            signature: _signUserSig(user1PrivateKey, records[0], 0)
-        });
-        userSigs[1] = Boosting.UserSig({
-            user: user2,
-            userNonce: 0, // user2 첫 번째 부스팅
-            signature: _signUserSig(user2PrivateKey, records[1], 0)
-        });
-        userSigs[2] = Boosting.UserSig({
-            user: user3,
-            userNonce: 0, // user3 첫 번째 부스팅
-            signature: _signUserSig(user3PrivateKey, records[2], 0)
-        });
-        userSigs[3] = Boosting.UserSig({
-            user: user1,
-            userNonce: 1, // user1 두 번째 부스팅
-            signature: _signUserSig(user1PrivateKey, records[3], 1)
-        });
-        userSigs[4] = Boosting.UserSig({
-            user: user2,
-            userNonce: 1, // user2 두 번째 부스팅
-            signature: _signUserSig(user2PrivateKey, records[4], 1)
-        });
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](5);
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "alice", 1, 1, 1, 0, 100, 0);
+        batches[1] = _createUserBoostBatch(user2PrivateKey, user2, "bob", 1, 2, 2, 1, 200, 0);
+        batches[2] = _createUserBoostBatch(user3PrivateKey, user3, "charlie", 1, 3, 3, 0, 150, 0);
+        batches[3] = _createUserBoostBatch(user1PrivateKey, user1, "alice", 1, 4, 1, 1, 80, 1);
+        batches[4] = _createUserBoostBatch(user2PrivateKey, user2, "bob", 1, 5, 2, 0, 120, 1);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
-        boosting.submitBoostBatch(records, userSigs, 0, executorSig);
+        boosting.submitBoostBatch(batches, 0, executorSig);
 
         // 검증
         assertEq(boosting.boostCountByMission(1), 5);
@@ -266,97 +237,67 @@ contract BoostingTest is Test {
     // ========================================
 
     function test_RevertWhen_InvalidExecutorSignature() public {
-        Boosting.BoostRecord[] memory records = new Boosting.BoostRecord[](1);
-        records[0] = _createBoostRecord(user1, "user1", 1, 1, 1, 0, 100);
-
-        Boosting.UserSig[] memory userSigs = new Boosting.UserSig[](1);
-        userSigs[0] = Boosting.UserSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserSig(user1PrivateKey, records[0], 0)
-        });
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0);
 
         // 잘못된 private key로 서명
         bytes memory wrongExecutorSig = _signBatchSig(user1PrivateKey, 0);
 
         vm.expectRevert(Boosting.InvalidSignature.selector);
-        boosting.submitBoostBatch(records, userSigs, 0, wrongExecutorSig);
+        boosting.submitBoostBatch(batches, 0, wrongExecutorSig);
     }
 
     function test_RevertWhen_InvalidUserSignature() public {
-        Boosting.BoostRecord[] memory records = new Boosting.BoostRecord[](1);
-        records[0] = _createBoostRecord(user1, "user1", 1, 1, 1, 0, 100);
-
-        Boosting.UserSig[] memory userSigs = new Boosting.UserSig[](1);
-        userSigs[0] = Boosting.UserSig({
-            user: user1,
-            userNonce: 0,
-            // 잘못된 private key로 서명
-            signature: _signUserSig(user2PrivateKey, records[0], 0)
+        // 잘못된 서명으로 배치 생성 (user2 private key로 user1의 레코드 서명)
+        Boosting.BoostRecord memory record = _createBoostRecord("user1", 1, 1, 1, 0, 100);
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = Boosting.UserBoostBatch({
+            record: record,
+            userSig: Boosting.UserSig({
+                user: user1,
+                userNonce: 0,
+                signature: _signUserSig(user2PrivateKey, record, 0) // 잘못된 private key
+            })
         });
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
         vm.expectRevert(Boosting.InvalidSignature.selector);
-        boosting.submitBoostBatch(records, userSigs, 0, executorSig);
+        boosting.submitBoostBatch(batches, 0, executorSig);
     }
 
     function test_RevertWhen_UserNonceAlreadyUsed() public {
-        Boosting.BoostRecord[] memory records = new Boosting.BoostRecord[](1);
-        records[0] = _createBoostRecord(user1, "user1", 1, 1, 1, 0, 100);
-
-        Boosting.UserSig[] memory userSigs = new Boosting.UserSig[](1);
-        userSigs[0] = Boosting.UserSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserSig(user1PrivateKey, records[0], 0)
-        });
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
         // 첫 번째 제출 성공
-        boosting.submitBoostBatch(records, userSigs, 0, executorSig);
+        boosting.submitBoostBatch(batches, 0, executorSig);
 
         // 두 번째 제출 실패 (같은 user nonce)
-        records[0] = _createBoostRecord(user1, "user1", 1, 2, 2, 1, 150);
-        userSigs[0] = Boosting.UserSig({
-            user: user1,
-            userNonce: 0, // 같은 nonce
-            signature: _signUserSig(user1PrivateKey, records[0], 0)
-        });
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 2, 2, 1, 150, 0); // 같은 nonce
         bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 1);
 
         vm.expectRevert(Boosting.UserNonceAlreadyUsed.selector);
-        boosting.submitBoostBatch(records, userSigs, 1, executorSig2);
+        boosting.submitBoostBatch(batches, 1, executorSig2);
     }
 
     function test_RevertWhen_BatchNonceAlreadyUsed() public {
-        Boosting.BoostRecord[] memory records = new Boosting.BoostRecord[](1);
-        records[0] = _createBoostRecord(user1, "user1", 1, 1, 1, 0, 100);
-
-        Boosting.UserSig[] memory userSigs = new Boosting.UserSig[](1);
-        userSigs[0] = Boosting.UserSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserSig(user1PrivateKey, records[0], 0)
-        });
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
         // 첫 번째 제출 성공
-        boosting.submitBoostBatch(records, userSigs, 0, executorSig);
+        boosting.submitBoostBatch(batches, 0, executorSig);
 
         // 두 번째 제출 실패 (같은 batch nonce)
-        records[0] = _createBoostRecord(user1, "user1", 1, 2, 2, 1, 150);
-        userSigs[0] = Boosting.UserSig({
-            user: user1,
-            userNonce: 1,
-            signature: _signUserSig(user1PrivateKey, records[0], 1)
-        });
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 2, 2, 1, 150, 1);
         bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 0); // 같은 batch nonce
 
         vm.expectRevert(Boosting.BatchNonceAlreadyUsed.selector);
-        boosting.submitBoostBatch(records, userSigs, 0, executorSig2);
+        boosting.submitBoostBatch(batches, 0, executorSig2);
     }
 
     // ========================================
@@ -364,81 +305,39 @@ contract BoostingTest is Test {
     // ========================================
 
     function test_RevertWhen_ArtistNotAllowed() public {
-        Boosting.BoostRecord[] memory records = new Boosting.BoostRecord[](1);
-        records[0] = _createBoostRecord(user1, "user1", 1, 1, 99, 0, 100); // artistId 99 not allowed
-
-        Boosting.UserSig[] memory userSigs = new Boosting.UserSig[](1);
-        userSigs[0] = Boosting.UserSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserSig(user1PrivateKey, records[0], 0)
-        });
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 1, 99, 0, 100, 0); // optionId 99 not allowed
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
         vm.expectRevert(abi.encodeWithSelector(Boosting.ArtistNotAllowed.selector, 1, 99));
-        boosting.submitBoostBatch(records, userSigs, 0, executorSig);
+        boosting.submitBoostBatch(batches, 0, executorSig);
     }
 
     function test_RevertWhen_InvalidBoostType() public {
-        Boosting.BoostRecord[] memory records = new Boosting.BoostRecord[](1);
-        records[0] = _createBoostRecord(user1, "user1", 1, 1, 1, 5, 100); // boostingWith 5 invalid
-
-        Boosting.UserSig[] memory userSigs = new Boosting.UserSig[](1);
-        userSigs[0] = Boosting.UserSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserSig(user1PrivateKey, records[0], 0)
-        });
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 1, 1, 5, 100, 0); // boostingWith 5 invalid
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
         vm.expectRevert(abi.encodeWithSelector(Boosting.InvalidBoostType.selector, 5));
-        boosting.submitBoostBatch(records, userSigs, 0, executorSig);
+        boosting.submitBoostBatch(batches, 0, executorSig);
     }
 
-    function test_RevertWhen_LengthMismatch() public {
-        Boosting.BoostRecord[] memory records = new Boosting.BoostRecord[](2);
-        records[0] = _createBoostRecord(user1, "user1", 1, 1, 1, 0, 100);
-        records[1] = _createBoostRecord(user2, "user2", 1, 2, 2, 1, 200);
-
-        Boosting.UserSig[] memory userSigs = new Boosting.UserSig[](1); // 길이 불일치
-        userSigs[0] = Boosting.UserSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserSig(user1PrivateKey, records[0], 0)
-        });
-
-        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
-
-        vm.expectRevert(Boosting.LengthMismatch.selector);
-        boosting.submitBoostBatch(records, userSigs, 0, executorSig);
-    }
+    // LengthMismatch 테스트 제거 - 새로운 구조에서는 record와 userSig가 구조체로 묶여있어 불일치 불가능
 
     // ========================================
     // 0 포인트 부스팅 스킵 테스트
     // ========================================
 
     function test_SkipZeroAmountBoost() public {
-        Boosting.BoostRecord[] memory records = new Boosting.BoostRecord[](2);
-        records[0] = _createBoostRecord(user1, "user1", 1, 1, 1, 0, 0); // 0 포인트 - 스킵됨
-        records[1] = _createBoostRecord(user2, "user2", 1, 2, 1, 0, 100);
-
-        Boosting.UserSig[] memory userSigs = new Boosting.UserSig[](2);
-        userSigs[0] = Boosting.UserSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserSig(user1PrivateKey, records[0], 0)
-        });
-        userSigs[1] = Boosting.UserSig({
-            user: user2,
-            userNonce: 0,
-            signature: _signUserSig(user2PrivateKey, records[1], 0)
-        });
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](2);
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 1, 1, 0, 0, 0); // 0 포인트 - 스킵됨
+        batches[1] = _createUserBoostBatch(user2PrivateKey, user2, "user2", 1, 2, 1, 0, 100, 0);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
-        boosting.submitBoostBatch(records, userSigs, 0, executorSig);
+        boosting.submitBoostBatch(batches, 0, executorSig);
 
         // 집계 검증 - 0 포인트 부스팅은 스킵되어 100만 집계됨
         assertEq(boosting.artistTotalAmt(1, 1), 100);
@@ -450,30 +349,13 @@ contract BoostingTest is Test {
     // ========================================
 
     function test_GetArtistTotalAmt() public {
-        Boosting.BoostRecord[] memory records = new Boosting.BoostRecord[](3);
-        records[0] = _createBoostRecord(user1, "user1", 1, 1, 1, 0, 100);
-        records[1] = _createBoostRecord(user2, "user2", 1, 2, 1, 1, 200);
-        records[2] = _createBoostRecord(user3, "user3", 1, 3, 2, 0, 150);
-
-        Boosting.UserSig[] memory userSigs = new Boosting.UserSig[](3);
-        userSigs[0] = Boosting.UserSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserSig(user1PrivateKey, records[0], 0)
-        });
-        userSigs[1] = Boosting.UserSig({
-            user: user2,
-            userNonce: 0,
-            signature: _signUserSig(user2PrivateKey, records[1], 0)
-        });
-        userSigs[2] = Boosting.UserSig({
-            user: user3,
-            userNonce: 0,
-            signature: _signUserSig(user3PrivateKey, records[2], 0)
-        });
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](3);
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0);
+        batches[1] = _createUserBoostBatch(user2PrivateKey, user2, "user2", 1, 2, 1, 1, 200, 0);
+        batches[2] = _createUserBoostBatch(user3PrivateKey, user3, "user3", 1, 3, 2, 0, 150, 0);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
-        boosting.submitBoostBatch(records, userSigs, 0, executorSig);
+        boosting.submitBoostBatch(batches, 0, executorSig);
 
         // 아티스트별 총 amt 확인
         assertEq(boosting.getArtistTotalAmt(1, 1), 300); // user1 + user2
@@ -481,19 +363,11 @@ contract BoostingTest is Test {
     }
 
     function test_GetArtistInfo() public {
-        // 부스팅 제출
-        Boosting.BoostRecord[] memory records = new Boosting.BoostRecord[](1);
-        records[0] = _createBoostRecord(user1, "user1", 1, 1, 1, 0, 100);
-
-        Boosting.UserSig[] memory userSigs = new Boosting.UserSig[](1);
-        userSigs[0] = Boosting.UserSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserSig(user1PrivateKey, records[0], 0)
-        });
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
-        boosting.submitBoostBatch(records, userSigs, 0, executorSig);
+        boosting.submitBoostBatch(batches, 0, executorSig);
 
         // 아티스트 정보 조회
         Boosting.ArtistInfo memory info = boosting.getArtistInfo(1, 1);
@@ -503,24 +377,12 @@ contract BoostingTest is Test {
     }
 
     function test_GetBoostSummariesByBoostingId() public {
-        Boosting.BoostRecord[] memory records = new Boosting.BoostRecord[](2);
-        records[0] = _createBoostRecord(user1, "user1", 1, 1, 1, 0, 100);
-        records[1] = _createBoostRecord(user2, "user2", 1, 1, 2, 1, 200); // 같은 boostingId
-
-        Boosting.UserSig[] memory userSigs = new Boosting.UserSig[](2);
-        userSigs[0] = Boosting.UserSig({
-            user: user1,
-            userNonce: 0,
-            signature: _signUserSig(user1PrivateKey, records[0], 0)
-        });
-        userSigs[1] = Boosting.UserSig({
-            user: user2,
-            userNonce: 0,
-            signature: _signUserSig(user2PrivateKey, records[1], 0)
-        });
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](2);
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0);
+        batches[1] = _createUserBoostBatch(user2PrivateKey, user2, "user2", 1, 1, 2, 1, 200, 0); // 같은 boostingId
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
-        boosting.submitBoostBatch(records, userSigs, 0, executorSig);
+        boosting.submitBoostBatch(batches, 0, executorSig);
 
         // boostingId 1로 조회
         Boosting.BoostRecordSummary[] memory summaries = boosting.getBoostSummariesByBoostingId(1, 1);
@@ -579,28 +441,16 @@ contract BoostingTest is Test {
     function test_SequentialBatches() public {
         // 순차적인 여러 배치 제출
         for (uint256 batchIdx = 0; batchIdx < 3; batchIdx++) {
-            Boosting.BoostRecord[] memory records = new Boosting.BoostRecord[](2);
-            records[0] = _createBoostRecord(
-                user1, "user1", 1, batchIdx * 2 + 1, 1, 0, 100
+            Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](2);
+            batches[0] = _createUserBoostBatch(
+                user1PrivateKey, user1, "user1", 1, batchIdx * 2 + 1, 1, 0, 100, batchIdx
             );
-            records[1] = _createBoostRecord(
-                user2, "user2", 1, batchIdx * 2 + 2, 2, 1, 200
+            batches[1] = _createUserBoostBatch(
+                user2PrivateKey, user2, "user2", 1, batchIdx * 2 + 2, 2, 1, 200, batchIdx
             );
-
-            Boosting.UserSig[] memory userSigs = new Boosting.UserSig[](2);
-            userSigs[0] = Boosting.UserSig({
-                user: user1,
-                userNonce: batchIdx,
-                signature: _signUserSig(user1PrivateKey, records[0], batchIdx)
-            });
-            userSigs[1] = Boosting.UserSig({
-                user: user2,
-                userNonce: batchIdx,
-                signature: _signUserSig(user2PrivateKey, records[1], batchIdx)
-            });
 
             bytes memory executorSig = _signBatchSig(executorPrivateKey, batchIdx);
-            boosting.submitBoostBatch(records, userSigs, batchIdx, executorSig);
+            boosting.submitBoostBatch(batches, batchIdx, executorSig);
         }
 
         // 총 6건 (3배치 * 2건)
