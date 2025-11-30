@@ -155,19 +155,18 @@ export class Step3UserSigs {
       for (let i = 0; i < userRecords.length; i++) {
         const record = userRecords[i];
 
-        // VoteRecord 해시 계산
+        // VoteRecord 해시 계산 (userAddress 제거됨)
         const recordHash = ethers.keccak256(
           ethers.AbiCoder.defaultAbiCoder().encode(
             [
-              'bytes32', 'uint256', 'uint256', 'uint256', 'address',
+              'bytes32', 'uint256', 'uint256', 'uint256',
               'uint256', 'uint256', 'uint256'
             ],
             [
-              ethers.id('VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,uint256 questionId,uint256 optionId,uint256 votingAmt)'),
+              ethers.id('VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 questionId,uint256 optionId,uint256 votingAmt)'),
               record.timestamp,
               record.missionId,
               record.votingId,
-              record.userAddress,
               record.questionId,
               record.optionId,
               record.votingAmt
@@ -269,66 +268,64 @@ export class Step3UserSigs {
   }
 
   /**
-   * 백엔드 전송 데이터 생성 (사용자별)
+   * 백엔드 전송 데이터 생성 (사용자별) - UserVoteBatch 구조
    */
   generateBackendData() {
     const userAAddress = this.state.user1Wallet?.address;
     const userBAddress = this.state.user2Wallet?.address;
 
-    // 사용자 A 데이터
+    // 사용자 A 데이터 - UserVoteBatch[] 형태
     const userARecords = this.state.records.filter(r => r.userAddress === userAAddress);
     const userASigs = this.state.userSigs.filter(sig => sig.user === userAAddress);
 
     if (userARecords.length > 0 && userASigs.length > 0) {
-      const userABackendData = {
-        userAddress: userAAddress,
-        records: userARecords.map(r => ({
+      // record와 userSig를 쌍으로 묶어서 UserVoteBatch 생성
+      const userABatches = userARecords.map((r, idx) => ({
+        record: {
           timestamp: r.timestamp,
           missionId: r.missionId,
           votingId: r.votingId,
-          userAddress: r.userAddress,
           questionId: r.questionId,
           optionId: r.optionId,
           votingAmt: r.votingAmt
           // userId는 백엔드가 자동 주입
-        })),
-        userSigs: userASigs.map(sig => ({
-          user: sig.user,
-          userNonce: sig.userNonce,
-          signature: sig.signature
-        }))
-      };
+        },
+        userSig: {
+          user: userASigs[idx].user,
+          userNonce: userASigs[idx].userNonce,
+          signature: userASigs[idx].signature
+        }
+      }));
 
-      document.getElementById('userABackendData').textContent = 
-        JSON.stringify(userABackendData, null, 2);
+      document.getElementById('userABackendData').textContent =
+        JSON.stringify(userABatches, null, 2);
     }
 
-    // 사용자 B 데이터
+    // 사용자 B 데이터 - UserVoteBatch[] 형태
     const userBRecords = this.state.records.filter(r => r.userAddress === userBAddress);
     const userBSigs = this.state.userSigs.filter(sig => sig.user === userBAddress);
 
     if (userBRecords.length > 0 && userBSigs.length > 0) {
-      const userBBackendData = {
-        userAddress: userBAddress,
-        records: userBRecords.map(r => ({
+      // record와 userSig를 쌍으로 묶어서 UserVoteBatch 생성
+      const userBBatches = userBRecords.map((r, idx) => ({
+        record: {
           timestamp: r.timestamp,
           missionId: r.missionId,
           votingId: r.votingId,
-          userAddress: r.userAddress,
           questionId: r.questionId,
           optionId: r.optionId,
           votingAmt: r.votingAmt
           // userId는 백엔드가 자동 주입
-        })),
-        userSigs: userBSigs.map(sig => ({
-          user: sig.user,
-          userNonce: sig.userNonce,
-          signature: sig.signature
-        }))
-      };
+        },
+        userSig: {
+          user: userBSigs[idx].user,
+          userNonce: userBSigs[idx].userNonce,
+          signature: userBSigs[idx].signature
+        }
+      }));
 
-      document.getElementById('userBBackendData').textContent = 
-        JSON.stringify(userBBackendData, null, 2);
+      document.getElementById('userBBackendData').textContent =
+        JSON.stringify(userBBatches, null, 2);
     }
   }
 }

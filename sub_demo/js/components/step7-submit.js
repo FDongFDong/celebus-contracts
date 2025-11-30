@@ -59,38 +59,24 @@ export class Step7Submit {
               📝 각 파라미터를 개별적으로 복사하여 Remix IDE에 붙여넣으세요
             </p>
 
-            <!-- 1. records 파라미터 -->
+            <!-- 1. batches 파라미터 (UserVoteBatch[]) -->
             <div class="mb-4 bg-white rounded border border-blue-300 p-3">
               <div class="flex items-center justify-between mb-2">
-                <p class="font-semibold text-sm text-blue-900">1️⃣ records (VoteRecord[])</p>
-                <button onclick="step7.copyParam('records')"
+                <p class="font-semibold text-sm text-blue-900">1️⃣ batches (UserVoteBatch[])</p>
+                <button onclick="step7.copyParam('batches')"
                         class="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600">
                   📋 복사
                 </button>
               </div>
-              <textarea id="remixParam_records"
-                        class="w-full h-32 p-2 font-mono text-xs bg-gray-50 border rounded"
+              <textarea id="remixParam_batches"
+                        class="w-full h-48 p-2 font-mono text-xs bg-gray-50 border rounded"
                         readonly></textarea>
             </div>
 
-            <!-- 2. userSigs 파라미터 -->
+            <!-- 2. batchNonce 파라미터 -->
             <div class="mb-4 bg-white rounded border border-blue-300 p-3">
               <div class="flex items-center justify-between mb-2">
-                <p class="font-semibold text-sm text-blue-900">2️⃣ userSigs (UserSig[])</p>
-                <button onclick="step7.copyParam('userSigs')"
-                        class="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600">
-                  📋 복사
-                </button>
-              </div>
-              <textarea id="remixParam_userSigs"
-                        class="w-full h-24 p-2 font-mono text-xs bg-gray-50 border rounded"
-                        readonly></textarea>
-            </div>
-
-            <!-- 3. batchNonce 파라미터 -->
-            <div class="mb-4 bg-white rounded border border-blue-300 p-3">
-              <div class="flex items-center justify-between mb-2">
-                <p class="font-semibold text-sm text-blue-900">3️⃣ batchNonce (uint256)</p>
+                <p class="font-semibold text-sm text-blue-900">2️⃣ batchNonce (uint256)</p>
                 <button onclick="step7.copyParam('batchNonce')"
                         class="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600">
                   📋 복사
@@ -102,10 +88,10 @@ export class Step7Submit {
                      readonly>
             </div>
 
-            <!-- 4. executorSig 파라미터 -->
+            <!-- 3. executorSig 파라미터 -->
             <div class="mb-4 bg-white rounded border border-blue-300 p-3">
               <div class="flex items-center justify-between mb-2">
-                <p class="font-semibold text-sm text-blue-900">4️⃣ executorSig (bytes)</p>
+                <p class="font-semibold text-sm text-blue-900">3️⃣ executorSig (bytes)</p>
                 <button onclick="step7.copyParam('executorSig')"
                         class="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600">
                   📋 복사
@@ -212,37 +198,37 @@ export class Step7Submit {
   }
 
   generateRemixParams() {
-    // VoteRecord[] 배열 생성 (1차원 - SubVoting 특성)
-    const records = this.state.records.map(r => [
-      r.timestamp,
-      r.missionId,
-      r.votingId,
-      r.userAddress,
-      r.userId, // 평문 string
-      r.questionId,
-      r.optionId,
-      r.votingAmt
-    ]);
-
-    // UserSig[] 배열 생성
-    const userSigs = this.state.userSigs.map(s => [
-      s.user,
-      s.userNonce,
-      s.signature
-    ]);
+    // UserVoteBatch[] 배열 생성 - record + userSig 쌍으로 묶음 (객체 형태)
+    const batches = this.state.records.map((r, idx) => {
+      const userSig = this.state.userSigs[idx];
+      return {
+        record: {
+          timestamp: r.timestamp,
+          missionId: r.missionId,
+          votingId: r.votingId,
+          userId: r.userId,
+          questionId: r.questionId,
+          optionId: r.optionId,
+          votingAmt: r.votingAmt
+        },
+        userSig: {
+          user: userSig.user,
+          userNonce: userSig.userNonce,
+          signature: userSig.signature
+        }
+      };
+    });
 
     // 각 파라미터를 개별 필드에 설정
-    const recordsEl = document.getElementById('remixParam_records');
-    const userSigsEl = document.getElementById('remixParam_userSigs');
+    const batchesEl = document.getElementById('remixParam_batches');
     const batchNonceEl = document.getElementById('remixParam_batchNonce');
     const executorSigEl = document.getElementById('remixParam_executorSig');
 
-    if (recordsEl) recordsEl.value = JSON.stringify(records, null, 2);
-    if (userSigsEl) userSigsEl.value = JSON.stringify(userSigs, null, 2);
+    if (batchesEl) batchesEl.value = JSON.stringify(batches, null, 2);
     if (batchNonceEl) batchNonceEl.value = this.state.batchNonce !== undefined ? this.state.batchNonce : 0;
     if (executorSigEl) executorSigEl.value = this.state.executorSig || '';
 
-    console.log('📋 Remix params generated');
+    console.log('📋 Remix params generated (UserVoteBatch format)');
   }
 
   copyParam(paramName) {
@@ -305,28 +291,26 @@ export class Step7Submit {
     this.setLoadingState(true, '트랜잭션 준비 중...');
 
     try {
-      // VoteRecord[] 구조체 배열 (1차원)
-      const records = this.state.records.map(r => ({
-        timestamp: r.timestamp,
-        missionId: r.missionId,
-        votingId: r.votingId,
-        userAddress: r.userAddress,
-        userId: r.userId,
-        questionId: r.questionId,
-        optionId: r.optionId,
-        votingAmt: r.votingAmt
+      // UserVoteBatch[] 구조체 배열 - record + userSig 쌍으로 묶음
+      const batches = this.state.records.map((r, idx) => ({
+        record: {
+          timestamp: r.timestamp,
+          missionId: r.missionId,
+          votingId: r.votingId,
+          userId: r.userId,
+          questionId: r.questionId,
+          optionId: r.optionId,
+          votingAmt: r.votingAmt
+        },
+        userSig: {
+          user: this.state.userSigs[idx].user,
+          userNonce: this.state.userSigs[idx].userNonce,
+          signature: this.state.userSigs[idx].signature
+        }
       }));
 
-      // UserSig[] 구조체 배열
-      const userSigs = this.state.userSigs.map(s => ({
-        user: s.user,
-        userNonce: s.userNonce,
-        signature: s.signature
-      }));
-
-      console.log('📤 Submitting to contract:', {
-        records: records.length,
-        userSigs: userSigs.length,
+      console.log('📤 Submitting to contract (UserVoteBatch format):', {
+        batches: batches.length,
         batchNonce: this.state.batchNonce
       });
 
@@ -334,8 +318,7 @@ export class Step7Submit {
       const contract = getContractInstance(this.state.executorWallet, this.state.contractAddress);
 
       const tx = await contract.submitMultiUserBatch(
-        records,
-        userSigs,
+        batches,
         this.state.batchNonce,
         this.state.executorSig
       );

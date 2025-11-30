@@ -1,9 +1,9 @@
 /**
  * STEP 0: 컨트랙트 초기 설정
- * Executor 등록, 질문/답변 등록
+ * 컨트랙트 배포, Executor 등록, 질문/답변 등록
  */
 
-import { CONFIG, getContractInstance } from '../config.js';
+import { CONFIG, getContractInstance, SUBVOTING_BYTECODE } from '../config.js';
 
 export class Step0Setup {
   constructor(state) {
@@ -11,6 +11,12 @@ export class Step0Setup {
   }
 
   init() {
+    // Deployer 지갑 자동 로드
+    const deployerPkInput = document.getElementById('deployerPrivateKey');
+    if (deployerPkInput && deployerPkInput.value) {
+      this.loadDeployerWallet();
+    }
+
     // Owner 지갑 자동 로드
     const ownerPkInput = document.getElementById('ownerPrivateKey');
     if (ownerPkInput && ownerPkInput.value) {
@@ -22,6 +28,24 @@ export class Step0Setup {
   }
 
   attachEventListeners() {
+    // Deployer 지갑 로드
+    const deployerPkInput = document.getElementById('deployerPrivateKey');
+    if (deployerPkInput) {
+      deployerPkInput.addEventListener('input', () => this.loadDeployerWallet());
+    }
+
+    // 컨트랙트 배포
+    const deployContractBtn = document.getElementById('deployContractBtn');
+    if (deployContractBtn) {
+      deployContractBtn.addEventListener('click', () => this.deployContract());
+    }
+
+    // 배포된 주소 적용
+    const useDeployedAddressBtn = document.getElementById('useDeployedAddressBtn');
+    if (useDeployedAddressBtn) {
+      useDeployedAddressBtn.addEventListener('click', () => this.applyDeployedAddress());
+    }
+
     // Owner 지갑 로드
     const ownerPkInput = document.getElementById('ownerPrivateKey');
     if (ownerPkInput) {
@@ -47,6 +71,115 @@ export class Step0Setup {
     }
   }
 
+  // ========================================
+  // 컨트랙트 배포 관련
+  // ========================================
+
+  loadDeployerWallet() {
+    const pk = document.getElementById('deployerPrivateKey').value.trim();
+    if (!pk || !pk.startsWith('0x')) {
+      return;
+    }
+
+    try {
+      const wallet = new ethers.Wallet(pk, this.state.provider);
+      this.state.deployerWallet = wallet;
+
+      const deployerAddressSpan = document.getElementById('deployerAddress');
+      if (deployerAddressSpan) {
+        deployerAddressSpan.textContent = wallet.address;
+      }
+
+      console.log('✅ Deployer wallet loaded:', wallet.address);
+    } catch (error) {
+      console.error('❌ Failed to load deployer wallet:', error);
+    }
+  }
+
+  async deployContract() {
+    if (!this.state.deployerWallet) {
+      // 지갑 로드 시도
+      this.loadDeployerWallet();
+    }
+
+    if (!this.state.deployerWallet) {
+      this.showStatus('배포자 비밀키를 먼저 입력하세요', 'error', 'deployStatus');
+      return;
+    }
+
+    const statusDiv = document.getElementById('deployStatus');
+    statusDiv.className = 'mt-4 p-3 bg-blue-50 border border-blue-200 rounded';
+    statusDiv.textContent = '⏳ SubVoting 컨트랙트 배포 중...';
+    statusDiv.classList.remove('hidden');
+
+    try {
+      // SubVoting ABI (constructor: address initialOwner)
+      const abi = ['constructor(address initialOwner)'];
+
+      const factory = new ethers.ContractFactory(
+        abi,
+        SUBVOTING_BYTECODE,
+        this.state.deployerWallet
+      );
+
+      // Deploy with deployer address as initialOwner
+      const contract = await factory.deploy(this.state.deployerWallet.address);
+
+      statusDiv.textContent = `⏳ 트랜잭션 전송됨, 컨펌 대기 중...`;
+
+      await contract.waitForDeployment();
+      const deployedAddress = await contract.getAddress();
+
+      // 성공 UI 표시
+      document.getElementById('deployedAddress').textContent = deployedAddress;
+      document.getElementById('deployedAddressDisplay').classList.remove('hidden');
+      statusDiv.className = 'mt-4 p-3 bg-green-50 border border-green-200 rounded';
+      statusDiv.textContent = `✅ 배포 완료! 주소: ${deployedAddress}`;
+
+      console.log('✅ SubVoting deployed at:', deployedAddress);
+    } catch (error) {
+      console.error('❌ Failed to deploy contract:', error);
+      statusDiv.className = 'mt-4 p-3 bg-red-50 border border-red-200 rounded';
+      statusDiv.textContent = `❌ 배포 실패: ${error.message}`;
+    }
+  }
+
+  applyDeployedAddress() {
+    const deployedAddress = document.getElementById('deployedAddress').textContent;
+    if (!deployedAddress || deployedAddress === '-') {
+      console.error('배포된 주소가 없습니다');
+      return;
+    }
+
+    // 컨트랙트 주소 필드에 적용
+    const contractAddressInput = document.getElementById('contractAddress');
+    if (contractAddressInput) {
+      contractAddressInput.value = deployedAddress;
+      contractAddressInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    // state 업데이트
+    this.state.contractAddress = deployedAddress;
+
+    // Owner 지갑도 deployer와 동일하게 설정 (배포자 = owner)
+    const ownerPkInput = document.getElementById('ownerPrivateKey');
+    const deployerPkInput = document.getElementById('deployerPrivateKey');
+    if (ownerPkInput && deployerPkInput) {
+      ownerPkInput.value = deployerPkInput.value;
+      this.loadOwnerWallet();
+    }
+
+    // 상태 메시지 표시 (alert 대신)
+    const statusDiv = document.getElementById('deployStatus');
+    if (statusDiv) {
+      statusDiv.className = 'mt-4 p-3 bg-green-50 border border-green-200 rounded';
+      statusDiv.textContent = `✅ 컨트랙트 주소가 업데이트되었습니다: ${deployedAddress}`;
+      statusDiv.classList.remove('hidden');
+    }
+
+    console.log('✅ Applied deployed address:', deployedAddress);
+  }
+
   loadOwnerWallet() {
     const pk = document.getElementById('ownerPrivateKey').value.trim();
     if (!pk || !pk.startsWith('0x')) {
@@ -70,7 +203,7 @@ export class Step0Setup {
 
   async setExecutor() {
     if (!this.state.ownerWallet) {
-      alert('Owner 지갑을 먼저 로드해주세요!');
+      this.showStatus('Owner 비밀키를 먼저 입력하세요', 'error', 'executorSetStatus');
       return;
     }
 
@@ -79,7 +212,7 @@ export class Step0Setup {
     // 정규식으로 주소 검증 (ENS 문제 회피)
     const addressRegex = /^0x[a-fA-F0-9]{40}$/;
     if (!executorAddress || !addressRegex.test(executorAddress)) {
-      alert('올바른 Executor 주소를 입력해주세요!');
+      this.showStatus('유효한 Executor 주소를 입력하세요', 'error', 'executorSetStatus');
       return;
     }
 
@@ -115,7 +248,7 @@ export class Step0Setup {
 
   async registerQuestion() {
     if (!this.state.ownerWallet) {
-      alert('Owner 지갑을 먼저 로드해주세요!');
+      this.showStatus('Owner 비밀키를 먼저 입력하세요', 'error', 'questionStatus');
       return;
     }
 
@@ -124,7 +257,7 @@ export class Step0Setup {
     const questionText = document.getElementById('questionText').value.trim();
 
     if (!questionText) {
-      alert('질문 텍스트를 입력해주세요!');
+      this.showStatus('질문 텍스트를 입력해주세요', 'error', 'questionStatus');
       return;
     }
 
@@ -159,7 +292,7 @@ export class Step0Setup {
 
   async registerOption() {
     if (!this.state.ownerWallet) {
-      alert('Owner 지갑을 먼저 로드해주세요!');
+      this.showStatus('Owner 비밀키를 먼저 입력하세요', 'error', 'optionStatus');
       return;
     }
 
@@ -169,12 +302,12 @@ export class Step0Setup {
     const optionText = document.getElementById('optionText').value.trim();
 
     if (!optionText) {
-      alert('답변 텍스트를 입력해주세요!');
+      this.showStatus('답변 텍스트를 입력해주세요', 'error', 'optionStatus');
       return;
     }
 
     if (optionId < 1 || optionId > 10) {
-      alert('Option ID는 1~10 사이여야 합니다!');
+      this.showStatus('Option ID는 1~10 사이여야 합니다', 'error', 'optionStatus');
       return;
     }
 
@@ -205,5 +338,26 @@ export class Step0Setup {
       statusDiv.className = 'mt-3 p-3 bg-red-50 border border-red-200 rounded';
       statusDiv.textContent = `❌ 에러: ${error.message}`;
     }
+  }
+
+  /**
+   * 상태 메시지 표시
+   */
+  showStatus(message, type, elementId) {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+
+    const bgColor = type === 'success' ? 'bg-green-100 border-green-300' :
+                    type === 'error' ? 'bg-red-100 border-red-300' :
+                    'bg-blue-100 border-blue-300';
+
+    const textColor = type === 'success' ? 'text-green-700' :
+                      type === 'error' ? 'text-red-700' :
+                      'text-blue-700';
+
+    element.className = `mt-2 p-3 rounded-md border ${bgColor} ${textColor}`;
+    element.style.whiteSpace = 'pre-line';
+    element.textContent = message;
+    element.classList.remove('hidden');
   }
 }
