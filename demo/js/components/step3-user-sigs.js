@@ -140,8 +140,31 @@ export class Step3UserSigs {
         ]
       };
 
-      const recordHashes = userRecords.map(r => hashVoteRecord(r));
+      // 각 레코드 해시 계산 시 user 주소 포함 (보안 강화)
+      const recordHashes = userRecords.map(r => hashVoteRecord(r, wallet.address));
       const recordsHash = ethers.keccak256(ethers.concat(recordHashes));
+
+      // 디버그: 서명에 사용되는 모든 값 출력
+      console.log(`\n========== User ${userIndex + 1} 서명 디버그 ==========`);
+      console.log('Contract Address:', this.state.contractAddress);
+      console.log('Domain:', JSON.stringify(domain));
+      console.log('User Address:', wallet.address);
+      console.log('User Nonce:', userNonce);
+      console.log('Records Count:', userRecords.length);
+      userRecords.forEach((r, i) => {
+        console.log(`Record[${i}]:`, JSON.stringify({
+          timestamp: r.timestamp,
+          missionId: r.missionId,
+          votingId: r.votingId,
+          optionId: r.optionId,
+          voteType: r.voteType,
+          votingAmt: r.votingAmt
+        }));
+        console.log(`RecordHash[${i}]:`, recordHashes[i]);
+      });
+      console.log('ethers.concat(recordHashes):', ethers.concat(recordHashes));
+      console.log('recordsHash:', recordsHash);
+      console.log('================================================\n');
 
       const value = {
         user: wallet.address,

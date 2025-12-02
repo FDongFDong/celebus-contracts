@@ -106,6 +106,9 @@ export class Step0Setup {
       if (addressEl) addressEl.textContent = deployedAddress;
       if (useBtn) useBtn.classList.remove('hidden');
 
+      // 배포 후 자동으로 주소 적용 (STEP 4 verifyingContract 포함)
+      this.applyDeployedAddress();
+
     } catch (error) {
       console.error('컨트랙트 배포 실패:', error);
       this.showStatus(`❌ 배포 실패: ${error.message}`, 'error', 'deployStatus');
@@ -132,7 +135,31 @@ export class Step0Setup {
     // state 업데이트
     this.state.contractAddress = this.deployedAddress;
 
-    this.showStatus(`✅ 컨트랙트 주소가 업데이트되었습니다: ${this.deployedAddress}`, 'success', 'deployStatus');
+    // 기존 서명 무효화 (컨트랙트 주소가 변경되면 서명이 무효해짐)
+    if (this.state.userBatchSigs && this.state.userBatchSigs.length > 0) {
+      this.state.userBatchSigs = [];
+      console.log('⚠️ 컨트랙트 주소 변경으로 기존 서명이 초기화되었습니다');
+
+      // STEP 3 UI 초기화
+      const user1Sig = document.getElementById('user1Signature');
+      const user2Sig = document.getElementById('user2Signature');
+      const user1Result = document.getElementById('user1SigResult');
+      const user2Result = document.getElementById('user2SigResult');
+
+      if (user1Sig) user1Sig.value = '';
+      if (user2Sig) user2Sig.value = '';
+      if (user1Result) user1Result.innerHTML = '<p class="text-yellow-600">⚠️ 컨트랙트 주소 변경됨 - 서명 재생성 필요</p>';
+      if (user2Result) user2Result.innerHTML = '<p class="text-yellow-600">⚠️ 컨트랙트 주소 변경됨 - 서명 재생성 필요</p>';
+    }
+
+    // Executor 서명도 초기화
+    if (this.state.executorSig) {
+      this.state.executorSig = null;
+      const executorSigEl = document.getElementById('executorSignature');
+      if (executorSigEl) executorSigEl.value = '';
+    }
+
+    this.showStatus(`✅ 컨트랙트 주소가 업데이트되었습니다: ${this.deployedAddress}\n⚠️ 기존 서명이 초기화되었습니다. STEP 3부터 다시 진행하세요.`, 'success', 'deployStatus');
   }
 
   /**

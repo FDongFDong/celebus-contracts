@@ -68,21 +68,26 @@ export function calculateDigest(domainSeparator, structHash) {
 }
 
 /**
- * Vote Record Hash 계산 (userId, userAddress 제외)
+ * Vote Record Hash 계산 (user address 포함 - 보안 강화 버전)
  * @param {Object} record - Vote record 객체
+ * @param {string} userAddress - 서명자의 지갑 주소
  * @returns {string} Record hash
+ * 
+ * 참고: userId는 서명 대상에서 제외됩니다.
+ *      프론트엔드에서 userId 없이 서명하고,
+ *      백엔드가 나중에 userId를 주입합니다.
  */
-export function hashVoteRecord(record) {
-  // VOTE_RECORD_TYPEHASH (userId, userAddress 제외 - V3)
+export function hashVoteRecord(record, userAddress) {
+  // VOTE_RECORD_TYPEHASH (userId 제외 - 프론트엔드에서 userId 없이 서명)
   const VOTE_RECORD_TYPEHASH = ethers.keccak256(
     ethers.toUtf8Bytes(
-      'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 optionId,uint8 voteType,uint256 votingAmt)'
+      'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 optionId,uint8 voteType,uint256 votingAmt,address user)'
     )
   );
 
-  // Record 데이터 인코딩 (userId, userAddress 제외)
+  // Record 데이터 인코딩 (user address 포함, userId 제외)
   const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
-    ['bytes32', 'uint256', 'uint256', 'uint256', 'uint256', 'uint8', 'uint256'],
+    ['bytes32', 'uint256', 'uint256', 'uint256', 'uint256', 'uint8', 'uint256', 'address'],
     [
       VOTE_RECORD_TYPEHASH,
       record.timestamp,
@@ -90,7 +95,8 @@ export function hashVoteRecord(record) {
       record.votingId,
       record.optionId,
       record.voteType,
-      record.votingAmt
+      record.votingAmt,
+      userAddress
     ]
   );
 

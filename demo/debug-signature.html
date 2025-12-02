@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Signature Debug</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+</head>
+<body>
+    <h1>MainVoting Signature Debug</h1>
+    <pre id="output"></pre>
+    <script type="module">
+        const log = (msg) => {
+            document.getElementById('output').textContent += msg + '\n';
+            console.log(msg);
+        };
+
+        // Test configuration
+        const CONFIG = {
+            DOMAIN: {
+                name: 'MainVoting',
+                version: '1',
+                chainId: 5611
+            }
+        };
+
+        // Test data matching test/MainVoting.t.sol
+        const testRecord = {
+            timestamp: 1700000000,
+            missionId: 1,
+            votingId: 1,
+            optionId: 1,
+            voteType: 0,
+            votingAmt: 100
+        };
+
+        const testPrivateKey = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'; // Foundry default
+        const testWallet = new ethers.Wallet(testPrivateKey);
+        const testUserAddress = testWallet.address;
+        const testContractAddress = '0x5FbDB2315678afecb367f032d93F642f64180aa3'; // typical deployment
+        const testUserNonce = 0;
+
+        log('=== Signature Debug ===\n');
+        log(`User Address: ${testUserAddress}`);
+        log(`Contract Address: ${testContractAddress}`);
+        log(`User Nonce: ${testUserNonce}`);
+        log('');
+
+        // 1. VOTE_RECORD_TYPEHASH
+        const VOTE_RECORD_TYPEHASH = ethers.keccak256(
+            ethers.toUtf8Bytes(
+                'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 optionId,uint8 voteType,uint256 votingAmt,address user)'
+            )
+        );
+        log(`VOTE_RECORD_TYPEHASH: ${VOTE_RECORD_TYPEHASH}`);
+
+        // 2. Hash single VoteRecord
+        function hashVoteRecord(record, userAddress) {
+            const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
+                ['bytes32', 'uint256', 'uint256', 'uint256', 'uint256', 'uint8', 'uint256', 'address'],
+                [
+                    VOTE_RECORD_TYPEHASH,
+                    record.timestamp,
+                    record.missionId,
+                    record.votingId,
+                    record.optionId,
+                    record.voteType,
+                    record.votingAmt,
+                    userAddress
+                ]
+            );
+            log(`\nRecord encoded (abi.encode): ${encoded}`);
+            return ethers.keccak256(encoded);
+        }
+
+        const recordHash = hashVoteRecord(testRecord, testUserAddress);
+        log(`\nRecord Hash: ${recordHash}`);
+
+        // 3. Calculate recordsHash (single record case)
+        // Frontend uses: ethers.keccak256(ethers.concat([recordHash]))
+        // Contract uses: keccak256(abi.encodePacked(userRecordDigests))
+
+        const recordHashes = [recordHash];
+
+        // Method 1: ethers.concat (current frontend)
+        const concatResult = ethers.concat(recordHashes);
+        log(`\nethers.concat([recordHash]): ${concatResult}`);
+        const recordsHash_concat = ethers.keccak256(concatResult);
+        log(`recordsHash (ethers.concat): ${recordsHash_concat}`);
+
+        // Method 2: solidityPacked (equivalent to abi.encodePacked)
+        const packedResult = ethers.solidityPacked(['bytes32'], recordHashes);
+        log(`\nethers.solidityPacked(['bytes32'], [recordHash]): ${packedResult}`);
+        const recordsHash_packed = ethers.keccak256(packedResult);
+        log(`recordsHash (solidityPacked): ${recordsHash_packed}`);
+
+        // Method 3: For multiple bytes32, need to pack them differently
+        // abi.encodePacked(bytes32[]) packs each element consecutively
+        const packedMultiple = ethers.solidityPacked(
+            Array(recordHashes.length).fill('bytes32'),
+            recordHashes
+        );
+        log(`\nethers.solidityPacked(['bytes32'...], hashes): ${packedMultiple}`);
+        const recordsHash_packedMultiple = ethers.keccak256(packedMultiple);
+        log(`recordsHash (packedMultiple): ${recordsHash_packedMultiple}`);
+
+        log('\n=== Comparison ===');
+        log(`concat vs packed: ${recordsHash_concat === recordsHash_packed ? '✅ MATCH' : '❌ MISMATCH'}`);
+        log(`concat vs packedMultiple: ${recordsHash_concat === recordsHash_packedMultiple ? '✅ MATCH' : '❌ MISMATCH'}`);
+
+        // 4. Domain separator
+        const domain = {
+            name: CONFIG.DOMAIN.name,
+            version: CONFIG.DOMAIN.version,
+            chainId: CONFIG.DOMAIN.chainId,
+            verifyingContract: testContractAddress
+        };
+
+        const domainTypeHash = ethers.keccak256(
+            ethers.toUtf8Bytes('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')
+        );
+        log(`\n=== Domain ===`);
+        log(`Domain TypeHash: ${domainTypeHash}`);
+
+        const domainSeparator = ethers.keccak256(
+            ethers.AbiCoder.defaultAbiCoder().encode(
+                ['bytes32', 'bytes32', 'bytes32', 'uint256', 'address'],
+                [
+                    domainTypeHash,
+                    ethers.keccak256(ethers.toUtf8Bytes(domain.name)),
+                    ethers.keccak256(ethers.toUtf8Bytes(domain.version)),
+                    domain.chainId,
+                    domain.verifyingContract
+                ]
+            )
+        );
+        log(`Domain Separator: ${domainSeparator}`);
+
+        // 5. UserBatch hash
+        const USER_BATCH_TYPEHASH = ethers.keccak256(
+            ethers.toUtf8Bytes('UserBatch(address user,uint256 userNonce,bytes32 recordsHash)')
+        );
+        log(`\n=== UserBatch ===`);
+        log(`USER_BATCH_TYPEHASH: ${USER_BATCH_TYPEHASH}`);
+
+        const userBatchEncoded = ethers.AbiCoder.defaultAbiCoder().encode(
+            ['bytes32', 'address', 'uint256', 'bytes32'],
+            [USER_BATCH_TYPEHASH, testUserAddress, testUserNonce, recordsHash_concat]
+        );
+        log(`UserBatch encoded: ${userBatchEncoded}`);
+
+        const userBatchHash = ethers.keccak256(userBatchEncoded);
+        log(`UserBatch Hash: ${userBatchHash}`);
+
+        // 6. Final digest
+        const digest = ethers.keccak256(
+            ethers.solidityPacked(
+                ['bytes2', 'bytes32', 'bytes32'],
+                ['0x1901', domainSeparator, userBatchHash]
+            )
+        );
+        log(`\n=== Final Digest ===`);
+        log(`Digest: ${digest}`);
+
+        // 7. Sign with signTypedData
+        const types = {
+            UserBatch: [
+                { name: 'user', type: 'address' },
+                { name: 'userNonce', type: 'uint256' },
+                { name: 'recordsHash', type: 'bytes32' }
+            ]
+        };
+
+        const value = {
+            user: testUserAddress,
+            userNonce: testUserNonce,
+            recordsHash: recordsHash_concat
+        };
+
+        log(`\n=== signTypedData ===`);
+        log(`Domain: ${JSON.stringify(domain)}`);
+        log(`Value: ${JSON.stringify(value)}`);
+
+        const signature = await testWallet.signTypedData(domain, types, value);
+        log(`Signature: ${signature}`);
+
+        // Recover signer
+        const recovered = ethers.verifyTypedData(domain, types, value, signature);
+        log(`Recovered signer: ${recovered}`);
+        log(`Match: ${recovered.toLowerCase() === testUserAddress.toLowerCase() ? '✅' : '❌'}`);
+
+    </script>
+</body>
+</html>
