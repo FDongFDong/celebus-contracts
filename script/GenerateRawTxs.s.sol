@@ -3,7 +3,6 @@ pragma solidity ^0.8.27;
 
 import {Script, console} from "forge-std/Script.sol";
 import {CelebusNFT} from "../src/nft/CelebusNFT.sol";
-import {Vm} from "forge-std/Vm.sol";
 
 /**
  * @title GenerateRawTxs

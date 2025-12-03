@@ -144,7 +144,7 @@ export class Step8Query {
         <!-- 옵션별 투표 수 조회 -->
         <div class="bg-purple-50 rounded-lg p-4 border border-purple-200">
           <h3 class="font-semibold text-purple-900 mb-3">🗳️ 옵션별 투표 수</h3>
-          <p class="text-xs text-gray-600 mb-3">getOptionVotes(missionId, questionId, optionId)</p>
+          <p class="text-xs text-gray-600 mb-3">getQuestionAggregates(missionId, questionId)[optionId]</p>
           <div class="grid grid-cols-3 gap-3 mb-3">
             <div>
               <label class="block text-xs text-gray-600 mb-1">Mission ID</label>
@@ -663,8 +663,9 @@ export class Step8Query {
       const questionId = document.getElementById('q_optionVotes_questionId').value;
       const optionId = document.getElementById('q_optionVotes_optionId').value;
 
-      const votes = await contract.getOptionVotes(missionId, questionId, optionId);
-      this.showResult(resultId, { optionId, votes: votes.toString() });
+      const [optionVotes, total] = await contract.getQuestionAggregates(missionId, questionId);
+      const votes = optionVotes[optionId];
+      this.showResult(resultId, { optionId, votes: votes.toString(), total: total.toString() });
     } catch (err) {
       console.error('queryOptionVotes error:', err);
       this.showError(resultId, err.message);

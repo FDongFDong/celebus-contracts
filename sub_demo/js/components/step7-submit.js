@@ -1,6 +1,6 @@
 /**
  * STEP 7: 컨트랙트 제출
- * SubVoting: 1차원 배열로 제출
+ * SubVoting N:1 구조: 유저당 { records: [...], userBatchSig: {...} }
  */
 
 import { CONFIG, getContractInstance } from '../config.js';
@@ -42,7 +42,7 @@ export class Step7Submit {
           <p class="font-semibold text-gray-800 mb-2">📋 제출 데이터 요약:</p>
           <ul class="text-sm text-gray-700 space-y-1">
             <li>• 총 레코드: <span id="submitRecordCount">0</span>개</li>
-            <li>• User 서명: <span id="submitUserSigCount">0</span>개</li>
+            <li>• 유저 배치 수: <span id="submitUserBatchCount">0</span>개</li>
             <li>• 사용자별 레코드: <span id="submitUserRecordBreakdown">-</span></li>
             <li>• Batch Nonce: <span id="submitBatchNonce">-</span></li>
             <li>• Executor 서명: <span id="submitExecutorSig">없음</span></li>
@@ -62,7 +62,7 @@ export class Step7Submit {
             <!-- 1. batches 파라미터 (UserVoteBatch[]) -->
             <div class="mb-4 bg-white rounded border border-blue-300 p-3">
               <div class="flex items-center justify-between mb-2">
-                <p class="font-semibold text-sm text-blue-900">1️⃣ batches (UserVoteBatch[])</p>
+                <p class="font-semibold text-sm text-blue-900">1️⃣ batches (UserVoteBatch[] - N:1 구조)</p>
                 <button onclick="step7.copyParam('batches')"
                         class="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600">
                   📋 복사
@@ -116,7 +116,7 @@ export class Step7Submit {
                 class="bg-red-500 text-white px-6 py-3 rounded-md hover:bg-red-600 font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed w-full">
           <span id="submitButtonText">🚀 컨트랙트에 제출</span>
         </button>
-        
+
         <!-- 로딩 상태 -->
         <div id="submitLoading" class="mt-4 hidden">
           <div class="bg-blue-50 border border-blue-200 rounded p-4">
@@ -166,10 +166,10 @@ export class Step7Submit {
     const recordCountEl = document.getElementById('submitRecordCount');
     if (recordCountEl) recordCountEl.textContent = recordCount;
 
-    // User 서명 수
-    const userSigCount = this.state.userSigs ? this.state.userSigs.length : 0;
-    const userSigCountEl = document.getElementById('submitUserSigCount');
-    if (userSigCountEl) userSigCountEl.textContent = userSigCount;
+    // 유저 배치 수 (N:1 구조)
+    const userBatchCount = this.state.userBatchSigs ? this.state.userBatchSigs.length : 0;
+    const userBatchCountEl = document.getElementById('submitUserBatchCount');
+    if (userBatchCountEl) userBatchCountEl.textContent = userBatchCount;
 
     // 사용자별 레코드 수 계산
     if (this.state.records && this.state.records.length > 0) {
@@ -178,7 +178,7 @@ export class Step7Submit {
       const breakdown = [];
       if (userACount > 0) breakdown.push(`사용자 A: ${userACount}개`);
       if (userBCount > 0) breakdown.push(`사용자 B: ${userBCount}개`);
-      
+
       const breakdownEl = document.getElementById('submitUserRecordBreakdown');
       if (breakdownEl) {
         breakdownEl.textContent = breakdown.join(', ') || '-';
@@ -197,27 +197,55 @@ export class Step7Submit {
     if (execSigEl) execSigEl.textContent = execSig;
   }
 
-  generateRemixParams() {
-    // UserVoteBatch[] 배열 생성 - record + userSig 쌍으로 묶음 (객체 형태)
-    const batches = this.state.records.map((r, idx) => {
-      const userSig = this.state.userSigs[idx];
-      return {
-        record: {
-          timestamp: r.timestamp,
-          missionId: r.missionId,
-          votingId: r.votingId,
-          userId: r.userId,
-          questionId: r.questionId,
-          optionId: r.optionId,
-          votingAmt: r.votingAmt
-        },
-        userSig: {
-          user: userSig.user,
-          userNonce: userSig.userNonce,
-          signature: userSig.signature
-        }
+  /**
+   * UserVoteBatch[] 배열 생성 (N:1 구조)
+   * { records: VoteRecord[], userBatchSig: UserBatchSig }
+   */
+  buildBatches() {
+    if (!this.state.userBatchSigs || this.state.userBatchSigs.length === 0) {
+      return [];
+    }
+
+    const batches = [];
+
+    // 각 유저별로 배치 생성
+    for (const userBatchSig of this.state.userBatchSigs) {
+      // 해당 유저의 레코드만 필터링
+      const userRecords = this.state.records.filter(
+        r => r.userAddress === userBatchSig.user
+      );
+
+      if (userRecords.length === 0) continue;
+
+      // VoteRecord 배열 생성 (userId 포함)
+      const records = userRecords.map(r => ({
+        timestamp: r.timestamp,
+        missionId: r.missionId,
+        votingId: r.votingId,
+        userId: r.userId,
+        questionId: r.questionId,
+        optionId: r.optionId,
+        votingAmt: r.votingAmt
+      }));
+
+      // UserBatchSig
+      const batchSig = {
+        user: userBatchSig.user,
+        userNonce: userBatchSig.userNonce,
+        signature: userBatchSig.signature
       };
-    });
+
+      batches.push({
+        records: records,
+        userBatchSig: batchSig
+      });
+    }
+
+    return batches;
+  }
+
+  generateRemixParams() {
+    const batches = this.buildBatches();
 
     // 각 파라미터를 개별 필드에 설정
     const batchesEl = document.getElementById('remixParam_batches');
@@ -228,7 +256,7 @@ export class Step7Submit {
     if (batchNonceEl) batchNonceEl.value = this.state.batchNonce !== undefined ? this.state.batchNonce : 0;
     if (executorSigEl) executorSigEl.value = this.state.executorSig || '';
 
-    console.log('📋 Remix params generated (UserVoteBatch format)');
+    console.log('📋 Remix params generated (N:1 UserVoteBatch format)');
   }
 
   copyParam(paramName) {
@@ -273,7 +301,7 @@ export class Step7Submit {
       return;
     }
 
-    if (!this.state.userSigs || this.state.userSigs.length === 0) {
+    if (!this.state.userBatchSigs || this.state.userBatchSigs.length === 0) {
       alert('먼저 STEP 3에서 사용자 서명을 생성해주세요!');
       return;
     }
@@ -288,29 +316,24 @@ export class Step7Submit {
       return;
     }
 
+    // ⚠️ 컨트랙트 주소 검증 (새 배포 후 주소 미적용 버그 방지)
+    if (!this.state.contractAddress || !ethers.isAddress(this.state.contractAddress)) {
+      alert('❌ 유효한 컨트랙트 주소가 없습니다!\n\n새로 배포했다면 "배포된 주소 적용" 버튼을 클릭하거나,\nSTEP 0에서 컨트랙트 주소를 확인해주세요.');
+      console.error('❌ Invalid contract address:', this.state.contractAddress);
+      return;
+    }
+
+    console.log('✅ Contract address verified:', this.state.contractAddress);
+
     this.setLoadingState(true, '트랜잭션 준비 중...');
 
     try {
-      // UserVoteBatch[] 구조체 배열 - record + userSig 쌍으로 묶음
-      const batches = this.state.records.map((r, idx) => ({
-        record: {
-          timestamp: r.timestamp,
-          missionId: r.missionId,
-          votingId: r.votingId,
-          userId: r.userId,
-          questionId: r.questionId,
-          optionId: r.optionId,
-          votingAmt: r.votingAmt
-        },
-        userSig: {
-          user: this.state.userSigs[idx].user,
-          userNonce: this.state.userSigs[idx].userNonce,
-          signature: this.state.userSigs[idx].signature
-        }
-      }));
+      // N:1 구조의 UserVoteBatch[] 생성
+      const batches = this.buildBatches();
 
-      console.log('📤 Submitting to contract (UserVoteBatch format):', {
-        batches: batches.length,
+      console.log('📤 Submitting to contract (N:1 UserVoteBatch format):', {
+        batchCount: batches.length,
+        totalRecords: batches.reduce((sum, b) => sum + b.records.length, 0),
         batchNonce: this.state.batchNonce
       });
 
@@ -340,6 +363,8 @@ export class Step7Submit {
           <p>트랜잭션: <span class="font-mono text-xs break-all">${receipt.hash}</span></p>
           <p>블록: ${receipt.blockNumber}</p>
           <p>가스 사용: ${receipt.gasUsed.toString()}</p>
+          <p>유저 배치: ${batches.length}개</p>
+          <p>총 레코드: ${batches.reduce((sum, b) => sum + b.records.length, 0)}개</p>
         </div>
       `;
       resultDiv.classList.remove('hidden');

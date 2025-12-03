@@ -1,9 +1,10 @@
 /**
  * STEP 3: 사용자 서명 생성
- * SubVoting: 각 레코드마다 개별 서명 (순서 기반 매칭)
+ * SubVoting N:1 구조: 유저당 1개의 서명으로 여러 레코드 처리
  */
 
 import { CONFIG } from '../config.js';
+import { hashVoteRecord, hashRecordsArray } from '../utils/eip712.js';
 
 export class Step3UserSigs {
   constructor(state) {
@@ -17,11 +18,11 @@ export class Step3UserSigs {
           <span class="step-badge bg-purple-500">STEP 3</span>
           ✍️ 사용자 서명 생성(Frontend)
         </h2>
-        <p class="text-sm text-gray-600 mb-4">각 사용자가 자신의 레코드에 서명합니다</p>
+        <p class="text-sm text-gray-600 mb-4">각 사용자가 자신의 모든 레코드에 대해 한 번 서명합니다</p>
 
         <div class="bg-purple-50 border-l-4 border-purple-400 p-4 mb-4">
           <p class="text-sm text-purple-700">
-            💡 <strong>SubVoting 서명:</strong> 1레코드 = 1서명 (순서 기반 매칭)
+            💡 <strong>SubVoting N:1 구조:</strong> 유저당 1개 서명 = N개 레코드 (최대 5개)
           </p>
         </div>
 
@@ -30,12 +31,12 @@ export class Step3UserSigs {
           <div class="bg-blue-50 rounded-lg border border-blue-200 p-4">
             <h3 class="text-lg font-semibold text-blue-800 mb-3">👤 사용자 A 서명</h3>
             <button onclick="step3.signUserBatch(0)" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 w-full">
-              🔐 사용자 A 서명 생성
+              🔐 사용자 A 배치 서명 생성
             </button>
             <div id="userASigResult" class="mt-3 hidden">
-              <p class="text-xs text-gray-600">서명 개수:</p>
-              <p class="text-sm font-semibold bg-white p-2 rounded mt-1" id="userASigCount">0개</p>
-              <p class="text-xs text-gray-600 mt-2">첫 번째 서명 샘플:</p>
+              <p class="text-xs text-gray-600">레코드 개수:</p>
+              <p class="text-sm font-semibold bg-white p-2 rounded mt-1" id="userASigRecordCount">0개</p>
+              <p class="text-xs text-gray-600 mt-2">서명 (1개):</p>
               <p class="text-xs font-mono bg-white p-2 rounded mt-1 break-all" id="userASigSample">-</p>
             </div>
           </div>
@@ -44,12 +45,12 @@ export class Step3UserSigs {
           <div class="bg-green-50 rounded-lg border border-green-200 p-4">
             <h3 class="text-lg font-semibold text-green-800 mb-3">👤 사용자 B 서명</h3>
             <button onclick="step3.signUserBatch(1)" class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 w-full">
-              🔐 사용자 B 서명 생성
+              🔐 사용자 B 배치 서명 생성
             </button>
             <div id="userBSigResult" class="mt-3 hidden">
-              <p class="text-xs text-gray-600">서명 개수:</p>
-              <p class="text-sm font-semibold bg-white p-2 rounded mt-1" id="userBSigCount">0개</p>
-              <p class="text-xs text-gray-600 mt-2">첫 번째 서명 샘플:</p>
+              <p class="text-xs text-gray-600">레코드 개수:</p>
+              <p class="text-sm font-semibold bg-white p-2 rounded mt-1" id="userBSigRecordCount">0개</p>
+              <p class="text-xs text-gray-600 mt-2">서명 (1개):</p>
               <p class="text-xs font-mono bg-white p-2 rounded mt-1 break-all" id="userBSigSample">-</p>
             </div>
           </div>
@@ -121,7 +122,7 @@ export class Step3UserSigs {
   }
 
   /**
-   * 사용자별 서명 생성 (해당 사용자의 모든 레코드)
+   * 사용자별 배치 서명 생성 (해당 사용자의 모든 레코드를 한 번에 서명)
    */
   async signUserBatch(userIndex) {
     try {
@@ -133,100 +134,95 @@ export class Step3UserSigs {
         return;
       }
 
+      if (userRecords.length > 5) {
+        alert(`사용자당 최대 5개 레코드만 가능합니다. 현재: ${userRecords.length}개`);
+        return;
+      }
+
       const wallet = userIndex === 0 ? this.state.user1Wallet : this.state.user2Wallet;
       if (!wallet) {
         alert('먼저 STEP 1에서 지갑을 초기화해주세요!');
         return;
       }
 
-      // 해당 사용자의 기존 서명 제거 (재생성 대비)
-      if (!this.state.userSigs) {
-        this.state.userSigs = [];
+      // 초기화
+      if (!this.state.userBatchSigs) {
+        this.state.userBatchSigs = [];
       }
 
       // 기존 서명 중 해당 사용자 것만 제거
-      this.state.userSigs = this.state.userSigs.filter(
+      this.state.userBatchSigs = this.state.userBatchSigs.filter(
         sig => sig.user !== wallet.address
       );
 
-      const userSigs = [];
+      // 1. 각 레코드의 해시 계산
+      const recordHashes = userRecords.map(record =>
+        hashVoteRecord(record, wallet.address)
+      );
 
-      // 각 레코드마다 개별 서명 생성 (SubVoting: 1레코드 = 1서명)
-      for (let i = 0; i < userRecords.length; i++) {
-        const record = userRecords[i];
+      // 2. recordsHash 통합 (abi.encodePacked)
+      const recordsHash = hashRecordsArray(recordHashes);
 
-        // VoteRecord 해시 계산 (userAddress 제거됨)
-        const recordHash = ethers.keccak256(
-          ethers.AbiCoder.defaultAbiCoder().encode(
-            [
-              'bytes32', 'uint256', 'uint256', 'uint256',
-              'uint256', 'uint256', 'uint256'
-            ],
-            [
-              ethers.id('VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 questionId,uint256 optionId,uint256 votingAmt)'),
-              record.timestamp,
-              record.missionId,
-              record.votingId,
-              record.questionId,
-              record.optionId,
-              record.votingAmt
-            ]
-          )
-        );
+      // 3. 유저 nonce 결정 (첫 번째 레코드의 nonce 사용)
+      const userNonce = userRecords[0].userNonce;
 
-        // UserSig 타입 해시
-        const domain = {
-          name: 'SubVoting',
-          version: '1',
-          chainId: CONFIG.CHAIN_ID,
-          verifyingContract: this.state.contractAddress
-        };
+      // 4. EIP-712 서명
+      const domain = {
+        name: 'SubVoting',
+        version: '1',
+        chainId: CONFIG.CHAIN_ID,
+        verifyingContract: this.state.contractAddress
+      };
 
-        const types = {
-          UserSig: [
-            { name: 'user', type: 'address' },
-            { name: 'userNonce', type: 'uint256' },
-            { name: 'recordHash', type: 'bytes32' }
-          ]
-        };
+      // 🔍 디버깅: 서명 생성 시 사용된 도메인 확인
+      console.log('🔍 User Signature Domain:', {
+        name: domain.name,
+        version: domain.version,
+        chainId: domain.chainId,
+        verifyingContract: domain.verifyingContract
+      });
 
-        const value = {
-          user: wallet.address,
-          userNonce: record.userNonce,
-          recordHash: recordHash
-        };
+      const types = {
+        UserBatch: [
+          { name: 'user', type: 'address' },
+          { name: 'userNonce', type: 'uint256' },
+          { name: 'recordsHash', type: 'bytes32' }
+        ]
+      };
 
-        // EIP-712 서명
-        const signature = await wallet.signTypedData(domain, types, value);
+      const value = {
+        user: wallet.address,
+        userNonce: userNonce,
+        recordsHash: recordsHash
+      };
 
-        // UserSig 저장
-        userSigs.push({
-          user: wallet.address,
-          userNonce: record.userNonce,
-          signature: signature
-        });
+      const signature = await wallet.signTypedData(domain, types, value);
 
-        console.log(`✅ User signature generated for record #${i}:`, signature.substring(0, 20) + '...');
-      }
+      // 5. UserBatchSig 저장 (유저당 1개)
+      const userBatchSig = {
+        user: wallet.address,
+        userNonce: userNonce,
+        signature: signature,
+        recordCount: userRecords.length,
+        recordHashes: recordHashes,
+        recordsHash: recordsHash
+      };
 
-      // 전체 서명 배열에 추가
-      this.state.userSigs.push(...userSigs);
+      this.state.userBatchSigs.push(userBatchSig);
 
       // UI 업데이트
       const userName = userIndex === 0 ? 'A' : 'B';
-      const sigCountId = `user${userName}SigCount`;
-      const sigSampleId = `user${userName}SigSample`;
-      const sigResultId = `user${userName}SigResult`;
-
-      document.getElementById(sigCountId).textContent = `${userSigs.length}개`;
-      document.getElementById(sigSampleId).textContent = userSigs[0].signature;
-      document.getElementById(sigResultId).classList.remove('hidden');
+      document.getElementById(`user${userName}SigRecordCount`).textContent = `${userRecords.length}개`;
+      document.getElementById(`user${userName}SigSample`).textContent = signature;
+      document.getElementById(`user${userName}SigResult`).classList.remove('hidden');
 
       this.updateSummary();
 
-      console.log(`✅ 사용자 ${userName} 서명 완료:`, {
+      console.log(`✅ 사용자 ${userName} 배치 서명 완료:`, {
         user: wallet.address,
-        signatureCount: userSigs.length
+        recordCount: userRecords.length,
+        userNonce: userNonce,
+        recordsHash: recordsHash.substring(0, 20) + '...'
       });
 
     } catch (error) {
@@ -239,7 +235,7 @@ export class Step3UserSigs {
    * 서명 완료 요약 및 백엔드 전송 데이터 업데이트
    */
   updateSummary() {
-    if (!this.state.userSigs || this.state.userSigs.length === 0) {
+    if (!this.state.userBatchSigs || this.state.userBatchSigs.length === 0) {
       return;
     }
 
@@ -247,18 +243,15 @@ export class Step3UserSigs {
     const userAAddress = this.state.user1Wallet?.address;
     const userBAddress = this.state.user2Wallet?.address;
 
-    const userASigs = this.state.userSigs.filter(sig => sig.user === userAAddress);
-    const userBSigs = this.state.userSigs.filter(sig => sig.user === userBAddress);
-
-    const totalSigs = this.state.userSigs.length;
+    const userASig = this.state.userBatchSigs.find(sig => sig.user === userAAddress);
+    const userBSig = this.state.userBatchSigs.find(sig => sig.user === userBAddress);
 
     // 서명 완료 요약 표시
-    let summaryText = `총 ${totalSigs}개 서명 완료`;
-    if (userASigs.length > 0) summaryText += ` (사용자 A: ${userASigs.length}개`;
-    if (userBSigs.length > 0) summaryText += userASigs.length > 0 ? `, 사용자 B: ${userBSigs.length}개)` : ` (사용자 B: ${userBSigs.length}개)`;
-    else if (userASigs.length > 0) summaryText += ')';
+    let summaryParts = [];
+    if (userASig) summaryParts.push(`사용자 A: ${userASig.recordCount}개 레코드 → 1개 서명`);
+    if (userBSig) summaryParts.push(`사용자 B: ${userBSig.recordCount}개 레코드 → 1개 서명`);
 
-    document.getElementById('sigSummaryText').textContent = summaryText;
+    document.getElementById('sigSummaryText').textContent = summaryParts.join(', ') || '-';
     document.getElementById('batchSigSummary').classList.remove('hidden');
 
     // 백엔드 전송 데이터 생성 (사용자별)
@@ -268,20 +261,19 @@ export class Step3UserSigs {
   }
 
   /**
-   * 백엔드 전송 데이터 생성 (사용자별) - UserVoteBatch 구조
+   * 백엔드 전송 데이터 생성 (사용자별) - UserVoteBatch N:1 구조
    */
   generateBackendData() {
     const userAAddress = this.state.user1Wallet?.address;
     const userBAddress = this.state.user2Wallet?.address;
 
-    // 사용자 A 데이터 - UserVoteBatch[] 형태
+    // 사용자 A 데이터 - { records: [...], userBatchSig: {...} }
     const userARecords = this.state.records.filter(r => r.userAddress === userAAddress);
-    const userASigs = this.state.userSigs.filter(sig => sig.user === userAAddress);
+    const userASig = this.state.userBatchSigs.find(sig => sig.user === userAAddress);
 
-    if (userARecords.length > 0 && userASigs.length > 0) {
-      // record와 userSig를 쌍으로 묶어서 UserVoteBatch 생성
-      const userABatches = userARecords.map((r, idx) => ({
-        record: {
+    if (userARecords.length > 0 && userASig) {
+      const userABatch = {
+        records: userARecords.map(r => ({
           timestamp: r.timestamp,
           missionId: r.missionId,
           votingId: r.votingId,
@@ -289,26 +281,25 @@ export class Step3UserSigs {
           optionId: r.optionId,
           votingAmt: r.votingAmt
           // userId는 백엔드가 자동 주입
-        },
-        userSig: {
-          user: userASigs[idx].user,
-          userNonce: userASigs[idx].userNonce,
-          signature: userASigs[idx].signature
+        })),
+        userBatchSig: {
+          user: userASig.user,
+          userNonce: userASig.userNonce,
+          signature: userASig.signature
         }
-      }));
+      };
 
       document.getElementById('userABackendData').textContent =
-        JSON.stringify(userABatches, null, 2);
+        JSON.stringify(userABatch, null, 2);
     }
 
-    // 사용자 B 데이터 - UserVoteBatch[] 형태
+    // 사용자 B 데이터 - { records: [...], userBatchSig: {...} }
     const userBRecords = this.state.records.filter(r => r.userAddress === userBAddress);
-    const userBSigs = this.state.userSigs.filter(sig => sig.user === userBAddress);
+    const userBSig = this.state.userBatchSigs.find(sig => sig.user === userBAddress);
 
-    if (userBRecords.length > 0 && userBSigs.length > 0) {
-      // record와 userSig를 쌍으로 묶어서 UserVoteBatch 생성
-      const userBBatches = userBRecords.map((r, idx) => ({
-        record: {
+    if (userBRecords.length > 0 && userBSig) {
+      const userBBatch = {
+        records: userBRecords.map(r => ({
           timestamp: r.timestamp,
           missionId: r.missionId,
           votingId: r.votingId,
@@ -316,16 +307,16 @@ export class Step3UserSigs {
           optionId: r.optionId,
           votingAmt: r.votingAmt
           // userId는 백엔드가 자동 주입
-        },
-        userSig: {
-          user: userBSigs[idx].user,
-          userNonce: userBSigs[idx].userNonce,
-          signature: userBSigs[idx].signature
+        })),
+        userBatchSig: {
+          user: userBSig.user,
+          userNonce: userBSig.userNonce,
+          signature: userBSig.signature
         }
-      }));
+      };
 
       document.getElementById('userBBackendData').textContent =
-        JSON.stringify(userBBatches, null, 2);
+        JSON.stringify(userBBatch, null, 2);
     }
   }
 }

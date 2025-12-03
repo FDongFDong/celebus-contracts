@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CelebusNFT Demo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <!-- Header -->
+  <header class="bg-gradient-to-r from-purple-600 to-indigo-600 text-white py-6 shadow-lg">
+    <div class="container mx-auto px-4">
+      <h1 class="text-3xl font-bold">CelebusNFT Demo</h1>
+      <p class="text-purple-200 mt-1">ERC721 NFT 컨트랙트 테스트</p>
+    </div>
+  </header>
+
+  <!-- Connection Section -->
+  <section class="bg-white shadow-md py-4 sticky top-0 z-50">
+    <div class="container mx-auto px-4">
+      <div class="flex flex-wrap items-center gap-4">
+        <!-- Network Info -->
+        <div class="flex items-center gap-2 bg-gray-100 px-3 py-2 rounded-lg">
+          <span class="w-3 h-3 rounded-full bg-green-500" id="networkStatus"></span>
+          <span class="text-sm font-medium" id="networkName">opBNB Testnet</span>
+          <span class="text-xs text-gray-500">(Chain ID: <span id="chainId">5611</span>)</span>
+        </div>
+
+        <!-- Contract Address -->
+        <div class="flex-1 min-w-[300px]">
+          <div class="flex items-center gap-2">
+            <label class="text-sm font-medium text-gray-700">컨트랙트:</label>
+            <input type="text" id="contractAddress"
+              class="flex-1 px-3 py-2 border rounded-lg text-sm font-mono"
+              placeholder="0x... CelebusNFT 주소 입력">
+            <button id="loadContractBtn" class="btn-primary text-sm">
+              로드
+            </button>
+          </div>
+        </div>
+
+        <!-- Wallet Connection -->
+        <div class="flex items-center gap-2">
+          <button id="connectWalletBtn" class="btn-wallet">
+            <i data-lucide="wallet" class="w-5 h-5"></i>
+            <span id="walletBtnText">지갑 연결</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Connected Wallet Info -->
+      <div id="walletInfo" class="hidden mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="text-green-600 font-medium">연결됨:</span>
+            <code id="connectedAddress" class="text-sm bg-green-100 px-2 py-1 rounded">-</code>
+            <span id="isOwnerBadge" class="hidden px-2 py-1 bg-yellow-400 text-yellow-900 text-xs font-bold rounded">OWNER</span>
+          </div>
+          <div class="flex items-center gap-4 text-sm">
+            <span>잔액: <span id="walletBalance" class="font-mono">0</span> tBNB</span>
+            <button id="disconnectBtn" class="text-red-500 hover:text-red-700 flex items-center gap-1">
+              <i data-lucide="log-out" class="w-4 h-4"></i>
+              연결 해제
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Tab Navigation -->
+  <nav class="bg-white border-b">
+    <div class="container mx-auto px-4">
+      <div class="flex overflow-x-auto" id="tabNav">
+        <button class="tab-button active" data-tab="info">
+          <i data-lucide="info" class="w-5 h-5"></i>
+          <span>정보</span>
+        </button>
+        <button class="tab-button" data-tab="minting">
+          <i data-lucide="plus-circle" class="w-5 h-5"></i>
+          <span>민팅</span>
+        </button>
+        <button class="tab-button" data-tab="approval">
+          <i data-lucide="check-circle" class="w-5 h-5"></i>
+          <span>승인</span>
+        </button>
+        <button class="tab-button" data-tab="transfer">
+          <i data-lucide="send" class="w-5 h-5"></i>
+          <span>전송</span>
+        </button>
+        <button class="tab-button" data-tab="admin">
+          <i data-lucide="settings" class="w-5 h-5"></i>
+          <span>관리</span>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="container mx-auto px-4 py-6">
+    <!-- Info Tab -->
+    <div id="tab-info" class="tab-content">
+      <div class="grid md:grid-cols-2 gap-6">
+        <!-- Contract Info Card -->
+        <div class="card">
+          <h3 class="card-title">컨트랙트 정보</h3>
+          <div class="space-y-3">
+            <div class="info-row">
+              <span class="info-label">Name:</span>
+              <span id="nftName" class="info-value">-</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Symbol:</span>
+              <span id="nftSymbol" class="info-value">-</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Owner:</span>
+              <code id="nftOwner" class="info-value text-xs">-</code>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Paused:</span>
+              <span id="nftPaused" class="info-value">-</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Max Batch:</span>
+              <span id="nftMaxBatch" class="info-value">-</span>
+            </div>
+            <button id="refreshInfoBtn" class="btn-secondary w-full mt-4 flex items-center justify-center gap-2">
+              <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+              새로고침
+            </button>
+          </div>
+        </div>
+
+        <!-- Balance Query Card -->
+        <div class="card">
+          <h3 class="card-title">잔액 조회</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">주소</label>
+              <div class="flex gap-2">
+                <input type="text" id="balanceAddress" class="input-field flex-1" placeholder="0x...">
+                <button id="useMyAddressBtn" class="btn-secondary text-sm">내 주소</button>
+              </div>
+            </div>
+            <button id="checkBalanceBtn" class="btn-primary w-full">balanceOf 조회</button>
+            <div id="balanceResult" class="result-box hidden">
+              보유 NFT: <span class="font-bold text-lg">0</span>개
+            </div>
+          </div>
+        </div>
+
+        <!-- Token Info Card -->
+        <div class="card">
+          <h3 class="card-title">토큰 정보 조회</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">Token ID</label>
+              <input type="number" id="tokenIdInfo" class="input-field" placeholder="0" min="0">
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+              <button id="ownerOfBtn" class="btn-primary text-sm">ownerOf</button>
+              <button id="tokenURIBtn" class="btn-primary text-sm">tokenURI</button>
+              <button id="isLockedBtn" class="btn-primary text-sm">isLocked</button>
+            </div>
+            <div id="tokenInfoResult" class="result-box hidden"></div>
+          </div>
+        </div>
+
+        <!-- Interface Check Card -->
+        <div class="card">
+          <h3 class="card-title">인터페이스 확인</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">Interface ID (bytes4)</label>
+              <input type="text" id="interfaceId" class="input-field" placeholder="0x80ac58cd (ERC721)">
+            </div>
+            <div class="flex gap-2 flex-wrap">
+              <button class="btn-secondary text-xs" data-interface="0x80ac58cd">ERC721</button>
+              <button class="btn-secondary text-xs" data-interface="0x5b5e139f">ERC721Metadata</button>
+              <button class="btn-secondary text-xs" data-interface="0x01ffc9a7">ERC165</button>
+            </div>
+            <button id="checkInterfaceBtn" class="btn-primary w-full">supportsInterface 확인</button>
+            <div id="interfaceResult" class="result-box hidden"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Minting Tab -->
+    <div id="tab-minting" class="tab-content hidden">
+      <div class="alert alert-warning mb-6 flex items-center gap-2">
+        <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+        <span><strong>Owner 전용:</strong> 민팅은 컨트랙트 Owner만 실행할 수 있습니다.</span>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-6">
+        <!-- Single Mint -->
+        <div class="card">
+          <h3 class="card-title">단일 민팅 (safeMint)</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">받을 주소</label>
+              <div class="flex gap-2">
+                <input type="text" id="mintToAddress" class="input-field flex-1" placeholder="0x...">
+                <button id="useMintMyAddressBtn" class="btn-secondary text-sm">내 주소</button>
+              </div>
+            </div>
+            <button id="safeMintBtn" class="btn-success w-full">safeMint 실행</button>
+            <div id="safeMintResult" class="result-box hidden"></div>
+          </div>
+        </div>
+
+        <!-- Batch Mint -->
+        <div class="card">
+          <h3 class="card-title">배치 민팅 (batchMint)</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">받을 주소</label>
+              <div class="flex gap-2">
+                <input type="text" id="batchMintToAddress" class="input-field flex-1" placeholder="0x...">
+                <button id="useBatchMintMyAddressBtn" class="btn-secondary text-sm">내 주소</button>
+              </div>
+            </div>
+            <div>
+              <label class="input-label">발행 개수 (최대 1500)</label>
+              <input type="number" id="batchMintCount" class="input-field" placeholder="10" min="1" max="1500" value="5">
+            </div>
+            <button id="batchMintBtn" class="btn-success w-full">batchMint 실행</button>
+            <div id="batchMintResult" class="result-box hidden"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Approval Tab -->
+    <div id="tab-approval" class="tab-content hidden">
+      <div class="grid md:grid-cols-2 gap-6">
+        <!-- Single Approval -->
+        <div class="card">
+          <h3 class="card-title">토큰별 승인 (approve)</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">승인할 주소</label>
+              <input type="text" id="approveTo" class="input-field" placeholder="0x...">
+            </div>
+            <div>
+              <label class="input-label">Token ID</label>
+              <input type="number" id="approveTokenId" class="input-field" placeholder="0" min="0">
+            </div>
+            <button id="approveBtn" class="btn-success w-full">approve 실행</button>
+            <div id="approveResult" class="result-box hidden"></div>
+          </div>
+        </div>
+
+        <!-- Get Approved -->
+        <div class="card">
+          <h3 class="card-title">승인 조회 (getApproved)</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">Token ID</label>
+              <input type="number" id="getApprovedTokenId" class="input-field" placeholder="0" min="0">
+            </div>
+            <button id="getApprovedBtn" class="btn-primary w-full">getApproved 조회</button>
+            <div id="getApprovedResult" class="result-box hidden"></div>
+          </div>
+        </div>
+
+        <!-- Set Approval For All -->
+        <div class="card">
+          <h3 class="card-title">전체 승인 (setApprovalForAll)</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">Operator 주소</label>
+              <input type="text" id="operatorAddress" class="input-field" placeholder="0x...">
+            </div>
+            <div class="flex items-center gap-4">
+              <label class="input-label mb-0">승인 여부:</label>
+              <label class="flex items-center gap-2">
+                <input type="radio" name="approvalForAll" value="true" checked>
+                <span>승인 (true)</span>
+              </label>
+              <label class="flex items-center gap-2">
+                <input type="radio" name="approvalForAll" value="false">
+                <span>취소 (false)</span>
+              </label>
+            </div>
+            <button id="setApprovalForAllBtn" class="btn-success w-full">setApprovalForAll 실행</button>
+            <div id="setApprovalForAllResult" class="result-box hidden"></div>
+          </div>
+        </div>
+
+        <!-- Is Approved For All -->
+        <div class="card">
+          <h3 class="card-title">전체 승인 확인 (isApprovedForAll)</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">Owner 주소</label>
+              <div class="flex gap-2">
+                <input type="text" id="isApprovedOwner" class="input-field flex-1" placeholder="0x...">
+                <button id="useIsApprovedMyAddressBtn" class="btn-secondary text-sm">내 주소</button>
+              </div>
+            </div>
+            <div>
+              <label class="input-label">Operator 주소</label>
+              <input type="text" id="isApprovedOperator" class="input-field" placeholder="0x...">
+            </div>
+            <button id="isApprovedForAllBtn" class="btn-primary w-full">isApprovedForAll 확인</button>
+            <div id="isApprovedForAllResult" class="result-box hidden"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transfer Tab -->
+    <div id="tab-transfer" class="tab-content hidden">
+      <div class="grid md:grid-cols-2 gap-6">
+        <!-- Transfer From -->
+        <div class="card">
+          <h3 class="card-title">일반 전송 (transferFrom)</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">보내는 주소 (from)</label>
+              <div class="flex gap-2">
+                <input type="text" id="transferFrom" class="input-field flex-1" placeholder="0x...">
+                <button id="useTransferFromMyAddressBtn" class="btn-secondary text-sm">내 주소</button>
+              </div>
+            </div>
+            <div>
+              <label class="input-label">받는 주소 (to)</label>
+              <input type="text" id="transferTo" class="input-field" placeholder="0x...">
+            </div>
+            <div>
+              <label class="input-label">Token ID</label>
+              <input type="number" id="transferTokenId" class="input-field" placeholder="0" min="0">
+            </div>
+            <button id="transferFromBtn" class="btn-success w-full">transferFrom 실행</button>
+            <div id="transferFromResult" class="result-box hidden"></div>
+          </div>
+        </div>
+
+        <!-- Safe Transfer From -->
+        <div class="card">
+          <h3 class="card-title">안전 전송 (safeTransferFrom)</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">보내는 주소 (from)</label>
+              <div class="flex gap-2">
+                <input type="text" id="safeTransferFrom" class="input-field flex-1" placeholder="0x...">
+                <button id="useSafeTransferFromMyAddressBtn" class="btn-secondary text-sm">내 주소</button>
+              </div>
+            </div>
+            <div>
+              <label class="input-label">받는 주소 (to)</label>
+              <input type="text" id="safeTransferTo" class="input-field" placeholder="0x...">
+            </div>
+            <div>
+              <label class="input-label">Token ID</label>
+              <input type="number" id="safeTransferTokenId" class="input-field" placeholder="0" min="0">
+            </div>
+            <button id="safeTransferFromBtn" class="btn-success w-full">safeTransferFrom 실행</button>
+            <div id="safeTransferFromResult" class="result-box hidden"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Admin Tab -->
+    <div id="tab-admin" class="tab-content hidden">
+      <div class="alert alert-warning mb-6 flex items-center gap-2">
+        <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+        <span><strong>Owner 전용:</strong> 이 탭의 모든 기능은 컨트랙트 Owner만 실행할 수 있습니다.</span>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-6">
+        <!-- Lock Token -->
+        <div class="card">
+          <h3 class="card-title">토큰 잠금</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">Token ID</label>
+              <input type="number" id="lockTokenId" class="input-field" placeholder="0" min="0">
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <button id="lockTokenBtn" class="btn-warning flex items-center justify-center gap-2">
+                <i data-lucide="lock" class="w-4 h-4"></i>
+                lockToken
+              </button>
+              <button id="unlockTokenBtn" class="btn-success flex items-center justify-center gap-2">
+                <i data-lucide="unlock" class="w-4 h-4"></i>
+                unlockToken
+              </button>
+            </div>
+            <div id="lockResult" class="result-box hidden"></div>
+          </div>
+        </div>
+
+        <!-- Batch Lock -->
+        <div class="card">
+          <h3 class="card-title">배치 잠금</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">Token IDs (콤마로 구분)</label>
+              <input type="text" id="batchLockIds" class="input-field" placeholder="0, 1, 2, 3">
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <button id="batchLockBtn" class="btn-warning flex items-center justify-center gap-2">
+                <i data-lucide="lock" class="w-4 h-4"></i>
+                batchLock
+              </button>
+              <button id="batchUnlockBtn" class="btn-success flex items-center justify-center gap-2">
+                <i data-lucide="unlock" class="w-4 h-4"></i>
+                batchUnlock
+              </button>
+            </div>
+            <div id="batchLockResult" class="result-box hidden"></div>
+          </div>
+        </div>
+
+        <!-- Burn Token -->
+        <div class="card">
+          <h3 class="card-title">토큰 소각 (burn)</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">Token ID</label>
+              <input type="number" id="burnTokenId" class="input-field" placeholder="0" min="0">
+            </div>
+            <button id="burnBtn" class="btn-danger w-full flex items-center justify-center gap-2">
+              <i data-lucide="flame" class="w-4 h-4"></i>
+              burn 실행
+            </button>
+            <div id="burnResult" class="result-box hidden"></div>
+          </div>
+        </div>
+
+        <!-- Set Base URI -->
+        <div class="card">
+          <h3 class="card-title">Base URI 설정</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">Base URI</label>
+              <input type="text" id="baseURI" class="input-field" placeholder="https://example.com/metadata/">
+            </div>
+            <button id="setBaseURIBtn" class="btn-success w-full flex items-center justify-center gap-2">
+              <i data-lucide="link" class="w-4 h-4"></i>
+              setBaseURI 실행
+            </button>
+            <div id="setBaseURIResult" class="result-box hidden"></div>
+          </div>
+        </div>
+
+        <!-- Pause / Unpause -->
+        <div class="card">
+          <h3 class="card-title">일시정지 관리</h3>
+          <div class="space-y-3">
+            <p class="text-sm text-gray-600">컨트랙트의 모든 전송/민팅/소각을 중지합니다.</p>
+            <div class="grid grid-cols-2 gap-2">
+              <button id="pauseBtn" class="btn-danger flex items-center justify-center gap-2">
+                <i data-lucide="pause-circle" class="w-4 h-4"></i>
+                pause()
+              </button>
+              <button id="unpauseBtn" class="btn-success flex items-center justify-center gap-2">
+                <i data-lucide="play-circle" class="w-4 h-4"></i>
+                unpause()
+              </button>
+            </div>
+            <div id="pauseResult" class="result-box hidden"></div>
+          </div>
+        </div>
+
+        <!-- Ownership -->
+        <div class="card">
+          <h3 class="card-title">소유권 관리</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">새 Owner 주소</label>
+              <input type="text" id="newOwnerAddress" class="input-field" placeholder="0x...">
+            </div>
+            <button id="transferOwnershipBtn" class="btn-warning w-full flex items-center justify-center gap-2">
+              <i data-lucide="user-check" class="w-4 h-4"></i>
+              transferOwnership
+            </button>
+            <div class="border-t pt-3 mt-3">
+              <button id="renounceOwnershipBtn" class="btn-danger w-full flex items-center justify-center gap-2">
+                <i data-lucide="user-x" class="w-4 h-4"></i>
+                renounceOwnership (위험!)
+              </button>
+              <p class="text-xs text-red-500 mt-1 flex items-center gap-1">
+                <i data-lucide="alert-triangle" class="w-3 h-3"></i>
+                소유권을 영구적으로 포기합니다. 되돌릴 수 없습니다!
+              </p>
+            </div>
+            <div id="ownershipResult" class="result-box hidden"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
+
+  <!-- Scripts -->
+  <script type="module" src="js/main.js"></script>
+  <script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+  </script>
+</body>
+</html>

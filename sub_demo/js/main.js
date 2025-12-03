@@ -3,6 +3,7 @@
  * 모든 Step 컴포넌트를 통합하고 애플리케이션을 초기화합니다
  */
 
+import { CONFIG } from './config.js';
 import { Step0Setup } from './components/step0-setup.js';
 import { Step1Executor } from './components/step1-executor.js';
 import { Step2Records } from './components/step2-records.js';
@@ -38,8 +39,8 @@ class SubVotingApp {
       // Signatures
       executorSig: null,
 
-      // Contract
-      contractAddress: '0x3779650F74676B9df554f7aE8A3584af9eB99E8b',
+      // Contract - CONFIG에서 가져옴 (배포 후 "배포된 주소 적용" 버튼으로 갱신)
+      contractAddress: CONFIG.VOTING_ADDRESS,
 
       // Provider
       provider: new ethers.JsonRpcProvider('https://opbnb-testnet-rpc.bnbchain.org')

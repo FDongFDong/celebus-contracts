@@ -254,17 +254,12 @@
         "internalType": "uint256"
       },
       {
-        "name": "userAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
         "name": "userId",
         "type": "string",
         "internalType": "string"
       },
       {
-        "name": "artistId",
+        "name": "optionId",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -316,6 +311,11 @@
     "type": "function",
     "name": "consumed",
     "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
       {
         "name": "",
         "type": "bytes32",
@@ -410,7 +410,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "artistId",
+        "name": "optionId",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -451,7 +451,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "artistId",
+        "name": "optionId",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -497,17 +497,12 @@
             "internalType": "uint256"
           },
           {
-            "name": "userAddress",
-            "type": "address",
-            "internalType": "address"
-          },
-          {
             "name": "userId",
             "type": "string",
             "internalType": "string"
           },
           {
-            "name": "artistId",
+            "name": "optionId",
             "type": "uint256",
             "internalType": "uint256"
           },
@@ -631,17 +626,12 @@
             "internalType": "uint256"
           },
           {
-            "name": "userAddress",
-            "type": "address",
-            "internalType": "address"
-          },
-          {
             "name": "userId",
             "type": "string",
             "internalType": "string"
           },
           {
-            "name": "artistId",
+            "name": "optionId",
             "type": "uint256",
             "internalType": "uint256"
           },
@@ -656,6 +646,11 @@
             "internalType": "uint256"
           }
         ]
+      },
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [
@@ -777,7 +772,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "artistId",
+        "name": "optionId",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -831,71 +826,73 @@
     "name": "submitBoostBatch",
     "inputs": [
       {
-        "name": "records",
+        "name": "batches",
         "type": "tuple[]",
-        "internalType": "struct Boosting.BoostRecord[]",
+        "internalType": "struct Boosting.UserBoostBatch[]",
         "components": [
           {
-            "name": "timestamp",
-            "type": "uint256",
-            "internalType": "uint256"
+            "name": "record",
+            "type": "tuple",
+            "internalType": "struct Boosting.BoostRecord",
+            "components": [
+              {
+                "name": "timestamp",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "missionId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "boostingId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "userId",
+                "type": "string",
+                "internalType": "string"
+              },
+              {
+                "name": "optionId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "boostingWith",
+                "type": "uint8",
+                "internalType": "uint8"
+              },
+              {
+                "name": "amt",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ]
           },
           {
-            "name": "missionId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "boostingId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "userAddress",
-            "type": "address",
-            "internalType": "address"
-          },
-          {
-            "name": "userId",
-            "type": "string",
-            "internalType": "string"
-          },
-          {
-            "name": "artistId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "boostingWith",
-            "type": "uint8",
-            "internalType": "uint8"
-          },
-          {
-            "name": "amt",
-            "type": "uint256",
-            "internalType": "uint256"
-          }
-        ]
-      },
-      {
-        "name": "userSigs",
-        "type": "tuple[]",
-        "internalType": "struct Boosting.UserSig[]",
-        "components": [
-          {
-            "name": "user",
-            "type": "address",
-            "internalType": "address"
-          },
-          {
-            "name": "userNonce",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "signature",
-            "type": "bytes",
-            "internalType": "bytes"
+            "name": "userSig",
+            "type": "tuple",
+            "internalType": "struct Boosting.UserSig",
+            "components": [
+              {
+                "name": "user",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "userNonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "signature",
+                "type": "bytes",
+                "internalType": "bytes"
+              }
+            ]
           }
         ]
       },
@@ -961,7 +958,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "artistId",
+        "name": "optionId",
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
@@ -1179,7 +1176,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "artistId",
+        "name": "optionId",
         "type": "uint256",
         "internalType": "uint256"
       }

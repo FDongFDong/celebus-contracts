@@ -359,6 +359,13 @@ export class Step7Submit {
       this.setLoadingState(true, '컨트랙트 인스턴스 생성 중...');
       const provider = new ethers.JsonRpcProvider(CONFIG.RPC_URL);
       const signer = this.state.executorWallet.connect(provider);
+
+      // 🔍 디버그: 제출 시 사용되는 컨트랙트 주소 로깅
+      console.log('🔍 [STEP7 DEBUG] Contract address for submission:', {
+        stateContractAddress: this.state.contractAddress,
+        configVotingAddress: CONFIG.VOTING_ADDRESS
+      });
+
       const contract = getContractInstance(signer, this.state.contractAddress);
 
       // 트랜잭션 제출 (submitBoostBatch 사용)

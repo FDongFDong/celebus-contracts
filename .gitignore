@@ -45,3 +45,9 @@ sub_demo/scripts/
 boosting_demo/scripts/
 
 node_modules
+
+# Playwright MCP
+.playwright-mcp/
+
+# Build output
+bin/

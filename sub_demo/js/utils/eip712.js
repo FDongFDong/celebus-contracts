@@ -1,22 +1,23 @@
 /**
- * EIP-712 Utilities
- * EIP-712 구조화된 데이터 서명 관련 유틸리티 함수들
+ * EIP-712 Utilities for SubVoting
+ * SubVoting 컨트랙트의 EIP-712 구조화된 데이터 서명
+ *
+ * SubVoting 특성 (N:1 구조):
+ * - 1 유저 = 1 서명 (여러 레코드를 한 번에 서명)
+ * - VoteRecord: timestamp, missionId, votingId, questionId, optionId, votingAmt, userId, user
+ * - UserBatch: user, userNonce, recordsHash
  */
 
 /**
  * Domain Separator 계산
- * @param {Object} domain - { name, version, chainId, verifyingContract }
- * @returns {string} Domain separator hash
  */
 export function calculateDomainSeparator(domain) {
-  // EIP712Domain typeHash
   const typeHash = ethers.keccak256(
     ethers.toUtf8Bytes(
       'EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)'
     )
   );
 
-  // Domain 데이터 인코딩
   const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
     ['bytes32', 'bytes32', 'bytes32', 'uint256', 'address'],
     [
@@ -32,17 +33,13 @@ export function calculateDomainSeparator(domain) {
 }
 
 /**
- * Struct Hash 계산 (Batch 타입)
- * @param {number} batchNonce - Batch nonce 값
- * @returns {string} Struct hash
+ * Batch Struct Hash 계산 (Executor 서명용)
  */
-export function calculateStructHash(batchNonce) {
-  // BATCH_TYPEHASH
+export function calculateBatchStructHash(batchNonce) {
   const typeHash = ethers.keccak256(
     ethers.toUtf8Bytes('Batch(uint256 batchNonce)')
   );
 
-  // Batch 데이터 인코딩
   const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
     ['bytes32', 'uint256'],
     [typeHash, batchNonce]
@@ -53,12 +50,8 @@ export function calculateStructHash(batchNonce) {
 
 /**
  * Final Digest 계산
- * @param {string} domainSeparator - Domain separator hash
- * @param {string} structHash - Struct hash
- * @returns {string} Final digest (EIP-191 formatted)
  */
 export function calculateDigest(domainSeparator, structHash) {
-  // EIP-191: \x19\x01 + domainSeparator + structHash
   return ethers.keccak256(
     ethers.solidityPacked(
       ['bytes2', 'bytes32', 'bytes32'],
@@ -68,30 +61,32 @@ export function calculateDigest(domainSeparator, structHash) {
 }
 
 /**
- * Vote Record Hash 계산 (userId 제외)
- * @param {Object} record - Vote record 객체
- * @returns {string} Record hash
+ * Vote Record Hash 계산
+ * VOTE_RECORD_TYPEHASH: "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 questionId,uint256 optionId,uint256 votingAmt,address user)"
+ *
+ * 참고: userId는 서명 대상에서 제외됩니다.
+ *   - 프론트엔드에서 userId 없이 서명 가능
+ *   - 백엔드가 DB에서 userId를 조회하여 VoteRecord에 주입
+ *   - 온체인 저장 및 조회 시에만 userId 사용
  */
-export function hashVoteRecord(record) {
-  // VOTE_RECORD_TYPEHASH (userId 제외)
+export function hashVoteRecord(record, userAddress) {
   const VOTE_RECORD_TYPEHASH = ethers.keccak256(
     ethers.toUtf8Bytes(
-      'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,uint256 artistId,uint8 voteType,uint256 votingAmt)'
+      'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 questionId,uint256 optionId,uint256 votingAmt,address user)'
     )
   );
 
-  // Record 데이터 인코딩 (userId 제외)
   const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
-    ['bytes32', 'uint256', 'uint256', 'uint256', 'address', 'uint256', 'uint8', 'uint256'],
+    ['bytes32', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256', 'address'],
     [
       VOTE_RECORD_TYPEHASH,
       record.timestamp,
       record.missionId,
       record.votingId,
-      record.userAddress,
-      record.artistId,
-      record.voteType,
-      record.votingAmt
+      record.questionId,
+      record.optionId,
+      record.votingAmt,
+      userAddress
     ]
   );
 
@@ -99,128 +94,122 @@ export function hashVoteRecord(record) {
 }
 
 /**
- * User Batch Hash 계산
- * @param {Array} userRecords - 사용자의 레코드 배열
- * @param {number} userNonce - 사용자 nonce
- * @returns {string} User batch hash
+ * 여러 레코드 해시를 통합하여 recordsHash 생성
+ * recordsHash = keccak256(abi.encodePacked([hash0, hash1, ...]))
  */
-export function hashUserBatch(userRecords, userNonce) {
-  // 각 레코드의 해시 계산
-  const recordHashes = userRecords.map(record => hashVoteRecord(record));
+export function hashRecordsArray(recordHashes) {
+  return ethers.keccak256(
+    ethers.solidityPacked(
+      recordHashes.map(() => 'bytes32'),
+      recordHashes
+    )
+  );
+}
 
-  // USER_BATCH_TYPEHASH
+/**
+ * User Batch Hash 계산
+ * USER_BATCH_TYPEHASH: "UserBatch(address user,uint256 userNonce,bytes32 recordsHash)"
+ */
+export function hashUserBatch(userAddress, userNonce, recordsHash) {
   const USER_BATCH_TYPEHASH = ethers.keccak256(
-    ethers.toUtf8Bytes('UserBatch(bytes32[] recordHashes,uint256 userNonce)')
+    ethers.toUtf8Bytes('UserBatch(address user,uint256 userNonce,bytes32 recordsHash)')
   );
 
-  // recordHashes 배열 해시
-  const recordHashesHash = ethers.keccak256(
-    ethers.AbiCoder.defaultAbiCoder().encode(['bytes32[]'], [recordHashes])
-  );
-
-  // UserBatch 데이터 인코딩
   const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
-    ['bytes32', 'bytes32', 'uint256'],
-    [USER_BATCH_TYPEHASH, recordHashesHash, userNonce]
+    ['bytes32', 'address', 'uint256', 'bytes32'],
+    [USER_BATCH_TYPEHASH, userAddress, userNonce, recordsHash]
   );
 
   return ethers.keccak256(encoded);
 }
 
 /**
- * Batch Digest 계산 (모든 사용자 배치)
- * @param {Object} domain - Domain 객체
- * @param {Array} userBatches - 사용자 배치 배열
- * @returns {string} Batch digest
+ * 사용자 배치 서명용 Digest 계산 (N:1 구조)
+ * 여러 레코드를 한 번에 서명
  */
-export function calculateBatchDigest(domain, userBatches) {
+export function calculateUserBatchDigest(domain, records, userAddress, userNonce) {
   const domainSeparator = calculateDomainSeparator(domain);
 
-  // 모든 사용자 배치 해시를 합침
-  const userBatchHashes = userBatches.map(batch =>
-    hashUserBatch(batch.records, batch.userNonce)
-  );
+  // 1. 각 레코드의 해시 계산
+  const recordHashes = records.map(r => hashVoteRecord(r, userAddress));
 
-  // Combined hash 계산 (실제 컨트랙트와 동일한 방식)
-  const combinedHash = ethers.keccak256(
-    ethers.AbiCoder.defaultAbiCoder().encode(
-      ['bytes32[]'],
-      [userBatchHashes]
-    )
-  );
+  // 2. recordsHash 통합
+  const recordsHash = hashRecordsArray(recordHashes);
 
-  return calculateDigest(domainSeparator, combinedHash);
+  // 3. UserBatch 해시 생성
+  const userBatchHash = hashUserBatch(userAddress, userNonce, recordsHash);
+
+  // 4. EIP-712 다이제스트
+  const digest = calculateDigest(domainSeparator, userBatchHash);
+
+  return { domainSeparator, recordHashes, recordsHash, userBatchHash, digest };
+}
+
+/**
+ * Executor 서명용 Digest 계산
+ */
+export function calculateExecutorDigest(domain, batchNonce) {
+  const domainSeparator = calculateDomainSeparator(domain);
+  const structHash = calculateBatchStructHash(batchNonce);
+  const digest = calculateDigest(domainSeparator, structHash);
+
+  return { domainSeparator, structHash, digest };
 }
 
 /**
  * 계산 과정 설명 생성
- * @param {string} type - 'domain' | 'struct' | 'digest'
- * @param {Object} params - 계산에 사용된 파라미터
- * @returns {string} HTML 설명
  */
 export function generateExplanation(type, params) {
   const explanations = {
     domain: `
       <div class="space-y-2 text-sm">
-        <p class="font-semibold">1. EIP712Domain TypeHash 계산:</p>
+        <p class="font-semibold">1. EIP712Domain TypeHash:</p>
         <code class="block bg-gray-100 p-2 rounded text-xs">
           keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
         </code>
-
-        <p class="font-semibold mt-3">2. Domain 데이터 인코딩:</p>
+        <p class="font-semibold mt-3">2. Domain 인코딩:</p>
         <code class="block bg-gray-100 p-2 rounded text-xs">
-          abi.encode(
-            typeHash,
-            keccak256("${params.name}"),
-            keccak256("${params.version}"),
-            ${params.chainId},
-            ${params.verifyingContract}
-          )
-        </code>
-
-        <p class="font-semibold mt-3">3. 최종 해시:</p>
-        <code class="block bg-gray-100 p-2 rounded text-xs">
-          keccak256(encoded) = domainSeparator
+          abi.encode(typeHash, keccak256("${params.name}"), keccak256("${params.version}"), ${params.chainId}, ${params.verifyingContract})
         </code>
       </div>
     `,
 
-    struct: `
+    record: `
       <div class="space-y-2 text-sm">
-        <p class="font-semibold">1. Batch TypeHash 계산:</p>
+        <p class="font-semibold">VoteRecord TypeHash:</p>
+        <code class="block bg-gray-100 p-2 rounded text-xs">
+          "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 questionId,uint256 optionId,uint256 votingAmt,address user)"
+        </code>
+        <p class="text-xs text-blue-600 mt-2">⚠️ userId는 서명 대상 제외 (백엔드가 주입)</p>
+      </div>
+    `,
+
+    userBatch: `
+      <div class="space-y-2 text-sm">
+        <p class="font-semibold">UserBatch TypeHash:</p>
+        <code class="block bg-gray-100 p-2 rounded text-xs">
+          "UserBatch(address user,uint256 userNonce,bytes32 recordsHash)"
+        </code>
+        <p class="text-xs text-green-600 mt-2">✅ N 레코드 = 1 서명 (recordsHash로 통합)</p>
+      </div>
+    `,
+
+    batch: `
+      <div class="space-y-2 text-sm">
+        <p class="font-semibold">Batch TypeHash:</p>
         <code class="block bg-gray-100 p-2 rounded text-xs">
           keccak256("Batch(uint256 batchNonce)")
-        </code>
-
-        <p class="font-semibold mt-3">2. Struct 데이터 인코딩:</p>
-        <code class="block bg-gray-100 p-2 rounded text-xs">
-          abi.encode(
-            typeHash,
-            ${params.batchNonce}
-          )
-        </code>
-
-        <p class="font-semibold mt-3">3. 최종 해시:</p>
-        <code class="block bg-gray-100 p-2 rounded text-xs">
-          keccak256(encoded) = structHash
         </code>
       </div>
     `,
 
     digest: `
       <div class="space-y-2 text-sm">
-        <p class="font-semibold">EIP-191 형식으로 최종 Digest 생성:</p>
+        <p class="font-semibold">EIP-191 Digest:</p>
         <code class="block bg-gray-100 p-2 rounded text-xs">
-          keccak256(
-            "\\x19\\x01" +        // EIP-191 버전 바이트
-            domainSeparator +    // 어느 컨트랙트인지
-            structHash           // 무슨 데이터인지
-          )
+          keccak256("\\x19\\x01" + domainSeparator + structHash)
         </code>
-
-        <p class="text-xs text-gray-600 mt-2">
-          ✅ 이 digest를 Private Key로 ECDSA 서명합니다
-        </p>
+        <p class="text-xs text-gray-600 mt-2">✅ 이 digest를 ECDSA 서명</p>
       </div>
     `
   };

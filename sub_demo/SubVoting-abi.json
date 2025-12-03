@@ -51,6 +51,19 @@
   },
   {
     "type": "function",
+    "name": "MAX_RECORDS_PER_USER",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_STRING_LENGTH",
     "inputs": [],
     "outputs": [
@@ -183,6 +196,11 @@
     "inputs": [
       {
         "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
       }
@@ -313,35 +331,6 @@
   },
   {
     "type": "function",
-    "name": "getOptionVotes",
-    "inputs": [
-      {
-        "name": "missionId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "questionId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "optionId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "getQuestionAggregates",
     "inputs": [
       {
@@ -439,62 +428,6 @@
   },
   {
     "type": "function",
-    "name": "getVoteByHash",
-    "inputs": [
-      {
-        "name": "voteHash",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "tuple",
-        "internalType": "struct SubVoting.VoteRecord",
-        "components": [
-          {
-            "name": "timestamp",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "missionId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "votingId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "userId",
-            "type": "string",
-            "internalType": "string"
-          },
-          {
-            "name": "questionId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "optionId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "votingAmt",
-            "type": "uint256",
-            "internalType": "uint256"
-          }
-        ]
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "getVoteSummariesByMissionVotingId",
     "inputs": [
       {
@@ -553,208 +486,6 @@
       }
     ],
     "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getVotesByMissionVotingId",
-    "inputs": [
-      {
-        "name": "missionId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "votingId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "tuple[]",
-        "internalType": "struct SubVoting.VoteRecord[]",
-        "components": [
-          {
-            "name": "timestamp",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "missionId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "votingId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "userId",
-            "type": "string",
-            "internalType": "string"
-          },
-          {
-            "name": "questionId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "optionId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "votingAmt",
-            "type": "uint256",
-            "internalType": "uint256"
-          }
-        ]
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "hashBatchPreview",
-    "inputs": [
-      {
-        "name": "batchNonce",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "hashUserSigPreview",
-    "inputs": [
-      {
-        "name": "user",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "userNonce",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "record",
-        "type": "tuple",
-        "internalType": "struct SubVoting.VoteRecord",
-        "components": [
-          {
-            "name": "timestamp",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "missionId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "votingId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "userId",
-            "type": "string",
-            "internalType": "string"
-          },
-          {
-            "name": "questionId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "optionId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "votingAmt",
-            "type": "uint256",
-            "internalType": "uint256"
-          }
-        ]
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "hashVoteRecord",
-    "inputs": [
-      {
-        "name": "record",
-        "type": "tuple",
-        "internalType": "struct SubVoting.VoteRecord",
-        "components": [
-          {
-            "name": "timestamp",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "missionId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "votingId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "userId",
-            "type": "string",
-            "internalType": "string"
-          },
-          {
-            "name": "questionId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "optionId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "votingAmt",
-            "type": "uint256",
-            "internalType": "uint256"
-          }
-        ]
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -988,9 +719,9 @@
         "internalType": "struct SubVoting.UserVoteBatch[]",
         "components": [
           {
-            "name": "record",
-            "type": "tuple",
-            "internalType": "struct SubVoting.VoteRecord",
+            "name": "records",
+            "type": "tuple[]",
+            "internalType": "struct SubVoting.VoteRecord[]",
             "components": [
               {
                 "name": "timestamp",
@@ -1030,9 +761,9 @@
             ]
           },
           {
-            "name": "userSig",
+            "name": "userBatchSig",
             "type": "tuple",
-            "internalType": "struct SubVoting.UserSig",
+            "internalType": "struct SubVoting.UserBatchSig",
             "components": [
               {
                 "name": "user",
@@ -1367,7 +1098,7 @@
   },
   {
     "type": "event",
-    "name": "UserVoteProcessed",
+    "name": "UserBatchProcessed",
     "inputs": [
       {
         "name": "batchDigest",
@@ -1383,6 +1114,12 @@
       },
       {
         "name": "userNonce",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "recordCount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1436,6 +1173,11 @@
         "internalType": "bytes32"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "EmptyRecords",
+    "inputs": []
   },
   {
     "type": "error",
@@ -1531,6 +1273,11 @@
   {
     "type": "error",
     "name": "StringTooLong",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TooManyRecords",
     "inputs": []
   },
   {

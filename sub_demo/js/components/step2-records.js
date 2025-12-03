@@ -1,6 +1,6 @@
 /**
  * STEP 2: 투표 레코드 생성
- * SubVoting: 단일 투표 (1레코드 = 1서명)
+ * SubVoting N:1 구조: 유저당 최대 5개 레코드 = 1개 서명
  */
 
 import { CONFIG } from '../config.js';
@@ -205,18 +205,18 @@ export class Step2Records {
       return;
     }
 
-    // ⭐ SubVoting: 사용자당 1개 레코드만 허용
-    const existingRecord = this.state.records.find(r => r.userIndex === selectedUserIndex);
-    if (existingRecord) {
+    // ⭐ SubVoting N:1 구조: 사용자당 최대 5개 레코드 허용
+    const userRecordCount = this.state.records.filter(r => r.userIndex === selectedUserIndex).length;
+    if (userRecordCount >= 5) {
       const userName = selectedUserIndex === 0 ? 'A' : 'B';
-      alert(`사용자 ${userName}는 이미 레코드를 추가했습니다.\n\nSubVoting은 각 사용자가 1개의 질문에 1번만 답변할 수 있습니다.\n기존 레코드를 삭제 후 다시 추가해주세요.`);
+      alert(`사용자 ${userName}는 최대 5개 레코드만 추가할 수 있습니다.\n현재: ${userRecordCount}개\n\n기존 레코드를 삭제 후 다시 추가해주세요.`);
       return;
     }
 
     const record = {
       timestamp: Math.floor(Date.now() / 1000),
       missionId: parseInt(document.getElementById('missionId').value),
-      votingId: votingIdValue,
+      votingId: parseInt(votingIdValue),
       userAddress: wallet.address,
       userId: document.getElementById('userId').value,
       questionId: parseInt(document.getElementById('questionId').value),

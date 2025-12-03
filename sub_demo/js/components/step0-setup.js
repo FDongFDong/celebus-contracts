@@ -137,6 +137,9 @@ export class Step0Setup {
       statusDiv.textContent = `✅ 배포 완료! 주소: ${deployedAddress}`;
 
       console.log('✅ SubVoting deployed at:', deployedAddress);
+
+      // ✨ 배포 후 자동으로 주소 적용 (EIP-712 서명에 필수!)
+      this.applyDeployedAddress();
     } catch (error) {
       console.error('❌ Failed to deploy contract:', error);
       statusDiv.className = 'mt-4 p-3 bg-red-50 border border-red-200 rounded';
@@ -147,21 +150,37 @@ export class Step0Setup {
   applyDeployedAddress() {
     const deployedAddress = document.getElementById('deployedAddress').textContent;
     if (!deployedAddress || deployedAddress === '-') {
-      console.error('배포된 주소가 없습니다');
+      console.error('❌ 배포된 주소가 없습니다');
       return;
     }
 
-    // 컨트랙트 주소 필드에 적용
+    // ⚠️ 주소 유효성 검증
+    if (!ethers.isAddress(deployedAddress)) {
+      console.error('❌ 유효하지 않은 주소:', deployedAddress);
+      alert('❌ 유효하지 않은 컨트랙트 주소입니다: ' + deployedAddress);
+      return;
+    }
+
+    console.log('🔄 Applying deployed address:', deployedAddress);
+
+    // 1. 컨트랙트 주소 필드에 적용
     const contractAddressInput = document.getElementById('contractAddress');
     if (contractAddressInput) {
       contractAddressInput.value = deployedAddress;
       contractAddressInput.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
-    // state 업데이트
+    // 2. state 업데이트
     this.state.contractAddress = deployedAddress;
 
-    // Owner 지갑도 deployer와 동일하게 설정 (배포자 = owner)
+    // 3. ✨ STEP 4의 verifyingContract도 업데이트 (EIP-712 서명에 필수!)
+    const verifyingContractInput = document.getElementById('verifyingContract');
+    if (verifyingContractInput) {
+      verifyingContractInput.value = deployedAddress;
+      console.log('✅ VerifyingContract updated:', deployedAddress);
+    }
+
+    // 4. Owner 지갑도 deployer와 동일하게 설정 (배포자 = owner)
     const ownerPkInput = document.getElementById('ownerPrivateKey');
     const deployerPkInput = document.getElementById('deployerPrivateKey');
     if (ownerPkInput && deployerPkInput) {
@@ -169,15 +188,27 @@ export class Step0Setup {
       this.loadOwnerWallet();
     }
 
-    // 상태 메시지 표시 (alert 대신)
+    // 5. 성공 메시지 (verifyingContract 업데이트 명시)
     const statusDiv = document.getElementById('deployStatus');
     if (statusDiv) {
       statusDiv.className = 'mt-4 p-3 bg-green-50 border border-green-200 rounded';
-      statusDiv.textContent = `✅ 컨트랙트 주소가 업데이트되었습니다: ${deployedAddress}`;
+      statusDiv.textContent = `✅ 컨트랙트 주소가 모든 필드에 적용되었습니다: ${deployedAddress}\n📝 STEP 4의 Verifying Contract도 업데이트되었습니다.`;
       statusDiv.classList.remove('hidden');
     }
 
-    console.log('✅ Applied deployed address:', deployedAddress);
+    // ✅ 상태 업데이트 검증
+    console.log('✅ Applied deployed address to all fields:', deployedAddress);
+    console.log('📋 State verification:', {
+      'state.contractAddress': this.state.contractAddress,
+      'DOM #contractAddress': document.getElementById('contractAddress')?.value,
+      'DOM #verifyingContract': document.getElementById('verifyingContract')?.value,
+      'Match': this.state.contractAddress === deployedAddress
+    });
+
+    if (this.state.contractAddress !== deployedAddress) {
+      console.error('❌ State mismatch! contractAddress was not updated correctly');
+      alert('❌ 주소 적용 실패! 페이지를 새로고침 후 다시 시도해주세요.');
+    }
   }
 
   loadOwnerWallet() {
