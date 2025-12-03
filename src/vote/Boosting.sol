@@ -36,7 +36,7 @@ contract Boosting is Ownable2Step, EIP712 {
     // ========================================
     bytes32 private constant BOOST_RECORD_TYPEHASH =
         keccak256(
-            "BoostRecord(uint256 timestamp,uint256 missionId,uint256 boostingId,address userAddress,uint256 artistId,uint8 boostingWith,uint256 amt)"
+            "BoostRecord(uint256 timestamp,uint256 missionId,uint256 boostingId,uint256 optionId,uint8 boostingWith,uint256 amt)"
         );
 
     bytes32 private constant USER_SIG_TYPEHASH =
@@ -60,7 +60,7 @@ contract Boosting is Ownable2Step, EIP712 {
     error StringTooLong();
     error LengthMismatch();
     error NotOwnerOrExecutor();
-    error ArtistNotAllowed(uint256 missionId, uint256 artistId);
+    error ArtistNotAllowed(uint256 missionId, uint256 optionId);
     error InvalidBoostType(uint8 boostType);
 
     // ========================================
@@ -70,9 +70,8 @@ contract Boosting is Ownable2Step, EIP712 {
         uint256 timestamp;
         uint256 missionId;
         uint256 boostingId;
-        address userAddress;
         string userId;
-        uint256 artistId;
+        uint256 optionId;
         uint8 boostingWith;
         uint256 amt;
     }
@@ -81,6 +80,12 @@ contract Boosting is Ownable2Step, EIP712 {
         address user;
         uint256 userNonce;
         bytes signature;
+    }
+
+    // 배치 단위 부스팅 (SubVoting과 동일 패턴)
+    struct UserBoostBatch {
+        BoostRecord record;
+        UserSig userSig;
     }
 
     // ========================================
@@ -106,10 +111,10 @@ contract Boosting is Ownable2Step, EIP712 {
 
     // === 아티스트 관리 (MainVoting 패턴) ===
 
-    // 아티스트 이름: missionId => artistId => name
+    // 아티스트 이름: missionId => optionId => name
     mapping(uint256 => mapping(uint256 => string)) public artistName;
 
-    // 아티스트 허용 여부: missionId => artistId => allowed
+    // 아티스트 허용 여부: missionId => optionId => allowed
     mapping(uint256 => mapping(uint256 => bool)) public allowedArtist;
 
     // 부스팅 타입 이름: typeId => name (0=Like, 1=Share, 2=Comment 등)
@@ -117,7 +122,7 @@ contract Boosting is Ownable2Step, EIP712 {
 
     // === 실시간 집계 ===
 
-    // 아티스트별 총 부스팅 포인트: missionId => artistId => totalAmt
+    // 아티스트별 총 부스팅 포인트: missionId => optionId => totalAmt
     mapping(uint256 => mapping(uint256 => uint256)) public artistTotalAmt;
 
     // ========================================
@@ -153,7 +158,7 @@ contract Boosting is Ownable2Step, EIP712 {
     // === 아티스트 관리 이벤트 ===
     event ArtistSet(
         uint256 indexed missionId,
-        uint256 indexed artistId,
+        uint256 indexed optionId,
         string name,
         bool allowed
     );
@@ -192,19 +197,19 @@ contract Boosting is Ownable2Step, EIP712 {
      * @notice 아티스트 등록 및 활성화 관리
      * @dev MainVoting의 setCandidate와 동일 패턴
      * @param missionId 미션 ID
-     * @param artistId 아티스트 ID
+     * @param optionId 아티스트 ID
      * @param name 아티스트 이름
      * @param allowed_ 부스팅 허용 여부
      */
     function setArtist(
         uint256 missionId,
-        uint256 artistId,
+        uint256 optionId,
         string calldata name,
         bool allowed_
     ) external onlyOwner {
-        artistName[missionId][artistId] = name;
-        allowedArtist[missionId][artistId] = allowed_;
-        emit ArtistSet(missionId, artistId, name, allowed_);
+        artistName[missionId][optionId] = name;
+        allowedArtist[missionId][optionId] = allowed_;
+        emit ArtistSet(missionId, optionId, name, allowed_);
     }
 
     /**
@@ -258,8 +263,7 @@ contract Boosting is Ownable2Step, EIP712 {
                     record.timestamp,
                     record.missionId,
                     record.boostingId,
-                    record.userAddress,
-                    record.artistId,
+                    record.optionId,
                     record.boostingWith,
                     record.amt
                 )
@@ -331,24 +335,23 @@ contract Boosting is Ownable2Step, EIP712 {
     }
 
     function _validateRecordCommon(BoostRecord calldata record) internal view {
-        if (record.userAddress == address(0)) revert ZeroAddress();
         if (record.boostingWith > MAX_BOOST_TYPE) {
             revert InvalidBoostType(record.boostingWith);
         }
-        if (!allowedArtist[record.missionId][record.artistId]) {
-            revert ArtistNotAllowed(record.missionId, record.artistId);
+        if (!allowedArtist[record.missionId][record.optionId]) {
+            revert ArtistNotAllowed(record.missionId, record.optionId);
         }
     }
 
     function _buildRecordDigests(
-        BoostRecord[] calldata records
+        UserBoostBatch[] calldata batches
     ) internal pure returns (bytes32[] memory recordDigests) {
-        uint256 len = records.length;
+        uint256 len = batches.length;
         recordDigests = new bytes32[](len);
 
         for (uint256 i; i < len; ) {
-            _validateStrings(records[i]);
-            recordDigests[i] = _hashBoostRecord(records[i]);
+            _validateStrings(batches[i].record);
+            recordDigests[i] = _hashBoostRecord(batches[i].record);
             unchecked {
                 ++i;
             }
@@ -359,12 +362,11 @@ contract Boosting is Ownable2Step, EIP712 {
     // Internal: User Signature Verification (1:1)
     // ========================================
     function _verifyUserSignature(
-        BoostRecord calldata record,
         UserSig calldata userSig,
         bytes32 recordHash,
         bytes32 batchDigest
     ) internal {
-        if (record.userAddress != userSig.user) revert InvalidSignature();
+        if (userSig.user == address(0)) revert ZeroAddress();
 
         bytes32 userSigDigest = _hashUserSig(
             userSig.user,
@@ -394,18 +396,15 @@ contract Boosting is Ownable2Step, EIP712 {
     }
 
     function _verifyAllUserCoverage(
-        BoostRecord[] calldata records,
-        UserSig[] calldata userSigs,
+        UserBoostBatch[] calldata batches,
         bytes32[] memory recordDigests,
         bytes32 batchDigest
     ) internal {
-        uint256 len = records.length;
-        if (len != userSigs.length) revert LengthMismatch();
+        uint256 len = batches.length;
 
         for (uint256 i; i < len; ) {
             _verifyUserSignature(
-                records[i],
-                userSigs[i],
+                batches[i].userSig,
                 recordDigests[i],
                 batchDigest
             );
@@ -419,13 +418,13 @@ contract Boosting is Ownable2Step, EIP712 {
     // Internal: Store
     // ========================================
     function _storeBoostRecords(
-        BoostRecord[] calldata records,
+        UserBoostBatch[] calldata batches,
         bytes32[] memory recordDigests
     ) internal returns (uint256 storedCount) {
-        uint256 len = records.length;
+        uint256 len = batches.length;
 
         for (uint256 i; i < len; ) {
-            BoostRecord calldata record = records[i];
+            BoostRecord calldata record = batches[i].record;
 
             // 0포인트 부스팅 스킵
             if (record.amt == 0) {
@@ -460,7 +459,7 @@ contract Boosting is Ownable2Step, EIP712 {
             boostCountByMission[record.missionId] += 1;
 
             // 실시간 집계 (아티스트별 총 amt)
-            artistTotalAmt[record.missionId][record.artistId] += record.amt;
+            artistTotalAmt[record.missionId][record.optionId] += record.amt;
 
             unchecked {
                 ++storedCount;
@@ -473,31 +472,29 @@ contract Boosting is Ownable2Step, EIP712 {
     // Main: Submit Batch
     // ========================================
     function submitBoostBatch(
-        BoostRecord[] calldata records,
-        UserSig[] calldata userSigs,
+        UserBoostBatch[] calldata batches,
         uint256 batchNonce,
         bytes calldata executorSig
     ) external {
-        uint256 len = records.length;
+        uint256 len = batches.length;
         if (len > MAX_RECORDS_PER_BATCH) revert BatchTooLarge();
         if (executorSigner == address(0)) revert ZeroAddress();
         if (block.chainid != CHAIN_ID) revert BadChain();
 
         bytes32 batchDigest = _verifyBatchSignature(batchNonce, executorSig);
 
-        bytes32[] memory recordDigests = _buildRecordDigests(records);
+        bytes32[] memory recordDigests = _buildRecordDigests(batches);
 
-        _verifyAllUserCoverage(records, userSigs, recordDigests, batchDigest);
-        uint256 userSigLen = userSigs.length;
+        _verifyAllUserCoverage(batches, recordDigests, batchDigest);
 
-        uint256 stored = _storeBoostRecords(records, recordDigests);
+        uint256 stored = _storeBoostRecords(batches, recordDigests);
 
         emit BatchProcessed(
             batchDigest,
             executorSigner,
             batchNonce,
             stored,
-            userSigLen
+            len
         );
     }
 
@@ -519,7 +516,7 @@ contract Boosting is Ownable2Step, EIP712 {
         uint256 missionId;
         uint256 boostingId;
         string userId;
-        string boostingFor; // artistName[missionId][artistId]
+        string boostingFor; // artistName[missionId][optionId]
         string boostingWith; // boostingTypeName[boostingWith]
         uint256 amt;
     }
@@ -527,7 +524,7 @@ contract Boosting is Ownable2Step, EIP712 {
     /**
      * @notice 부스팅 요약 조회 (문자열 변환)
      * @dev SubVoting의 getVoteSummariesByMissionVotingId와 동일 패턴
-     *      artistId를 artistName으로, boostingWith를 boostingTypeName으로 변환
+     *      optionId를 artistName으로, boostingWith를 boostingTypeName으로 변환
      * @param missionId 미션 ID
      * @param boostingId 부스팅 ID
      * @return BoostRecordSummary[] 부스팅 요약 배열
@@ -548,7 +545,7 @@ contract Boosting is Ownable2Step, EIP712 {
             BoostRecord storage record = boosts[allHashes[i]];
 
             string memory artistNameStr = artistName[record.missionId][
-                record.artistId
+                record.optionId
             ];
             string memory boostingTypeStr = boostingTypeName[
                 record.boostingWith
@@ -578,14 +575,14 @@ contract Boosting is Ownable2Step, EIP712 {
     /**
      * @notice 아티스트별 총 부스팅 포인트 조회
      * @param missionId 미션 ID
-     * @param artistId 아티스트 ID
+     * @param optionId 아티스트 ID
      * @return 해당 아티스트의 총 부스팅 포인트
      */
     function getArtistTotalAmt(
         uint256 missionId,
-        uint256 artistId
+        uint256 optionId
     ) external view returns (uint256) {
-        return artistTotalAmt[missionId][artistId];
+        return artistTotalAmt[missionId][optionId];
     }
 
     /**
@@ -600,18 +597,18 @@ contract Boosting is Ownable2Step, EIP712 {
     /**
      * @notice 아티스트 정보 조회 (이름, 허용 여부, 총 amt)
      * @param missionId 미션 ID
-     * @param artistId 아티스트 ID
+     * @param optionId 아티스트 ID
      * @return ArtistInfo 아티스트 정보
      */
     function getArtistInfo(
         uint256 missionId,
-        uint256 artistId
+        uint256 optionId
     ) external view returns (ArtistInfo memory) {
         return
             ArtistInfo({
-                artistName: artistName[missionId][artistId],
-                allowed: allowedArtist[missionId][artistId],
-                totalAmt: artistTotalAmt[missionId][artistId]
+                artistName: artistName[missionId][optionId],
+                allowed: allowedArtist[missionId][optionId],
+                totalAmt: artistTotalAmt[missionId][optionId]
             });
     }
 

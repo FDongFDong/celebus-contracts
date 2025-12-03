@@ -37,7 +37,7 @@ contract SubVoting is Ownable2Step, EIP712 {
     // ========================================
     bytes32 private constant VOTE_RECORD_TYPEHASH =
         keccak256(
-            "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,uint256 questionId,uint256 optionId,uint256 votingAmt)"
+            "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 questionId,uint256 optionId,uint256 votingAmt)"
         );
 
     bytes32 private constant USER_SIG_TYPEHASH =
@@ -58,7 +58,6 @@ contract SubVoting is Ownable2Step, EIP712 {
     error BatchNonceTooLow();
     error BatchTooLarge();
     error StringTooLong();
-    error LengthMismatch();
     error NotOwnerOrExecutor();
     error QuestionNotAllowed(uint256 missionId, uint256 questionId);
     error OptionNotAllowed(uint256 missionId, uint256 optionId);
@@ -71,7 +70,6 @@ contract SubVoting is Ownable2Step, EIP712 {
         uint256 timestamp;
         uint256 missionId;
         uint256 votingId;
-        address userAddress;
         string userId;
         uint256 questionId; // 질문 ID (사전 등록)
         uint256 optionId; // 선택지 ID (1~10)
@@ -82,6 +80,11 @@ contract SubVoting is Ownable2Step, EIP712 {
         address user;
         uint256 userNonce;
         bytes signature;
+    }
+
+    struct UserVoteBatch {
+        VoteRecord record;
+        UserSig userSig;
     }
 
     // ========================================
@@ -283,7 +286,6 @@ contract SubVoting is Ownable2Step, EIP712 {
                     record.timestamp,
                     record.missionId,
                     record.votingId,
-                    record.userAddress,
                     record.questionId,
                     record.optionId,
                     record.votingAmt
@@ -356,9 +358,6 @@ contract SubVoting is Ownable2Step, EIP712 {
         if (record.optionId == 0 || record.optionId > MAX_OPTION_ID) {
             revert InvalidOptionId(record.optionId);
         }
-        if (record.userAddress == address(0)) {
-            revert ZeroAddress();
-        }
         if (!allowedQuestion[record.missionId][record.questionId]) {
             revert QuestionNotAllowed(record.missionId, record.questionId);
         }
@@ -369,31 +368,15 @@ contract SubVoting is Ownable2Step, EIP712 {
         }
     }
 
-    function _buildRecordDigests(
-        VoteRecord[] calldata records
-    ) internal pure returns (bytes32[] memory recordDigests) {
-        uint256 len = records.length;
-
-        recordDigests = new bytes32[](len);
-        for (uint256 i; i < len; ) {
-            _validateStrings(records[i]);
-            recordDigests[i] = _hashVoteRecord(records[i]);
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
     // ========================================
     // Internal: User Signature Verification (1:1)
     // ========================================
     function _verifyUserSignature(
-        VoteRecord calldata record,
         UserSig calldata userSig,
         bytes32 recordHash,
         bytes32 batchDigest
     ) internal {
-        if (record.userAddress != userSig.user) revert InvalidSignature();
+        if (userSig.user == address(0)) revert ZeroAddress();
 
         bytes32 userSigDigest = _hashUserSig(
             userSig.user,
@@ -422,28 +405,6 @@ contract SubVoting is Ownable2Step, EIP712 {
         _consumeBatchNonce(executorSigner, batchNonce);
     }
 
-    function _verifyAllUserCoverage(
-        VoteRecord[] calldata records,
-        UserSig[] calldata userSigs,
-        bytes32[] memory recordDigests,
-        bytes32 batchDigest
-    ) internal {
-        uint256 len = records.length;
-        if (len != userSigs.length) revert LengthMismatch();
-
-        for (uint256 i; i < len; ) {
-            _verifyUserSignature(
-                records[i],
-                userSigs[i],
-                recordDigests[i],
-                batchDigest
-            );
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
     // ========================================
     // Internal: Store + Aggregation (MainVoting 패턴)
     // ========================================
@@ -456,14 +417,13 @@ contract SubVoting is Ownable2Step, EIP712 {
      *      - questionStats 실시간 업데이트
      */
     function _storeVoteRecords(
-        VoteRecord[] calldata records,
+        UserVoteBatch[] calldata batches,
         bytes32[] memory recordDigests
     ) internal returns (uint256 storedCount) {
-        uint256 len = records.length;
-        if (len > MAX_RECORDS_PER_BATCH) revert BatchTooLarge();
+        uint256 len = batches.length;
 
         for (uint256 i; i < len; ) {
-            VoteRecord calldata record = records[i];
+            VoteRecord calldata record = batches[i].record;
 
             // 0포인트 투표 스킵
             if (record.votingAmt == 0) {
@@ -473,7 +433,7 @@ contract SubVoting is Ownable2Step, EIP712 {
                 continue;
             }
 
-            // 공통 검증 (questionId, answerId 허용 여부)
+            // 공통 검증 (questionId, optionId 허용 여부)
             _validateRecordCommon(record);
 
             bytes32 recordDigest = recordDigests[i];
@@ -515,31 +475,54 @@ contract SubVoting is Ownable2Step, EIP712 {
     // ========================================
     // Main: Submit Multi-User Batch
     // ========================================
+
+    /**
+     * @notice 다중 사용자 투표 배치 제출
+     * @dev MainVoting과 유사한 구조: UserVoteBatch[] 형태로 record + userSig 묶음
+     *      1레코드 = 1서명 방식 유지
+     * @param batches 유저별 투표 배치 배열 (record + userSig 쌍)
+     * @param batchNonce 배치 nonce
+     * @param executorSig 실행자 서명
+     */
     function submitMultiUserBatch(
-        VoteRecord[] calldata records,
-        UserSig[] calldata userSigs,
+        UserVoteBatch[] calldata batches,
         uint256 batchNonce,
         bytes calldata executorSig
     ) external {
-        uint256 len = records.length;
+        uint256 len = batches.length;
         if (len > MAX_RECORDS_PER_BATCH) revert BatchTooLarge();
         if (executorSigner == address(0)) revert ZeroAddress();
         if (block.chainid != CHAIN_ID) revert BadChain();
 
+        // [1] Executor 서명 검증
         bytes32 batchDigest = _verifyBatchSignature(batchNonce, executorSig);
 
-        bytes32[] memory recordDigests = _buildRecordDigests(records);
+        // [2] 레코드 다이제스트 생성 및 유저 서명 검증
+        bytes32[] memory recordDigests = new bytes32[](len);
+        for (uint256 i; i < len; ) {
+            VoteRecord calldata record = batches[i].record;
+            _validateStrings(record);
 
-        _verifyAllUserCoverage(records, userSigs, recordDigests, batchDigest);
-        uint256 userSigLen = userSigs.length;
+            bytes32 recordHash = _hashVoteRecord(record);
+            recordDigests[i] = recordHash;
 
-        uint256 stored = _storeVoteRecords(records, recordDigests);
+            // 유저 서명 검증 (1:1)
+            _verifyUserSignature(batches[i].userSig, recordHash, batchDigest);
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        // [3] 저장 및 집계
+        uint256 stored = _storeVoteRecords(batches, recordDigests);
+
         emit BatchProcessed(
             batchDigest,
             executorSigner,
             batchNonce,
             stored,
-            userSigLen
+            len
         );
     }
 

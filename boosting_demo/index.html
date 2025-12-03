@@ -68,9 +68,51 @@
           value="0xFA6e0320bd5110c8e7AfA38f6762DC20b83ef347"
           placeholder="0x..."
         >
-        <p class="text-xs text-gray-500 mt-1">배포된 MainVoting 컨트랙트 주소</p>
+        <p class="text-xs text-gray-500 mt-1">배포된 Boosting 컨트랙트 주소</p>
       </div>
     </div>
+
+    <!-- 🚀 컨트랙트 배포 섹션 -->
+    <section class="bg-white rounded-lg shadow p-6 mb-6 border-2 border-purple-200">
+      <h2 class="text-xl font-bold text-purple-800 mb-2">🚀 Boosting 컨트랙트 배포</h2>
+      <p class="text-sm text-gray-600 mb-4">새로운 Boosting 컨트랙트를 배포합니다 (로컬 anvil 또는 테스트넷)</p>
+
+      <!-- Deployer Private Key -->
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-2">Deployer Private Key (배포자 개인키)</label>
+        <input
+          type="password"
+          id="deployerPrivateKey"
+          class="w-full px-3 py-2 border rounded-md font-mono text-sm"
+          placeholder="0x..."
+          value="0x94d26f9b25e16734a747e9f789d71082cb80155d11810ba99a12f9fd163397ef"
+        >
+        <p class="text-xs text-gray-500 mt-1">주소: <span id="deployerAddress" class="font-mono">-</span></p>
+      </div>
+
+      <!-- Deploy Button -->
+      <button
+        id="deployContractBtn"
+        class="px-6 py-3 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition font-semibold"
+      >
+        🚀 Boosting 배포
+      </button>
+
+      <!-- Status Display -->
+      <div id="deployStatus" class="mt-4 hidden"></div>
+
+      <!-- Deployed Address Display -->
+      <div id="deployedAddressDisplay" class="mt-4 hidden p-4 bg-green-50 border border-green-200 rounded-lg">
+        <p class="text-sm text-green-800">✅ 배포 완료!</p>
+        <p class="text-sm mt-2">배포된 주소: <code id="deployedAddress" class="font-mono bg-green-100 px-2 py-1 rounded">-</code></p>
+        <button
+          id="useDeployedAddressBtn"
+          class="mt-3 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition"
+        >
+          ✅ 배포된 주소 적용
+        </button>
+      </div>
+    </section>
 
     <!-- STEP 0: 컨트랙트 초기 설정 -->
     <section id="step0" class="bg-white rounded-lg shadow p-6 mb-6">

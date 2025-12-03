@@ -188,11 +188,12 @@ export class Step2Records {
       timestamp: Math.floor(Date.now() / 1000),
       missionId: parseInt(document.getElementById('missionId').value),
       boostingId: parseInt(boostingIdValue),
-      userAddress: wallet.address,
       artistId: parseInt(document.getElementById('artistId').value),
       boostingWith: parseInt(document.getElementById('boostingWith').value), // 0=CELB, 1=BP
       userId: document.getElementById('userId').value, // userId 포함
-      amt: parseInt(document.getElementById('amt').value)
+      amt: parseInt(document.getElementById('amt').value),
+      // userAddress는 userSig.user로 식별 (SubVoting 패턴)
+      signerAddress: wallet.address
     };
 
     this.records.push(record);

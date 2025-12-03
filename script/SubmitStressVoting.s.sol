@@ -5,6 +5,15 @@ import {Script, console2} from "forge-std/Script.sol";
 import {MainVoting} from "../src/vote/MainVoting.sol";
 
 /// @notice Loads pre-generated vote/signature payload from JSON and submits it on-chain.
+/// @dev JSON 구조: UserVoteBatch[] 형식
+/// [
+///   {
+///     "userVoteNo": 227186710,
+///     "records": [{ "timestamp": ..., "missionId": ..., ... }],
+///     "userBatchSig": { "user": "0x...", "userNonce": 4, "signature": "0x..." }
+///   },
+///   ...
+/// ]
 contract SubmitStressVoting is Script {
     MainVoting internal VOTING;
 
@@ -14,18 +23,15 @@ contract SubmitStressVoting is Script {
         string memory filePath = _envOrString("STRESS_FILE", "stress-artifacts/stress-output.json");
         string memory json = vm.readFile(filePath);
 
-        // 2차원 배열 구조로 변경 (VoteRecord[][])
-        MainVoting.VoteRecord[][] memory records =
-            abi.decode(vm.parseJsonBytes(json, ".records"), (MainVoting.VoteRecord[][]));
-        MainVoting.UserBatchSig[] memory userBatchSigs =
-            abi.decode(vm.parseJsonBytes(json, ".userBatchSigs"), (MainVoting.UserBatchSig[]));
-        // recordCounts 제거됨
+        // UserVoteBatch[] 구조로 파싱
+        MainVoting.UserVoteBatch[] memory batches =
+            abi.decode(vm.parseJsonBytes(json, ".batches"), (MainVoting.UserVoteBatch[]));
+        
         bytes memory executorSig = vm.parseJsonBytes(json, ".executorSig");
         uint256 batchNonce = vm.parseJsonUint(json, ".batchNonce");
 
         vm.startBroadcast(executorKey);
-        // recordCounts 파라미터 제거
-        VOTING.submitMultiUserBatch(records, userBatchSigs, batchNonce, executorSig);
+        VOTING.submitMultiUserBatch(batches, batchNonce, executorSig);
         vm.stopBroadcast();
 
         console2.log("Stress payload submitted from", filePath);
