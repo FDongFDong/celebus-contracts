@@ -69,7 +69,7 @@ contract BoostingTest is Test {
         uint256 userNonce
     ) internal view returns (bytes memory) {
         address user = vm.addr(privateKey);
-        bytes32 recordHash = boosting.hashBoostRecord(record, user);
+        bytes32 recordHash = boosting.hashBoostRecord(record);
         bytes32 digest = boosting.hashUserSigPreview(
             user,
             userNonce,

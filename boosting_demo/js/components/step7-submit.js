@@ -58,38 +58,24 @@ export class Step7Submit {
               📝 각 파라미터를 개별적으로 복사하여 Remix IDE에 붙여넣으세요
             </p>
 
-            <!-- 1. records 파라미터 -->
+            <!-- 1. batches 파라미터 (UserBoostBatch[]) -->
             <div class="mb-4 bg-white rounded border border-blue-300 p-3">
               <div class="flex items-center justify-between mb-2">
-                <p class="font-semibold text-sm text-blue-900">1️⃣ records (VoteRecord[][])</p>
-                <button onclick="step7.copyParam('records')"
+                <p class="font-semibold text-sm text-blue-900">1️⃣ batches (UserBoostBatch[] - 1:1 구조)</p>
+                <button onclick="step7.copyParam('batches')"
                         class="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600">
                   📋 복사
                 </button>
               </div>
-              <textarea id="remixParam_records"
-                        class="w-full h-24 p-2 font-mono text-xs bg-gray-50 border rounded"
+              <textarea id="remixParam_batches"
+                        class="w-full h-48 p-2 font-mono text-xs bg-gray-50 border rounded"
                         readonly></textarea>
             </div>
 
-            <!-- 2. userBatchSigs 파라미터 -->
+            <!-- 2. batchNonce 파라미터 -->
             <div class="mb-4 bg-white rounded border border-blue-300 p-3">
               <div class="flex items-center justify-between mb-2">
-                <p class="font-semibold text-sm text-blue-900">2️⃣ userBatchSigs (UserBatchSig[])</p>
-                <button onclick="step7.copyParam('userBatchSigs')"
-                        class="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600">
-                  📋 복사
-                </button>
-              </div>
-              <textarea id="remixParam_userBatchSigs"
-                        class="w-full h-20 p-2 font-mono text-xs bg-gray-50 border rounded"
-                        readonly></textarea>
-            </div>
-
-            <!-- 3. batchNonce 파라미터 -->
-            <div class="mb-4 bg-white rounded border border-blue-300 p-3">
-              <div class="flex items-center justify-between mb-2">
-                <p class="font-semibold text-sm text-blue-900">3️⃣ batchNonce (uint256)</p>
+                <p class="font-semibold text-sm text-blue-900">2️⃣ batchNonce (uint256)</p>
                 <button onclick="step7.copyParam('batchNonce')"
                         class="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600">
                   📋 복사
@@ -101,10 +87,10 @@ export class Step7Submit {
                      readonly>
             </div>
 
-            <!-- 4. executorSig 파라미터 -->
+            <!-- 3. executorSig 파라미터 -->
             <div class="mb-4 bg-white rounded border border-blue-300 p-3">
               <div class="flex items-center justify-between mb-2">
-                <p class="font-semibold text-sm text-blue-900">4️⃣ executorSig (bytes)</p>
+                <p class="font-semibold text-sm text-blue-900">3️⃣ executorSig (bytes)</p>
                 <button onclick="step7.copyParam('executorSig')"
                         class="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600">
                   📋 복사
@@ -118,7 +104,7 @@ export class Step7Submit {
 
             <div class="mt-3 bg-yellow-50 border border-yellow-300 rounded p-2">
               <p class="text-xs text-yellow-900">
-                💡 <strong>Remix 사용법:</strong> 각 파라미터를 위에서 아래 순서대로 복사하여 Remix IDE의 submitMultiUserBatch 함수 입력란에 붙여넣으세요
+                💡 <strong>Remix 사용법:</strong> 각 파라미터를 위에서 아래 순서대로 복사하여 Remix IDE의 submitBoostBatch 함수 입력란에 붙여넣으세요
               </p>
             </div>
           </div>
@@ -218,29 +204,32 @@ export class Step7Submit {
   }
 
   generateRemixParams() {
-    // Boosting: 단일 배열 구조로 전체 레코드 변환 (userAddress 제거됨)
-    const records = this.state.records.map(r => ({
-      timestamp: r.timestamp,
-      missionId: r.missionId,
-      boostingId: r.boostingId,
-      userId: r.userId, // 백엔드가 DB에서 설정한 userId 사용
-      artistId: r.artistId,
-      boostingWith: r.boostingWith, // 0=CELB, 1=BP
-      amt: r.amt
+    // UserBoostBatch[] 형태로 데이터 구성 (record + userSig 쌍)
+    // 컨트랙트: submitBoostBatch(UserBoostBatch[] calldata batches, uint256 batchNonce, bytes calldata executorSig)
+    const batches = this.state.records.map((r, idx) => ({
+      record: {
+        timestamp: r.timestamp,
+        missionId: r.missionId,
+        boostingId: r.boostingId,
+        userId: r.userId,
+        optionId: r.artistId,
+        boostingWith: r.boostingWith,
+        amt: r.amt
+      },
+      userSig: {
+        user: this.state.userSigs[idx]?.user || '',
+        userNonce: this.state.userSigs[idx]?.userNonce || 0,
+        signature: this.state.userSigs[idx]?.signature || ''
+      }
     }));
 
     // 각 파라미터를 개별적으로 설정
-    const recordsElement = document.getElementById('remixParam_records');
-    const userBatchSigsElement = document.getElementById('remixParam_userBatchSigs');
+    const batchesElement = document.getElementById('remixParam_batches');
     const batchNonceElement = document.getElementById('remixParam_batchNonce');
     const executorSigElement = document.getElementById('remixParam_executorSig');
 
-    if (recordsElement) {
-      recordsElement.value = JSON.stringify(records, null, 2);
-    }
-
-    if (userBatchSigsElement) {
-      userBatchSigsElement.value = JSON.stringify(this.state.userSigs, null, 2);
+    if (batchesElement) {
+      batchesElement.value = JSON.stringify(batches, null, 2);
     }
 
     if (batchNonceElement) {
@@ -250,6 +239,8 @@ export class Step7Submit {
     if (executorSigElement) {
       executorSigElement.value = this.state.executorSig || '';
     }
+
+    console.log('📋 Remix params generated (1:1 UserBoostBatch format)');
   }
 
   copyParam(paramName) {
@@ -326,25 +317,23 @@ export class Step7Submit {
       document.getElementById('submitResult').classList.add('hidden');
       document.getElementById('submitError').classList.add('hidden');
 
-      // UserBoostBatch[] 형태로 데이터 구성 (record + userSig 쌍)
-      const batches = this.state.records.map((r, idx) => [
-        // record tuple: [timestamp, missionId, boostingId, userId, optionId, boostingWith, amt]
-        [
-          r.timestamp,
-          r.missionId,
-          r.boostingId,
-          r.userId, // 백엔드가 DB에서 설정한 userId 사용
-          r.artistId, // optionId
-          r.boostingWith, // 0=CELB, 1=BP
-          r.amt
-        ],
-        // userSig tuple: [user, userNonce, signature]
-        [
-          this.state.userSigs[idx].user,
-          this.state.userSigs[idx].userNonce,
-          this.state.userSigs[idx].signature
-        ]
-      ]);
+      // UserBoostBatch[] 형태로 데이터 구성 (record + userSig 쌍) - 키-밸류 형식
+      const batches = this.state.records.map((r, idx) => ({
+        record: {
+          timestamp: r.timestamp,
+          missionId: r.missionId,
+          boostingId: r.boostingId,
+          userId: r.userId,
+          optionId: r.artistId,
+          boostingWith: r.boostingWith,
+          amt: r.amt
+        },
+        userSig: {
+          user: this.state.userSigs[idx].user,
+          userNonce: this.state.userSigs[idx].userNonce,
+          signature: this.state.userSigs[idx].signature
+        }
+      }));
 
       const batchNonce = this.state.batchNonce;
       const executorSig = this.state.executorSig;
