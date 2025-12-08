@@ -15,22 +15,23 @@ const DEFAULT_RPC_URL = 'https://opbnb-testnet-rpc.bnbchain.org';
 const DEFAULT_STRESS_FILE = 'stress-artifacts/stress-output.json';
 const DEFAULT_VOTING_ADDRESS = '0x10Fb9C7BFec7d2059b65c9e70B4F58E2E6fd0eFE';
 
-const RECORD_TUPLE = {
-  type: 'tuple[]',
+// VoteRecord 구조체 (컨트랙트와 일치)
+const VOTE_RECORD_TUPLE = {
+  type: 'tuple',
   components: [
     { name: 'timestamp', type: 'uint256' },
     { name: 'missionId', type: 'uint256' },
     { name: 'votingId', type: 'uint256' },
-    { name: 'userAddress', type: 'address' },
-    { name: 'artistId', type: 'uint256' },
+    { name: 'optionId', type: 'uint256' },
     { name: 'voteType', type: 'uint8' },
     { name: 'userId', type: 'string' },
     { name: 'votingAmt', type: 'uint256' },
   ],
 };
 
-const USER_SIG_TUPLE = {
-  type: 'tuple[]',
+// UserBatchSig 구조체 (컨트랙트와 일치)
+const USER_BATCH_SIG_TUPLE = {
+  type: 'tuple',
   components: [
     { name: 'user', type: 'address' },
     { name: 'userNonce', type: 'uint256' },
@@ -38,14 +39,30 @@ const USER_SIG_TUPLE = {
   ],
 };
 
+// UserVoteBatch 구조체 (컨트랙트와 일치)
+const USER_VOTE_BATCH_TUPLE = {
+  type: 'tuple[]',
+  components: [
+    { name: 'records', type: 'tuple[]', components: VOTE_RECORD_TUPLE.components },
+    { name: 'userBatchSig', type: 'tuple', components: USER_BATCH_SIG_TUPLE.components },
+  ],
+};
+
+// 현재 컨트랙트의 submitMultiUserBatch 함수 ABI
 const MAIN_VOTING_ABI = [
   {
     type: 'function',
     stateMutability: 'nonpayable',
     name: 'submitMultiUserBatch',
     inputs: [
-      { name: 'records', type: 'tuple[]', components: RECORD_TUPLE.components },
-      { name: 'userBatchSigs', type: 'tuple[]', components: USER_SIG_TUPLE.components },
+      {
+        name: 'batches',
+        type: 'tuple[]',
+        components: [
+          { name: 'records', type: 'tuple[]', components: VOTE_RECORD_TUPLE.components },
+          { name: 'userBatchSig', type: 'tuple', components: USER_BATCH_SIG_TUPLE.components },
+        ],
+      },
       { name: 'batchNonce', type: 'uint256' },
       { name: 'executorSig', type: 'bytes' },
     ],
@@ -91,26 +108,23 @@ function loadStressFile(filePath) {
   return { json, resolved };
 }
 
-function decodeRecords(encoded) {
-  const [records] = decodeAbiParameters([RECORD_TUPLE], encoded);
-  return records.map((r) => ({
-    timestamp: BigInt(r.timestamp),
-    missionId: BigInt(r.missionId),
-    votingId: BigInt(r.votingId),
-    userAddress: getAddress(r.userAddress),
-    artistId: BigInt(r.artistId),
-    voteType: Number(r.voteType),
-    userId: r.userId,
-    votingAmt: BigInt(r.votingAmt),
-  }));
-}
-
-function decodeUserBatchSigs(encoded) {
-  const [sigs] = decodeAbiParameters([USER_SIG_TUPLE], encoded);
-  return sigs.map((sig) => ({
-    user: getAddress(sig.user),
-    userNonce: BigInt(sig.userNonce),
-    signature: sig.signature,
+function decodeUserVoteBatches(encoded) {
+  const [batches] = decodeAbiParameters([USER_VOTE_BATCH_TUPLE], encoded);
+  return batches.map((batch) => ({
+    records: batch.records.map((r) => ({
+      timestamp: BigInt(r.timestamp),
+      missionId: BigInt(r.missionId),
+      votingId: BigInt(r.votingId),
+      optionId: BigInt(r.optionId),
+      voteType: Number(r.voteType),
+      userId: r.userId,
+      votingAmt: BigInt(r.votingAmt),
+    })),
+    userBatchSig: {
+      user: getAddress(batch.userBatchSig.user),
+      userNonce: BigInt(batch.userBatchSig.userNonce),
+      signature: batch.userBatchSig.signature,
+    },
   }));
 }
 
@@ -123,13 +137,13 @@ async function main() {
 
   const rpcUrl = cli.rpcUrl || process.env.RPC_URL || DEFAULT_RPC_URL;
   const stressFile = cli.file || process.env.STRESS_FILE || DEFAULT_STRESS_FILE;
-  
+
   const { json, resolved } = loadStressFile(stressFile);
   const votingAddress = getAddress(
     cli.votingAddress || process.env.VOTING_ADDRESS || json.metadata?.votingAddress || DEFAULT_VOTING_ADDRESS
   );
-  const records = decodeRecords(json.records);
-  const userBatchSigs = decodeUserBatchSigs(json.userBatchSigs);
+
+  const batches = decodeUserVoteBatches(json.batches);
   const batchNonce = BigInt(json.batchNonce);
   const executorSig = json.executorSig;
 
@@ -152,11 +166,14 @@ async function main() {
   const client = createWalletClient({ account, chain, transport: http(rpcUrl) });
   const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
 
+  // 총 레코드 수 계산
+  const totalRecords = batches.reduce((sum, b) => sum + b.records.length, 0);
+
   console.log('== 스트레스 서명 제출 시작 ==');
   console.log(`파일: ${resolved}`);
   console.log(`목표 컨트랙트: ${votingAddress}`);
   console.log(`배치 논스: ${batchNonce}`);
-  console.log(`총 레코드: ${records.length}, 유저 서명: ${userBatchSigs.length}`);
+  console.log(`총 레코드: ${totalRecords}, 유저 배치: ${batches.length}`);
 
   let gasLimit;
   if (gasLimitInput) {
@@ -167,7 +184,7 @@ async function main() {
       address: votingAddress,
       abi: MAIN_VOTING_ABI,
       functionName: 'submitMultiUserBatch',
-      args: [records, userBatchSigs, batchNonce, executorSig],
+      args: [batches, batchNonce, executorSig],
     });
     // add 25% safety margin
     gasLimit = (estimate * 125n) / 100n;
@@ -199,7 +216,7 @@ async function main() {
     address: votingAddress,
     abi: MAIN_VOTING_ABI,
     functionName: 'submitMultiUserBatch',
-    args: [records, userBatchSigs, batchNonce, executorSig],
+    args: [batches, batchNonce, executorSig],
     gas: gasLimit,
     maxFeePerGas,
     maxPriorityFeePerGas,

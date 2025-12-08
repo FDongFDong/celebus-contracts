@@ -57,7 +57,7 @@ contract MainVoting is Ownable2Step, EIP712 {
 
     /**
      * @dev 한 유저가 하나의 배치에서 제출할 수 있는 최대 레코드 수
-     *      votingId당 투표 수를 제한하여 조회 성능 보장
+     *      유저별 서명 검증 비용과 스토리지 사용량을 제한
      */
     uint16 public constant MAX_RECORDS_PER_USER_BATCH = 20;
 
@@ -259,7 +259,8 @@ contract MainVoting is Ownable2Step, EIP712 {
      *
      * 구조: missionId => votingId => recordDigest[]
      *
-     * 참고: votingId당 최대 20개로 제한되어 가스비 부담 없음
+     * 참고: 유저당 배치 제한(20개)은 있으나, votingId당 총 레코드 수는
+     *       제한이 없습니다. 대량 데이터 시 조회 가스비에 주의하세요.
      */
     mapping(uint256 => mapping(uint256 => bytes32[]))
         private voteHashesByMissionVotingId;
@@ -981,8 +982,8 @@ contract MainVoting is Ownable2Step, EIP712 {
      * @param votingId 투표 세션 ID
      * @return 투표 요약 배열
      *
-     * @dev votingId당 최대 20개 레코드로 제한되어 있어서
-     *      페이지네이션 없이 전체 반환합니다.
+     * @dev 주의: votingId당 레코드 수 제한이 없으므로 대량 데이터 시
+     *      가스 비용이 높아질 수 있습니다. 필요 시 오프체인 조회를 권장합니다.
      *
      * 반환 데이터:
      *   - timestamp: 투표 시간

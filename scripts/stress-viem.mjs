@@ -21,9 +21,11 @@ const DEFAULT_USER_COUNT = 20;
 const DEFAULT_MISSION_ID = 1;
 const MAX_RECORDS_PER_BATCH = 2000;
 const MAX_RECORDS_PER_USER_BATCH = 20;
-// V2: userIdHash 제거, candidateId → artistId
+
+// 현재 컨트랙트의 VOTE_RECORD_TYPEHASH와 일치
+// VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 optionId,uint8 voteType,uint256 votingAmt,address user)
 const VOTE_RECORD_TYPESTRING =
-  'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,uint256 artistId,uint8 voteType,uint256 votingAmt)';
+  'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 optionId,uint8 voteType,uint256 votingAmt,address user)';
 const VOTE_RECORD_TYPEHASH = keccak256(stringToHex(VOTE_RECORD_TYPESTRING));
 
 const USER_BATCH_TYPES = {
@@ -40,26 +42,36 @@ const BATCH_TYPES = {
   ],
 };
 
-const RECORD_TUPLE = {
-  type: 'tuple[]',
+// VoteRecord 구조체 (컨트랙트와 일치)
+const VOTE_RECORD_TUPLE = {
+  type: 'tuple',
   components: [
     { name: 'timestamp', type: 'uint256' },
     { name: 'missionId', type: 'uint256' },
     { name: 'votingId', type: 'uint256' },
-    { name: 'userAddress', type: 'address' },
-    { name: 'artistId', type: 'uint256' },
+    { name: 'optionId', type: 'uint256' },
     { name: 'voteType', type: 'uint8' },
     { name: 'userId', type: 'string' },
     { name: 'votingAmt', type: 'uint256' },
   ],
 };
 
-const USER_SIG_TUPLE = {
-  type: 'tuple[]',
+// UserBatchSig 구조체 (컨트랙트와 일치)
+const USER_BATCH_SIG_TUPLE = {
+  type: 'tuple',
   components: [
     { name: 'user', type: 'address' },
     { name: 'userNonce', type: 'uint256' },
     { name: 'signature', type: 'bytes' },
+  ],
+};
+
+// UserVoteBatch 구조체 (컨트랙트와 일치)
+const USER_VOTE_BATCH_TUPLE = {
+  type: 'tuple[]',
+  components: [
+    { name: 'records', type: 'tuple[]', components: VOTE_RECORD_TUPLE.components },
+    { name: 'userBatchSig', type: 'tuple', components: USER_BATCH_SIG_TUPLE.components },
   ],
 };
 
@@ -106,7 +118,9 @@ function toBigInt(value, label) {
   }
 }
 
-function hashVoteRecord(record) {
+// 컨트랙트의 _hashVoteRecord와 일치하는 해시 함수
+// 순서: TYPEHASH, timestamp, missionId, votingId, optionId, voteType, votingAmt, user
+function hashVoteRecord(record, userAddress) {
   return keccak256(
     encodeAbiParameters(
       [
@@ -114,33 +128,27 @@ function hashVoteRecord(record) {
         { type: 'uint256' },
         { type: 'uint256' },
         { type: 'uint256' },
-        { type: 'address' },
         { type: 'uint256' },
         { type: 'uint8' },
         { type: 'uint256' },
+        { type: 'address' },
       ],
       [
         VOTE_RECORD_TYPEHASH,
         record.timestamp,
         record.missionId,
         record.votingId,
-        record.userAddress,
-        record.artistId,
+        record.optionId,
         record.voteType,
         record.votingAmt,
+        userAddress,
       ]
     )
   );
 }
 
-function encodeRecords(records) {
-  return encodeAbiParameters([RECORD_TUPLE], [records]);
-}
-
-// recordNonces는 V1에서 제거됨 (불필요)
-
-function encodeUserBatchSigs(sigs) {
-  return encodeAbiParameters([USER_SIG_TUPLE], [sigs]);
+function encodeUserVoteBatches(batches) {
+  return encodeAbiParameters([USER_VOTE_BATCH_TUPLE], [batches]);
 }
 
 function deriveUserNonce(userIndex, timestamp, salt) {
@@ -222,8 +230,6 @@ async function main() {
     );
   }
   const rememberCount = votesPerUser / 2;
-  const rememberLabel = String(cli.rememberLabel || process.env.REMEMBER_LABEL || 'Remember');
-  const forgetLabel = String(cli.forgetLabel || process.env.FORGET_LABEL || 'Forget');
 
   const executorAccount = privateKeyToAccount(executorKey);
   const domain = {
@@ -238,9 +244,8 @@ async function main() {
     'votingBase'
   );
 
-  const records = [];
-  const recordHashes = [];
-  const userBatchSigs = [];
+  // UserVoteBatch[] 배열 (컨트랙트 구조와 일치)
+  const userVoteBatches = [];
 
   for (let u = 0; u < userCount; u++) {
     const userKey = deriveUserKey(u);
@@ -257,22 +262,21 @@ async function main() {
       const votingAmt = BigInt(10 + j);
       // voteType 0=Forget, 1=Remember
       const voteType = j < rememberCount ? 1 : 0;
-      // artistId는 투표별로 1~10 범위로 순환 분산 (각 사용자가 다양한 아티스트에게 투표)
-      const artistId = BigInt((j % 10) + 1);
+      // optionId는 투표별로 1~10 범위로 순환 분산 (각 사용자가 다양한 아티스트에게 투표)
+      const optionId = BigInt((j % 10) + 1);
+
       const record = {
         timestamp,
         missionId,
         votingId,
-        userAddress: userAccount.address,
-        artistId,
+        optionId,
         voteType,
         userId,
         votingAmt,
       };
-      const digest = hashVoteRecord(record);
 
-      records.push(record);
-      recordHashes.push(digest);
+      // 해시 계산 시 user 주소 포함 (컨트랙트와 일치)
+      const digest = hashVoteRecord(record, userAccount.address);
 
       perUserRecords.push(record);
       perUserHashes.push(digest);
@@ -290,10 +294,14 @@ async function main() {
       },
     });
 
-    userBatchSigs.push({
-      user: userAccount.address,
-      userNonce,
-      signature,
+    // UserVoteBatch 구조 (records + userBatchSig)
+    userVoteBatches.push({
+      records: perUserRecords,
+      userBatchSig: {
+        user: userAccount.address,
+        userNonce,
+        signature,
+      },
     });
   }
 
@@ -308,8 +316,7 @@ async function main() {
     },
   });
 
-  const encodedRecords = encodeRecords(records);
-  const encodedUserSigs = encodeUserBatchSigs(userBatchSigs);
+  const encodedBatches = encodeUserVoteBatches(userVoteBatches);
 
   const outputDir = resolve(process.cwd(), 'stress-artifacts');
   mkdirSync(outputDir, { recursive: true });
@@ -321,8 +328,7 @@ async function main() {
     totalVotes,
     userCount,
     batchNonce: Number(batchNonce),
-    records: encodedRecords,
-    userBatchSigs: encodedUserSigs,
+    batches: encodedBatches,
     executorSig,
     metadata: {
       votingAddress,
@@ -338,7 +344,8 @@ async function main() {
   console.log(
     `- 총 투표 수: ${totalVotes} (유저 ${userCount}명, 1인당 ${votesPerUser}건 | Remember ${rememberCount} / Forget ${votesPerUser - rememberCount})`
   );
-  const uniqueVotingIds = [...new Set(records.map((r) => r.votingId.toString()))];
+  const allRecords = userVoteBatches.flatMap(b => b.records);
+  const uniqueVotingIds = [...new Set(allRecords.map((r) => r.votingId.toString()))];
   const sampleVotingIds = uniqueVotingIds.slice(0, 10);
   if (sampleVotingIds.length > 0) {
     console.log(`- 샘플 votingId (최대 10개): ${sampleVotingIds.join(', ')}`);
