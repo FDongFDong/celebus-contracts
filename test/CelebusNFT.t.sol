@@ -3,6 +3,7 @@ pragma solidity ^0.8.27;
 
 import {Test, console} from "forge-std/Test.sol";
 import {CelebusNFT} from "../src/nft/CelebusNFT.sol";
+import {ERC721ReceiverMock, NonERC721Receiver} from "./mocks/ERC721ReceiverMock.sol";
 
 /**
  * @title CelebusNFTTest
@@ -880,5 +881,197 @@ contract CelebusNFTTest is Test {
         uint256 gasUsed = gasBefore - gasleft();
 
         console.log("Gas for batchUnlockTokens(10):", gasUsed);
+    }
+
+    // ============================================
+    // 추가 테스트: 경계값 테스트 (Boundary Tests)
+    // ============================================
+
+    function test_RevertWhen_BatchMintExceedsMax() public {
+        // MAX_BATCH_SIZE = 1500 초과 시 revert
+        vm.expectRevert(
+            abi.encodeWithSelector(CelebusNFT.BatchSizeExceeded.selector, 1501, 1500)
+        );
+        nft.batchMint(user1, 1501);
+    }
+
+    function test_RevertWhen_BatchLockExceedsMax() public {
+        // 먼저 1501개 토큰 민팅 (배치로 나눠서)
+        nft.batchMint(user1, 1500);
+        nft.safeMint(user1); // 1500번 토큰
+
+        uint256[] memory tokenIds = new uint256[](1501);
+        for (uint256 i = 0; i < 1501; i++) {
+            tokenIds[i] = i;
+        }
+
+        vm.expectRevert(
+            abi.encodeWithSelector(CelebusNFT.BatchSizeExceeded.selector, 1501, 1500)
+        );
+        nft.batchLockTokens(tokenIds);
+    }
+
+    function test_RevertWhen_BatchUnlockExceedsMax() public {
+        // 먼저 1501개 토큰 민팅 및 잠금
+        nft.batchMint(user1, 1500);
+        nft.safeMint(user1);
+
+        // 1500개씩 나눠서 잠금
+        uint256[] memory lockIds1 = new uint256[](1500);
+        for (uint256 i = 0; i < 1500; i++) {
+            lockIds1[i] = i;
+        }
+        nft.batchLockTokens(lockIds1);
+        nft.lockToken(1500);
+
+        // 1501개 해제 시도
+        uint256[] memory tokenIds = new uint256[](1501);
+        for (uint256 i = 0; i < 1501; i++) {
+            tokenIds[i] = i;
+        }
+
+        vm.expectRevert(
+            abi.encodeWithSelector(CelebusNFT.BatchSizeExceeded.selector, 1501, 1500)
+        );
+        nft.batchUnlockTokens(tokenIds);
+    }
+
+    function test_BatchMintExactMax() public {
+        // MAX_BATCH_SIZE = 1500 정확히 성공해야 함
+        uint256 startId = nft.batchMint(user1, 1500);
+        assertEq(startId, 0);
+        assertEq(nft.ownerOf(1499), user1);
+    }
+
+    // ============================================
+    // 추가 테스트: 상태 관리 (State Management)
+    // ============================================
+
+    function test_BurnClearsApproval() public {
+        nft.safeMint(user1);
+
+        // approval 설정
+        vm.prank(user1);
+        nft.approve(user2, 0);
+        assertEq(nft.getApproved(0), user2);
+
+        // 소각
+        nft.burn(0);
+
+        // 소각된 토큰의 approval 조회 시 revert
+        vm.expectRevert(); // ERC721: invalid token ID
+        nft.getApproved(0);
+    }
+
+    function test_LockDoesNotAffectApproval() public {
+        nft.safeMint(user1);
+
+        // approval 설정
+        vm.prank(user1);
+        nft.approve(user2, 0);
+
+        // 잠금
+        nft.lockToken(0);
+
+        // approval은 유지됨
+        assertEq(nft.getApproved(0), user2);
+    }
+
+    function test_TransferClearsLock_ByOwner() public {
+        nft.safeMint(user1);
+        nft.lockToken(0);
+        assertTrue(nft.isLocked(0));
+
+        // Owner가 강제 전송
+        vm.prank(user1);
+        nft.approve(owner, 0);
+        nft.transferFrom(user1, user2, 0);
+
+        // 잠금 상태는 유지됨 (토큰 ID에 바인딩)
+        assertTrue(nft.isLocked(0));
+    }
+
+    // ============================================
+    // 추가 테스트: Pause 상태 (Pause State)
+    // ============================================
+
+    function test_PauseDoesNotBlockApproval() public {
+        nft.safeMint(user1);
+        nft.pause();
+
+        // Pause 상태에서도 approve 가능
+        vm.prank(user1);
+        nft.approve(user2, 0);
+
+        assertEq(nft.getApproved(0), user2);
+    }
+
+    function test_PauseDoesNotBlockApprovalForAll() public {
+        nft.pause();
+
+        // Pause 상태에서도 setApprovalForAll 가능
+        vm.prank(user1);
+        nft.setApprovalForAll(user2, true);
+
+        assertTrue(nft.isApprovedForAll(user1, user2));
+    }
+
+    // ============================================
+    // 추가 테스트: Safe Transfer (ERC721Receiver)
+    // ============================================
+
+    function test_SafeTransferToReceiver() public {
+        ERC721ReceiverMock receiver = new ERC721ReceiverMock();
+        nft.safeMint(user1);
+
+        vm.prank(user1);
+        nft.safeTransferFrom(user1, address(receiver), 0);
+
+        assertEq(nft.ownerOf(0), address(receiver));
+    }
+
+    function test_SafeTransferToNonReceiver() public {
+        NonERC721Receiver nonReceiver = new NonERC721Receiver();
+        nft.safeMint(user1);
+
+        vm.prank(user1);
+        vm.expectRevert(); // ERC721: transfer to non ERC721Receiver implementer
+        nft.safeTransferFrom(user1, address(nonReceiver), 0);
+    }
+
+    function test_SafeMintToReceiver() public {
+        ERC721ReceiverMock receiver = new ERC721ReceiverMock();
+
+        uint256 tokenId = nft.safeMint(address(receiver));
+        assertEq(nft.ownerOf(tokenId), address(receiver));
+    }
+
+    function test_SafeMintToNonReceiver() public {
+        NonERC721Receiver nonReceiver = new NonERC721Receiver();
+
+        vm.expectRevert(); // ERC721: transfer to non ERC721Receiver implementer
+        nft.safeMint(address(nonReceiver));
+    }
+
+    function test_SafeTransferToRejectingReceiver() public {
+        ERC721ReceiverMock receiver = new ERC721ReceiverMock();
+        receiver.setShouldAccept(false);
+
+        nft.safeMint(user1);
+
+        vm.prank(user1);
+        vm.expectRevert(); // ERC721: transfer to non ERC721Receiver implementer
+        nft.safeTransferFrom(user1, address(receiver), 0);
+    }
+
+    function test_SafeTransferToRevertingReceiver() public {
+        ERC721ReceiverMock receiver = new ERC721ReceiverMock();
+        receiver.setShouldRevert(true);
+
+        nft.safeMint(user1);
+
+        vm.prank(user1);
+        vm.expectRevert("ERC721ReceiverMock: revert");
+        nft.safeTransferFrom(user1, address(receiver), 0);
     }
 }

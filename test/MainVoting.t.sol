@@ -21,7 +21,7 @@ contract MainVotingTest is Test {
     // EIP-712 Type Hashes (컨트랙트와 동일)
     bytes32 private constant VOTE_RECORD_TYPEHASH =
         keccak256(
-            "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 optionId,uint8 voteType,uint256 votingAmt)"
+            "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 optionId,uint8 voteType,uint256 votingAmt,address user)"
         );
 
     bytes32 private constant USER_BATCH_TYPEHASH =
@@ -97,7 +97,7 @@ contract MainVotingTest is Test {
         });
     }
 
-    function _hashVoteRecord(MainVoting.VoteRecord memory record) internal pure returns (bytes32) {
+    function _hashVoteRecord(MainVoting.VoteRecord memory record, address user) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(
                 VOTE_RECORD_TYPEHASH,
@@ -106,7 +106,8 @@ contract MainVotingTest is Test {
                 record.votingId,
                 record.optionId,
                 record.voteType,
-                record.votingAmt
+                record.votingAmt,
+                user
             )
         );
     }
@@ -116,10 +117,12 @@ contract MainVotingTest is Test {
         MainVoting.VoteRecord[] memory records,
         uint256 userNonce
     ) internal view returns (bytes memory) {
-        // recordsHash 계산
+        address user = vm.addr(privateKey);
+
+        // recordsHash 계산 (user 주소 포함)
         bytes32[] memory recordDigests = new bytes32[](records.length);
         for (uint256 i = 0; i < records.length; i++) {
-            recordDigests[i] = _hashVoteRecord(records[i]);
+            recordDigests[i] = _hashVoteRecord(records[i], user);
         }
         bytes32 recordsHash = keccak256(abi.encodePacked(recordDigests));
 
@@ -127,7 +130,7 @@ contract MainVotingTest is Test {
         bytes32 structHash = keccak256(
             abi.encode(
                 USER_BATCH_TYPEHASH,
-                vm.addr(privateKey),
+                user,
                 userNonce,
                 recordsHash
             )
@@ -624,5 +627,201 @@ contract MainVotingTest is Test {
         assertEq(r2, 0);
         assertEq(f2, 600);
         assertEq(t2, 600);
+    }
+
+    // ========================================
+    // 추가 테스트: 권한 검증
+    // ========================================
+
+    function test_RevertWhen_SetArtistNotOwner() public {
+        vm.prank(user1);
+        vm.expectRevert();
+        voting.setArtist(1, 99, "UnauthorizedArtist", true);
+    }
+
+    function test_RevertWhen_CancelUserNonceNotOwner() public {
+        vm.prank(user1);
+        vm.expectRevert();
+        voting.cancelAllUserNonceUpTo(user2, 10);
+    }
+
+    // ========================================
+    // 추가 테스트: 경계값 테스트
+    // ========================================
+
+    function test_RevertWhen_UserBatchTooLarge() public {
+        // MAX_RECORDS_PER_USER_BATCH = 20 초과
+        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](21);
+        for (uint256 i = 0; i < 21; i++) {
+            records[i] = _createVoteRecord("user1", 1, i + 1, 1, 1, 100);
+        }
+
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
+        batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+
+        vm.expectRevert(MainVoting.UserBatchTooLarge.selector);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+    }
+
+    function test_RevertWhen_StringTooLong() public {
+        // MAX_STRING_LENGTH = 100 초과
+        bytes memory longUserId = new bytes(101);
+        for (uint256 i = 0; i < 101; i++) {
+            longUserId[i] = "a";
+        }
+
+        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](1);
+        records[0] = MainVoting.VoteRecord({
+            timestamp: block.timestamp,
+            missionId: 1,
+            votingId: 1,
+            optionId: 1,
+            voteType: 1,
+            userId: string(longUserId),
+            votingAmt: 100
+        });
+
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
+        batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+
+        vm.expectRevert(MainVoting.StringTooLong.selector);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+    }
+
+    function test_UserBatchExactMax() public {
+        // MAX_RECORDS_PER_USER_BATCH = 20 정확히
+        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](20);
+        for (uint256 i = 0; i < 20; i++) {
+            records[i] = _createVoteRecord("user1", 1, i + 1, 1, 1, 100);
+        }
+
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
+        batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        // 집계 검증 - Artist1 (Remember: 100 * 20)
+        (uint256 r, , uint256 t) = voting.getArtistAggregates(1, 1);
+        assertEq(r, 2000);
+        assertEq(t, 2000);
+    }
+
+    // ========================================
+    // 추가 테스트: 상태 전이 테스트
+    // ========================================
+
+    function test_ArtistDisabledAfterVoting() public {
+        // 첫 번째 투표 성공
+        MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](1);
+        records1[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
+
+        MainVoting.UserVoteBatch[] memory batches1 = new MainVoting.UserVoteBatch[](1);
+        batches1[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);
+
+        bytes memory executorSig1 = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches1, 0, executorSig1);
+
+        // 아티스트 비활성화
+        voting.setArtist(1, 1, "Artist1", false);
+
+        // 두 번째 투표 실패해야 함
+        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
+        records2[0] = _createVoteRecord("user1", 1, 2, 1, 1, 100);
+
+        MainVoting.UserVoteBatch[] memory batches2 = new MainVoting.UserVoteBatch[](1);
+        batches2[0] = _createUserVoteBatch(records2, user1, 1, user1PrivateKey);
+
+        bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 1);
+
+        vm.expectRevert(abi.encodeWithSelector(MainVoting.ArtistNotAllowed.selector, 1, 1));
+        voting.submitMultiUserBatch(batches2, 1, executorSig2);
+    }
+
+    function test_ArtistReEnabled() public {
+        // 아티스트 비활성화
+        voting.setArtist(1, 1, "Artist1", false);
+
+        // 아티스트 재활성화
+        voting.setArtist(1, 1, "Artist1", true);
+
+        // 투표 성공해야 함
+        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](1);
+        records[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
+
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
+        batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        (uint256 r, , ) = voting.getArtistAggregates(1, 1);
+        assertEq(r, 100);
+    }
+
+    // ========================================
+    // 추가 테스트: ExecutorSigner 관리
+    // ========================================
+
+    function test_ExecutorSignerChangeInvalidatesOldNonces() public {
+        address newExecutor = address(0x5555);
+        uint256 newExecutorPrivateKey = 0x5555;
+
+        // 기존 executorSigner의 nonce 0 사용
+        MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](1);
+        records1[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
+        MainVoting.UserVoteBatch[] memory batches1 = new MainVoting.UserVoteBatch[](1);
+        batches1[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);
+        bytes memory executorSig1 = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches1, 0, executorSig1);
+
+        // executorSigner 변경
+        voting.setExecutorSigner(newExecutor);
+
+        // 이전 executorSigner의 nonce는 무효화됨 (max로 설정)
+        assertEq(voting.minBatchNonce(executorSigner), type(uint256).max);
+        assertEq(voting.minBatchNonce(newExecutor), 0);
+    }
+
+    // ========================================
+    // 추가 테스트: 기타 테스트
+    // ========================================
+
+    function test_DuplicateRecordSkipped() public {
+        // 첫 번째 제출
+        MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](1);
+        records1[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
+
+        MainVoting.UserVoteBatch[] memory batches1 = new MainVoting.UserVoteBatch[](1);
+        batches1[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);
+
+        bytes memory executorSig1 = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches1, 0, executorSig1);
+
+        // 동일한 레코드로 두 번째 제출 시도 (다른 nonce로)
+        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
+        records2[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100); // 동일한 레코드
+
+        MainVoting.UserVoteBatch[] memory batches2 = new MainVoting.UserVoteBatch[](1);
+        batches2[0] = _createUserVoteBatch(records2, user1, 1, user1PrivateKey);
+
+        bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 1);
+        voting.submitMultiUserBatch(batches2, 1, executorSig2);
+
+        // 집계는 첫 번째만 반영 (중복 스킵)
+        (uint256 r, , uint256 t) = voting.getArtistAggregates(1, 1);
+        assertEq(r, 100); // 100만 집계됨 (200이 아님)
+        assertEq(t, 100);
+    }
+
+    function test_UpdateArtistName() public {
+        // 아티스트 이름 변경
+        voting.setArtist(1, 1, "NewArtistName", true);
+        assertEq(voting.artistName(1, 1), "NewArtistName");
     }
 }

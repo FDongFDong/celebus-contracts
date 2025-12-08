@@ -461,4 +461,186 @@ contract BoostingTest is Test {
         assertEq(boosting.artistTotalAmt(1, 1), 300); // user1: 100 * 3
         assertEq(boosting.artistTotalAmt(1, 2), 600); // user2: 200 * 3
     }
+
+    // ========================================
+    // 추가 권한 테스트
+    // ========================================
+
+    function test_RevertWhen_SetArtistNotOwner() public {
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", user1));
+        boosting.setArtist(1, 1, "Unauthorized", true);
+    }
+
+    function test_RevertWhen_CancelUserNonceNotOwner() public {
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", user1));
+        boosting.cancelAllUserNonceUpTo(user2, 10);
+    }
+
+    function test_RevertWhen_SetBoostingTypeNameNotOwner() public {
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", user1));
+        boosting.setBoostingTypeName(0, "Unauthorized");
+    }
+
+    // ========================================
+    // 경계값 테스트
+    // ========================================
+
+    function test_RevertWhen_StringTooLong() public {
+        // 101자 문자열 생성 (MAX_STRING_LENGTH = 100 초과)
+        bytes memory longString = new bytes(101);
+        for (uint256 i = 0; i < 101; i++) {
+            longString[i] = "a";
+        }
+        string memory tooLongUserId = string(longString);
+
+        // 레코드 직접 생성 (preview 함수 호출을 피하기 위해)
+        Boosting.BoostRecord memory record = Boosting.BoostRecord({
+            timestamp: block.timestamp,
+            missionId: 1,
+            boostingId: 1,
+            userId: tooLongUserId,
+            optionId: 1,
+            boostingWith: 0,
+            amt: 100
+        });
+
+        // 더미 서명 생성
+        bytes memory dummySig = new bytes(65);
+
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = Boosting.UserBoostBatch({
+            record: record,
+            userSig: Boosting.UserSig({
+                user: user1,
+                userNonce: 0,
+                signature: dummySig
+            })
+        });
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+
+        vm.expectRevert(Boosting.StringTooLong.selector);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+    }
+
+    // ========================================
+    // 상태 전이 테스트
+    // ========================================
+
+    function test_ArtistDisabledAfterBoosting() public {
+        // 먼저 성공적인 부스팅
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = _createUserBoostBatch(
+            user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0
+        );
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+
+        // 아티스트 비활성화
+        boosting.setArtist(1, 1, "Artist1", false);
+
+        // 비활성화된 아티스트에 부스팅 시도
+        Boosting.UserBoostBatch[] memory batches2 = new Boosting.UserBoostBatch[](1);
+        batches2[0] = _createUserBoostBatch(
+            user2PrivateKey, user2, "user2", 1, 2, 1, 0, 200, 0
+        );
+
+        bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 1);
+
+        vm.expectRevert(abi.encodeWithSelector(Boosting.ArtistNotAllowed.selector, 1, 1));
+        boosting.submitBoostBatch(batches2, 1, executorSig2);
+    }
+
+    function test_ArtistReEnabled() public {
+        // 아티스트 비활성화
+        boosting.setArtist(1, 1, "Artist1", false);
+
+        // 아티스트 재활성화
+        boosting.setArtist(1, 1, "Artist1", true);
+
+        // 재활성화된 아티스트에 부스팅 성공
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = _createUserBoostBatch(
+            user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0
+        );
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+
+        assertTrue(boosting.userNonceUsed(user1, 0));
+    }
+
+    function test_UpdateArtistName() public {
+        string memory newName = "UpdatedArtist";
+        boosting.setArtist(1, 1, newName, true);
+        assertEq(boosting.artistName(1, 1), newName);
+    }
+
+    // ========================================
+    // ExecutorSigner 관리 테스트
+    // ========================================
+
+    function test_ExecutorSignerChangeInvalidatesOldNonces() public {
+        // 이전 executor로 첫 부스팅
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = _createUserBoostBatch(
+            user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0
+        );
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+
+        // executor 변경
+        uint256 newExecutorPrivateKey = 0x5555;
+        address newExecutor = vm.addr(newExecutorPrivateKey);
+        boosting.setExecutorSigner(newExecutor);
+
+        // 새 executor로 부스팅 성공 (batchNonce 0 사용 가능 - 새 executor이므로)
+        Boosting.UserBoostBatch[] memory batches2 = new Boosting.UserBoostBatch[](1);
+        batches2[0] = _createUserBoostBatch(
+            user2PrivateKey, user2, "user2", 1, 2, 2, 0, 200, 0
+        );
+
+        bytes32 digest2 = boosting.hashBatchPreview(0);
+        (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(newExecutorPrivateKey, digest2);
+        bytes memory newExecutorSig = abi.encodePacked(r2, s2, v2);
+
+        boosting.submitBoostBatch(batches2, 0, newExecutorSig);
+        assertTrue(boosting.userNonceUsed(user2, 0));
+    }
+
+    // ========================================
+    // 중복 레코드 테스트
+    // ========================================
+
+    function test_DuplicateRecordSkipped() public {
+        // 첫 부스팅 성공
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = _createUserBoostBatch(
+            user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0
+        );
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+
+        // 집계 확인
+        assertEq(boosting.artistTotalAmt(1, 1), 100);
+
+        // 동일한 user1이 nonce 0으로 다시 제출 시도 - 이미 사용됨
+        Boosting.UserBoostBatch[] memory batches2 = new Boosting.UserBoostBatch[](1);
+        batches2[0] = _createUserBoostBatch(
+            user1PrivateKey, user1, "user1", 1, 2, 1, 0, 200, 0
+        );
+
+        bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 1);
+
+        // 이미 사용된 nonce이므로 revert
+        vm.expectRevert(Boosting.UserNonceAlreadyUsed.selector);
+        boosting.submitBoostBatch(batches2, 1, executorSig2);
+    }
+
 }

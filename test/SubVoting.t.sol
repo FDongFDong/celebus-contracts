@@ -460,4 +460,223 @@ contract SubVotingTest is Test {
         vm.expectRevert(SubVoting.BatchNonceTooLow.selector);
         voting.cancelAllBatchNonceUpTo(5);
     }
+
+    // ========================================
+    // 추가 권한 테스트
+    // ========================================
+
+    function test_RevertWhen_SetQuestionNotOwner() public {
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", user1));
+        voting.setQuestion(1, 1, "Unauthorized", true);
+    }
+
+    function test_RevertWhen_SetOptionNotOwner() public {
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", user1));
+        voting.setOption(1, 1, 1, "Unauthorized", true);
+    }
+
+    function test_RevertWhen_CancelUserNonceNotOwner() public {
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", user1));
+        voting.cancelAllUserNonceUpTo(user2, 10);
+    }
+
+    function test_RevertWhen_SetExecutorSignerNotOwner() public {
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", user1));
+        voting.setExecutorSigner(user1);
+    }
+
+    // ========================================
+    // 경계값 테스트
+    // ========================================
+
+    function test_RevertWhen_StringTooLong() public {
+        // 101자 문자열 생성 (MAX_STRING_LENGTH = 100 초과)
+        bytes memory longString = new bytes(101);
+        for (uint256 i = 0; i < 101; i++) {
+            longString[i] = "a";
+        }
+        string memory tooLongUserId = string(longString);
+
+        // 레코드 직접 생성 (헬퍼 함수의 preview 호출을 피하기 위해)
+        SubVoting.VoteRecord memory record = SubVoting.VoteRecord({
+            timestamp: block.timestamp,
+            missionId: 1,
+            votingId: 1,
+            userId: tooLongUserId,
+            questionId: 1,
+            optionId: 1,
+            votingAmt: 100
+        });
+
+        // 더미 서명 생성 (실제 서명 검증 전에 StringTooLong이 먼저 발생)
+        bytes memory dummySig = new bytes(65);
+
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](1);
+        batches[0] = SubVoting.UserVoteBatch({
+            record: record,
+            userSig: SubVoting.UserSig({
+                user: user1,
+                userNonce: 0,
+                signature: dummySig
+            })
+        });
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+
+        vm.expectRevert(SubVoting.StringTooLong.selector);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+    }
+
+    function test_SetOptionMaxId() public {
+        // MAX_OPTION_ID = 10까지 허용
+        voting.setQuestion(2, 1, "TestQuestion", true);
+        voting.setOption(2, 1, 10, "MaxOption", true);
+        assertEq(voting.optionName(2, 1, 10), "MaxOption");
+        assertTrue(voting.allowedOption(2, 1, 10));
+    }
+
+    // ========================================
+    // 상태 전이 테스트
+    // ========================================
+
+    function test_QuestionDisabledAfterVoting() public {
+        // 먼저 성공적인 투표
+        SubVoting.VoteRecord memory record = _createVoteRecord("user1", 1, 1, 1, 1, 100);
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](1);
+        batches[0] = _createBatch(record, user1, 0, user1PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        // 질문 비활성화
+        voting.setQuestion(1, 1, "Question1", false);
+
+        // 비활성화된 질문에 투표 시도
+        SubVoting.VoteRecord memory record2 = _createVoteRecord("user2", 1, 2, 1, 1, 200);
+        SubVoting.UserVoteBatch[] memory batches2 = new SubVoting.UserVoteBatch[](1);
+        batches2[0] = _createBatch(record2, user2, 0, user2PrivateKey);
+
+        bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 1);
+
+        vm.expectRevert(abi.encodeWithSelector(SubVoting.QuestionNotAllowed.selector, 1, 1));
+        voting.submitMultiUserBatch(batches2, 1, executorSig2);
+    }
+
+    function test_OptionDisabledAfterVoting() public {
+        // 먼저 성공적인 투표
+        SubVoting.VoteRecord memory record = _createVoteRecord("user1", 1, 1, 1, 1, 100);
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](1);
+        batches[0] = _createBatch(record, user1, 0, user1PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        // 옵션 비활성화
+        voting.setOption(1, 1, 1, "OptionA", false);
+
+        // 비활성화된 옵션에 투표 시도
+        SubVoting.VoteRecord memory record2 = _createVoteRecord("user2", 1, 2, 1, 1, 200);
+        SubVoting.UserVoteBatch[] memory batches2 = new SubVoting.UserVoteBatch[](1);
+        batches2[0] = _createBatch(record2, user2, 0, user2PrivateKey);
+
+        bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 1);
+
+        vm.expectRevert(abi.encodeWithSelector(SubVoting.OptionNotAllowed.selector, 1, 1));
+        voting.submitMultiUserBatch(batches2, 1, executorSig2);
+    }
+
+    function test_QuestionReEnabled() public {
+        // 질문 비활성화
+        voting.setQuestion(1, 1, "Question1", false);
+
+        // 질문 재활성화
+        voting.setQuestion(1, 1, "Question1", true);
+
+        // 재활성화된 질문에 투표 성공
+        SubVoting.VoteRecord memory record = _createVoteRecord("user1", 1, 1, 1, 1, 100);
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](1);
+        batches[0] = _createBatch(record, user1, 0, user1PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        assertTrue(voting.userNonceUsed(user1, 0));
+    }
+
+    function test_UpdateQuestionText() public {
+        string memory newText = "UpdatedQuestion";
+        voting.setQuestion(1, 1, newText, true);
+        assertEq(voting.questionName(1, 1), newText);
+    }
+
+    // ========================================
+    // ExecutorSigner 관리 테스트
+    // ========================================
+
+    function test_ExecutorSignerChangeInvalidatesOldNonces() public {
+        // 이전 executor로 첫 투표
+        SubVoting.VoteRecord memory record = _createVoteRecord("user1", 1, 1, 1, 1, 100);
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](1);
+        batches[0] = _createBatch(record, user1, 0, user1PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        // executor 변경
+        uint256 newExecutorPrivateKey = 0x5555;
+        address newExecutor = vm.addr(newExecutorPrivateKey);
+        voting.setExecutorSigner(newExecutor);
+
+        // 새 executor로 투표 성공 (batchNonce 0 사용 가능 - 새 executor이므로)
+        SubVoting.VoteRecord memory record2 = _createVoteRecord("user2", 1, 2, 1, 1, 200);
+        SubVoting.UserVoteBatch[] memory batches2 = new SubVoting.UserVoteBatch[](1);
+        batches2[0] = _createBatch(record2, user2, 0, user2PrivateKey);
+
+        bytes32 digest2 = voting.hashBatchPreview(0);
+        (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(newExecutorPrivateKey, digest2);
+        bytes memory newExecutorSig = abi.encodePacked(r2, s2, v2);
+
+        voting.submitMultiUserBatch(batches2, 0, newExecutorSig);
+        assertTrue(voting.userNonceUsed(user2, 0));
+    }
+
+    // ========================================
+    // 중복 레코드 테스트
+    // ========================================
+
+    function test_DuplicateRecordSkipped() public {
+        // 첫 투표 성공
+        SubVoting.VoteRecord memory record = _createVoteRecord("user1", 1, 1, 1, 1, 100);
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](1);
+        batches[0] = _createBatch(record, user1, 0, user1PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        // 집계 확인
+        (uint256[11] memory optionVotes1, uint256 total1) = voting.getQuestionAggregates(1, 1);
+        assertEq(optionVotes1[1], 100);
+        assertEq(total1, 100);
+
+        // 동일한 user1이 nonce 0으로 다시 제출 시도 - 이미 사용됨
+        SubVoting.VoteRecord memory record2 = _createVoteRecord("user1", 1, 2, 1, 1, 200);
+        SubVoting.UserVoteBatch[] memory batches2 = new SubVoting.UserVoteBatch[](1);
+        batches2[0] = _createBatch(record2, user1, 0, user1PrivateKey);
+
+        bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 1);
+
+        // 이미 사용된 nonce이므로 스킵되거나 revert됨
+        vm.expectRevert(SubVoting.UserNonceAlreadyUsed.selector);
+        voting.submitMultiUserBatch(batches2, 1, executorSig2);
+    }
+
+    function test_UpdateOptionText() public {
+        string memory newText = "UpdatedOption";
+        voting.setOption(1, 1, 1, newText, true);
+        assertEq(voting.optionName(1, 1, 1), newText);
+    }
 }
