@@ -1,29 +1,125 @@
 #!/usr/bin/env node
 /**
+ * =============================================================================
  * stress-viem.mjs
+ * =============================================================================
  *
  * MainVoting 스트레스 테스트용 서명 데이터 생성 스크립트
  *
- * 주요 기능:
- *   - 결정론적 유저 Private Key 생성 (USER_KEY_SALT 기반)
- *   - EIP-712 서명 생성 (UserBatch, Batch)
- *   - 투표 레코드 생성 및 해시 계산
+ * 이 스크립트는 MainVoting 컨트랙트의 submitMultiUserBatch 함수를 테스트하기 위해
+ * 대량의 투표 데이터와 EIP-712 서명을 생성합니다.
  *
- * 사용법:
- *   PRIVATE_KEY=0x... VOTING_ADDRESS=0x... node scripts/stress-viem.mjs [options]
+ * =============================================================================
+ * 아키텍처 개요
+ * =============================================================================
  *
- * 옵션:
- *   --totalVotes N      총 투표 수 (기본: 100)
- *   --userCount N       유저 수 (기본: 20)
- *   --perUserVotes N    유저당 투표 수 (totalVotes/userCount 대신 사용)
- *   --missionId N       미션 ID (기본: 1)
- *   --file <name>       출력 파일명 (기본: stress-output.json)
- *   --votingAddress     컨트랙트 주소
- *   --rpcUrl            RPC URL
- *   --chainId           체인 ID (기본: 5611)
+ * 1. 데이터 흐름:
+ *    [설정값 파싱] → [유저 키 생성] → [투표 레코드 생성] → [서명 생성] → [JSON 저장]
  *
- * 출력:
- *   stress-artifacts/<file>.json
+ * 2. 서명 구조:
+ *    - UserBatch 서명: 각 유저가 자신의 투표 레코드들에 대해 서명
+ *    - Batch 서명: Executor가 전체 배치에 대해 서명 (batchNonce 포함)
+ *
+ * 3. 결정론적 키 생성:
+ *    - USER_KEY_SALT + userIndex를 keccak256 해시하여 Private Key 생성
+ *    - 동일한 userIndex는 항상 동일한 키 반환 (재현 가능)
+ *
+ * =============================================================================
+ * 주요 기능
+ * =============================================================================
+ *
+ * - 결정론적 유저 Private Key 생성 (USER_KEY_SALT 기반)
+ * - EIP-712 서명 생성 (UserBatch, Batch 타입)
+ * - 투표 레코드 생성 및 해시 계산 (컨트랙트 로직과 동일)
+ * - Remember/Forget 투표 균등 분배 (유저당 투표 수의 절반씩)
+ * - 아티스트 옵션 순환 (optionId 1~10)
+ *
+ * =============================================================================
+ * 사용법
+ * =============================================================================
+ *
+ * 기본 사용:
+ *   PRIVATE_KEY=0x... VOTING_ADDRESS=0x... node scripts/stress-viem.mjs
+ *
+ * 옵션 지정:
+ *   node scripts/stress-viem.mjs --totalVotes 200 --userCount 20 --missionId 2
+ *
+ * =============================================================================
+ * CLI 옵션
+ * =============================================================================
+ *
+ * --totalVotes N      총 투표 수 (기본: 100)
+ *                     컨트랙트 제한: 최대 2000
+ *
+ * --userCount N       유저 수 (기본: 10)
+ *                     totalVotes가 userCount로 나누어 떨어져야 함
+ *
+ * --perUserVotes N    유저당 투표 수 (totalVotes/userCount 대신 직접 지정)
+ *                     컨트랙트 제한: 최대 20
+ *                     짝수여야 함 (Remember/Forget 균등 분배)
+ *
+ * --missionId N       미션 ID (기본: 1)
+ *
+ * --file <name>       출력 파일명 (기본: stress-output.json)
+ *                     stress-artifacts/ 디렉토리에 저장됨
+ *
+ * --votingAddress     MainVoting 컨트랙트 주소
+ *                     환경변수 VOTING_ADDRESS로도 설정 가능
+ *
+ * --rpcUrl            RPC URL (기본: opBNB Testnet)
+ *                     chainId 자동 조회에 사용됨
+ *
+ * --chainId           체인 ID (기본: 5611, opBNB Testnet)
+ *                     EIP-712 도메인에 사용됨
+ *
+ * =============================================================================
+ * 환경변수
+ * =============================================================================
+ *
+ * PRIVATE_KEY         (필수) Executor의 Private Key (0x... 형식)
+ * VOTING_ADDRESS      (필수) MainVoting 컨트랙트 주소
+ * RPC_URL             (선택) RPC URL
+ * CHAIN_ID            (선택) 체인 ID
+ * MISSION_ID          (선택) 미션 ID
+ * TOTAL_VOTES         (선택) 총 투표 수
+ * USER_COUNT          (선택) 유저 수
+ *
+ * =============================================================================
+ * 출력 파일 구조 (JSON)
+ * =============================================================================
+ *
+ * {
+ *   "missionId": 1,
+ *   "totalVotes": 100,
+ *   "userCount": 10,
+ *   "batchNonce": 12345,
+ *   "batches": "0x...",          // ABI 인코딩된 UserVoteBatch[]
+ *   "executorSig": "0x...",      // Executor의 Batch 서명
+ *   "metadata": {
+ *     "votingAddress": "0x...",
+ *     "chainId": 5611,
+ *     "missionId": 1,
+ *     "timestamp": "1234567890"
+ *   }
+ * }
+ *
+ * =============================================================================
+ * 의존성
+ * =============================================================================
+ *
+ * - viem: 이더리움 상호작용 라이브러리 (서명, 인코딩)
+ * - node:fs, node:path, node:crypto: Node.js 내장 모듈
+ *
+ * =============================================================================
+ * 관련 파일
+ * =============================================================================
+ *
+ * - submit-stress-viem.mjs: 이 스크립트가 생성한 JSON을 컨트랙트에 제출
+ * - burst-stress.mjs: 여러 배치를 병렬로 생성/제출하는 오케스트레이터
+ * - full-stress-test.sh: 컨트랙트 설정 + 스트레스 테스트 통합 스크립트
+ * - src/vote/MainVoting.sol: 대상 컨트랙트
+ *
+ * =============================================================================
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -46,6 +142,34 @@ import { privateKeyToAccount } from 'viem/accounts';
 
 // 유저 키 파생용 Salt (결정론적 키 생성)
 const USER_KEY_SALT = 0x9999999999999999999999999999999999999999999999999999999999999999n;
+
+// =============================================================================
+// 컨트랙트 ABI (nonce 조회용)
+// =============================================================================
+
+const MAIN_VOTING_ABI = [
+  {
+    name: 'batchNonce',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ type: 'address', name: '' }],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    name: 'userNonce',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ type: 'address', name: '' }],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    name: 'executorSigner',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'address' }],
+  },
+];
 
 // 기본값
 const DEFAULT_RPC_URL = 'https://opbnb-testnet-rpc.bnbchain.org';
@@ -217,26 +341,6 @@ function encodeUserVoteBatches(batches) {
 }
 
 /**
- * 유저별 고유 nonce 생성
- * - userIndex, timestamp, salt를 조합하여 결정론적 생성
- */
-function deriveUserNonce(userIndex, timestamp, salt) {
-  const packed = encodePacked(
-    ['string', 'uint256', 'uint256', 'uint256'],
-    ['userNonce', BigInt(userIndex), timestamp, salt]
-  );
-  return toBigInt(keccak256(packed), 'userNonce');
-}
-
-/**
- * 랜덤 배치 nonce 생성
- */
-function randomBatchNonce() {
-  const rand = BigInt(`0x${crypto.randomBytes(32).toString('hex')}`);
-  return (rand % 1_000_000_000n) + 10_000n;
-}
-
-/**
  * RPC에서 chainId 조회 (실패 시 기본값 5611 사용)
  */
 async function resolveChainId(rpcUrl, provided) {
@@ -292,9 +396,14 @@ async function main() {
   const missionId = toBigInt(cli.missionId || process.env.MISSION_ID || DEFAULT_MISSION_ID, 'missionId');
   const timestampInput = cli.timestamp || process.env.TIMESTAMP;
   const timestamp = timestampInput ? toBigInt(timestampInput, 'timestamp') : BigInt(Math.floor(Date.now() / 1000));
-  const nonceSalt = BigInt('0x' + crypto.randomBytes(16).toString('hex'));
   const randomSalt = BigInt('0x' + crypto.randomBytes(16).toString('hex'));
   const chainId = await resolveChainId(rpcUrl, cli.chainId || process.env.CHAIN_ID);
+
+  // 병렬 배치 생성용 오프셋 (burst-stress.mjs에서 사용)
+  const batchNonceOffset = Number(cli.batchNonceOffset || process.env.BATCH_NONCE_OFFSET || 0);
+  const userNonceOffset = Number(cli.userNonceOffset || process.env.USER_NONCE_OFFSET || 0);
+  // 유저 인덱스 오프셋 (각 배치가 다른 유저를 사용하도록)
+  const userIndexOffset = Number(cli.userIndexOffset || process.env.USER_INDEX_OFFSET || 0);
 
   // -------------------------------------------------------------------------
   // 2. 유효성 검증
@@ -330,6 +439,62 @@ async function main() {
     verifyingContract: votingAddress,
   };
 
+  // PublicClient 생성 (nonce 조회용)
+  const publicClient = createPublicClient({ transport: http(rpcUrl) });
+
+  // -------------------------------------------------------------------------
+  // 3.1 batchNonce 조회 (컨트랙트에서 현재 값 + 오프셋)
+  // -------------------------------------------------------------------------
+  let baseBatchNonce;
+  const batchNonceInput = cli.batchNonce || process.env.BATCH_NONCE;
+  if (batchNonceInput) {
+    baseBatchNonce = toBigInt(batchNonceInput, 'batchNonce');
+  } else {
+    try {
+      const contractBatchNonce = await publicClient.readContract({
+        address: votingAddress,
+        abi: MAIN_VOTING_ABI,
+        functionName: 'batchNonce',
+        args: [executorAccount.address],
+      });
+      baseBatchNonce = BigInt(contractBatchNonce) + BigInt(batchNonceOffset);
+      console.log(`[INFO] 컨트랙트 batchNonce: ${contractBatchNonce}, 오프셋: ${batchNonceOffset}, 사용할 값: ${baseBatchNonce}`);
+    } catch (err) {
+      // fallback: 조회 실패 시 오프셋만 사용 (새 컨트랙트는 0부터 시작)
+      console.warn(`[WARN] batchNonce 조회 실패, 오프셋 ${batchNonceOffset}을 기본값으로 사용: ${err.message?.split('\n')[0]}`);
+      baseBatchNonce = BigInt(batchNonceOffset);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 3.2 유저별 nonce 조회 (컨트랙트에서 현재 값)
+  // -------------------------------------------------------------------------
+  console.log(`[INFO] ${userCount}명 유저 키 생성 및 nonce 조회 중... (인덱스 오프셋: ${userIndexOffset})`);
+  const userAccounts = [];
+  const userNonces = [];
+
+  for (let u = 0; u < userCount; u++) {
+    // userIndexOffset 적용하여 다른 유저 생성 (병렬 배치용)
+    const userKey = deriveUserKey(u + userIndexOffset);
+    const userAccount = privateKeyToAccount(userKey);
+    userAccounts.push(userAccount);
+
+    try {
+      const contractUserNonce = await publicClient.readContract({
+        address: votingAddress,
+        abi: MAIN_VOTING_ABI,
+        functionName: 'userNonce',
+        args: [userAccount.address],
+      });
+      // 같은 유저가 여러 배치에 참여할 경우 오프셋 적용
+      const adjustedNonce = BigInt(contractUserNonce) + BigInt(userNonceOffset);
+      userNonces.push(adjustedNonce);
+    } catch (err) {
+      throw new Error(`userNonce 조회 실패 (유저 ${u}): ${err.message}`);
+    }
+  }
+  console.log(`[OK] ${userCount}명 유저 nonce 조회 완료`);
+
   // votingId 베이스값 생성 (timestamp + missionId 해시)
   const votingBase = toBigInt(
     keccak256(encodeAbiParameters([{ type: 'uint256' }, { type: 'uint256' }], [timestamp, missionId])),
@@ -342,16 +507,15 @@ async function main() {
   const userVoteBatches = [];
 
   for (let u = 0; u < userCount; u++) {
-    // 유저 키 및 계정 생성
-    const userKey = deriveUserKey(u);
-    const userAccount = privateKeyToAccount(userKey);
+    // 이미 생성된 유저 계정 및 조회된 nonce 사용
+    const userAccount = userAccounts[u];
+    const userNonce = userNonces[u];
     const perUserRecords = [];
     const perUserHashes = [];
 
     // 유저별 고유 votingId 생성
     const votingIdBase = votingBase + BigInt(u) + (randomSalt % 1_000_000_000n) + 1n;
     const votingId = (votingIdBase % 1_000_000_000n) + 1n;
-    const userNonce = deriveUserNonce(u, timestamp, nonceSalt + BigInt(u + 1));
     const userId = `stress-${u}`;
 
     // 투표 레코드 생성
@@ -407,8 +571,7 @@ async function main() {
   // -------------------------------------------------------------------------
   // 5. Executor 서명 생성
   // -------------------------------------------------------------------------
-  const batchNonceInput = cli.batchNonce || process.env.BATCH_NONCE;
-  const batchNonce = batchNonceInput ? toBigInt(batchNonceInput, 'batchNonce') : randomBatchNonce();
+  const batchNonce = baseBatchNonce;
 
   const executorSig = await executorAccount.signTypedData({
     domain,

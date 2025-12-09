@@ -251,6 +251,12 @@ async function main() {
     const fileName = `burst-${totalVotes}-${missionId}-${timestamp}-${i}.json`;
     const filePath = resolve(__dirname, '..', 'stress-artifacts', fileName);
 
+    // 각 배치에 오프셋 적용:
+    // - batchNonceOffset: 순차적 batchNonce 사용 (0, 1, 2, ...)
+    // - userIndexOffset: 각 배치가 다른 유저 사용 (0, userCount, userCount*2, ...)
+    const batchNonceOffset = i;
+    const userIndexOffset = i * userCount;
+
     try {
       await runCommand(
         'node',
@@ -263,6 +269,8 @@ async function main() {
           '--votingAddress', normalizedVotingAddress,
           '--rpcUrl', rpcUrl,
           '--chainId', String(chainId),
+          '--batchNonceOffset', String(batchNonceOffset),
+          '--userIndexOffset', String(userIndexOffset),
         ],
         {
           PRIVATE_KEY: privateKey,
