@@ -44,6 +44,10 @@ export class Step8Query {
                   class="tab-btn px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700">
             ⚙️ 설정
           </button>
+          <button id="tab-failedLogs" onclick="step8.switchTab('failedLogs')"
+                  class="tab-btn px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700">
+            ❌ 실패 로그
+          </button>
         </div>
 
         <!-- 탭 콘텐츠 -->
@@ -86,6 +90,9 @@ export class Step8Query {
         break;
       case 'settings':
         tabContent.innerHTML = this.renderSettingsTab();
+        break;
+      case 'failedLogs':
+        tabContent.innerHTML = this.renderFailedLogsTab();
         break;
     }
   }
@@ -375,6 +382,56 @@ export class Step8Query {
             조회
           </button>
           <div id="result_domainSeparator" class="mt-3"></div>
+        </div>
+      </div>
+    `;
+  }
+
+  renderFailedLogsTab() {
+    return `
+      <div class="space-y-6">
+        <!-- UserBatchFailed 이벤트 조회 -->
+        <div class="bg-red-50 rounded-lg p-4 border border-red-200">
+          <h3 class="font-semibold text-red-900 mb-3">❌ 실패한 유저 배치 조회</h3>
+          <p class="text-xs text-gray-600 mb-3">UserBatchFailed 이벤트 - Soft Fail로 처리된 유저 목록</p>
+
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label class="block text-xs text-gray-600 mb-1">From Block (빈칸: 최근 1000블록)</label>
+              <input id="q_failedLogs_fromBlock" type="number" placeholder="예: 12345678"
+                     class="w-full p-2 border rounded text-sm">
+            </div>
+            <div>
+              <label class="block text-xs text-gray-600 mb-1">To Block (빈칸: latest)</label>
+              <input id="q_failedLogs_toBlock" type="number" placeholder="예: 12346678"
+                     class="w-full p-2 border rounded text-sm">
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="block text-xs text-gray-600 mb-1">또는 특정 Batch Digest로 필터링 (선택사항)</label>
+            <input id="q_failedLogs_batchDigest" type="text" placeholder="0x..."
+                   class="w-full p-2 border rounded text-sm font-mono">
+          </div>
+
+          <button onclick="step8.queryFailedUsers()"
+                  class="bg-red-500 text-white px-4 py-2 rounded text-sm hover:bg-red-600">
+            실패 로그 조회
+          </button>
+          <div id="result_failedLogs" class="mt-3"></div>
+        </div>
+
+        <!-- REASON 코드 설명 -->
+        <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+          <h3 class="font-semibold text-gray-900 mb-3">📋 실패 사유 코드 안내</h3>
+          <div class="text-sm space-y-1">
+            <div class="flex"><span class="w-12 font-mono text-red-600">1</span><span>레코드 수가 0개이거나 20개 초과</span></div>
+            <div class="flex"><span class="w-12 font-mono text-red-600">2</span><span>유저 서명이 유효하지 않음</span></div>
+            <div class="flex"><span class="w-12 font-mono text-red-600">3</span><span>Nonce가 최소값보다 낮음 (취소된 범위)</span></div>
+            <div class="flex"><span class="w-12 font-mono text-red-600">4</span><span>Nonce가 이미 사용됨 (중복 제출)</span></div>
+            <div class="flex"><span class="w-12 font-mono text-red-600">5</span><span>VoteType이 유효하지 않음 (0,1 외의 값)</span></div>
+            <div class="flex"><span class="w-12 font-mono text-red-600">6</span><span>허용되지 않은 아티스트에게 투표</span></div>
+          </div>
         </div>
       </div>
     `;
@@ -802,6 +859,117 @@ export class Step8Query {
       this.showResult(resultId, separator, 'bytes32');
     } catch (err) {
       console.error('queryDomainSeparator error:', err);
+      this.showError(resultId, err.message);
+    }
+  }
+
+  // ==================== 실패 로그 조회 ====================
+
+  getReasonDescription(reasonCode) {
+    const reasons = {
+      1: '레코드 수가 0개이거나 20개 초과',
+      2: '유저 서명이 유효하지 않음',
+      3: 'Nonce가 최소값보다 낮음 (취소된 범위)',
+      4: 'Nonce가 이미 사용됨 (중복 제출)',
+      5: 'VoteType이 유효하지 않음',
+      6: '허용되지 않은 아티스트'
+    };
+    return reasons[reasonCode] || `알 수 없는 사유 (${reasonCode})`;
+  }
+
+  async queryFailedUsers() {
+    const resultId = 'result_failedLogs';
+    try {
+      this.showLoading(resultId);
+      const contract = this.getContract();
+
+      // 블록 범위 설정
+      const fromBlockInput = document.getElementById('q_failedLogs_fromBlock').value;
+      const toBlockInput = document.getElementById('q_failedLogs_toBlock').value;
+      const batchDigestInput = document.getElementById('q_failedLogs_batchDigest').value.trim();
+
+      // 현재 블록 가져오기
+      const currentBlock = await this.state.provider.getBlockNumber();
+
+      let fromBlock = fromBlockInput ? parseInt(fromBlockInput) : currentBlock - 1000;
+      let toBlock = toBlockInput ? parseInt(toBlockInput) : 'latest';
+
+      // 음수 방지
+      if (fromBlock < 0) fromBlock = 0;
+
+      // UserBatchFailed 이벤트 필터 생성
+      const filter = contract.filters.UserBatchFailed(
+        batchDigestInput || null,  // batchDigest (indexed)
+        null                        // user (indexed)
+      );
+
+      console.log(`Querying UserBatchFailed events from block ${fromBlock} to ${toBlock}`);
+
+      // 이벤트 조회
+      const events = await contract.queryFilter(filter, fromBlock, toBlock);
+
+      if (events.length === 0) {
+        const el = document.getElementById(resultId);
+        el.innerHTML = `
+          <div class="bg-green-50 border border-green-200 rounded p-3 mt-2">
+            <p class="text-green-800 text-sm">✅ 해당 블록 범위에서 실패한 유저가 없습니다.</p>
+            <p class="text-xs text-gray-500 mt-1">조회 범위: 블록 ${fromBlock} ~ ${toBlock === 'latest' ? currentBlock : toBlock}</p>
+          </div>
+        `;
+        return;
+      }
+
+      // 이벤트 데이터 변환
+      const data = events.map(event => ({
+        blockNumber: event.blockNumber,
+        txHash: event.transactionHash.slice(0, 10) + '...' + event.transactionHash.slice(-8),
+        fullTxHash: event.transactionHash,
+        batchDigest: event.args.batchDigest.slice(0, 10) + '...' + event.args.batchDigest.slice(-8),
+        fullBatchDigest: event.args.batchDigest,
+        user: event.args.user.slice(0, 6) + '...' + event.args.user.slice(-4),
+        fullUser: event.args.user,
+        userNonce: event.args.userNonce.toString(),
+        reasonCode: event.args.reasonCode,
+        reasonDesc: this.getReasonDescription(event.args.reasonCode)
+      }));
+
+      // 테이블 렌더링
+      const el = document.getElementById(resultId);
+      el.innerHTML = `
+        <div class="mt-2">
+          <p class="text-sm text-gray-600 mb-2">총 ${data.length}건의 실패 로그 (블록 ${fromBlock} ~ ${toBlock === 'latest' ? currentBlock : toBlock})</p>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs border-collapse">
+              <thead class="bg-red-100">
+                <tr>
+                  <th class="p-2 border text-left">블록</th>
+                  <th class="p-2 border text-left">Tx Hash</th>
+                  <th class="p-2 border text-left">User</th>
+                  <th class="p-2 border text-left">Nonce</th>
+                  <th class="p-2 border text-left">사유</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${data.map(row => `
+                  <tr class="hover:bg-red-50">
+                    <td class="p-2 border font-mono">${row.blockNumber}</td>
+                    <td class="p-2 border font-mono cursor-pointer" title="${row.fullTxHash}" onclick="step8.copyToClipboard('${row.fullTxHash}')">${row.txHash}</td>
+                    <td class="p-2 border font-mono cursor-pointer" title="${row.fullUser}" onclick="step8.copyToClipboard('${row.fullUser}')">${row.user}</td>
+                    <td class="p-2 border font-mono">${row.userNonce}</td>
+                    <td class="p-2 border">
+                      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                        ${row.reasonCode}: ${row.reasonDesc}
+                      </span>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    } catch (err) {
+      console.error('queryFailedUsers error:', err);
       this.showError(resultId, err.message);
     }
   }

@@ -1,4 +1,29 @@
 #!/usr/bin/env node
+/**
+ * =============================================================================
+ * Stress Test Data Generator (viem version)
+ * =============================================================================
+ *
+ * Purpose:
+ *   Generate pre-signed voting data for stress testing the MainVoting contract.
+ *   This script creates mock users, vote records, and EIP-712 signatures
+ *   that can be submitted to the blockchain via submit-stress-viem.mjs.
+ *
+ * Workflow:
+ *   1. Generate random user accounts (for testing purposes)
+ *   2. Create VoteRecord data for each user
+ *   3. Sign UserBatch with each user's private key (EIP-712)
+ *   4. Sign Batch with Executor's private key (EIP-712)
+ *   5. Export all data as ABI-encoded JSON
+ *
+ * Output:
+ *   stress-artifacts/stress-test-nested.json
+ *
+ * Usage:
+ *   node scripts/generate-stress-test-viem.js
+ *
+ * =============================================================================
+ */
 
 import {
   keccak256,
@@ -6,7 +31,6 @@ import {
   parseAbiParameters,
   encodePacked,
   toHex,
-  hexToBytes
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import fs from 'fs';
@@ -16,17 +40,26 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 설정
+// =============================================================================
+// Configuration
+// =============================================================================
 const CONFIG = {
   missionId: 1,
   votingId: 1,
-  userCount: 2, // 2명 유저 (가스 절약)
-  votesPerUser: 10, // 각 유저당 10개 (5 Remember + 5 Forget)
-  chainId: 5611,
+  userCount: 2,        // Number of test users
+  votesPerUser: 10,    // Votes per user (half Remember, half Forget)
+  chainId: 5611,       // opBNB Testnet
   votingAddress: '0x63b64F3dEC0b20a54BE337fcA845CE08C093DD25',
 };
 
-// EIP-712 Domain
+// =============================================================================
+// EIP-712 Domain & Type Hashes
+// =============================================================================
+
+/**
+ * EIP-712 Domain Separator parameters.
+ * Must match the domain defined in the MainVoting contract.
+ */
 const DOMAIN = {
   name: 'MainVoting',
   version: '1',
@@ -34,7 +67,10 @@ const DOMAIN = {
   verifyingContract: CONFIG.votingAddress,
 };
 
-// TypeHashes
+/**
+ * Type hashes for EIP-712 structured data signing.
+ * These are keccak256 hashes of the type definitions.
+ */
 const VOTE_RECORD_TYPEHASH = keccak256(
   toHex('VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,address userAddress,uint256 candidateId,uint8 voteType,uint256 votingAmt)')
 );
@@ -47,12 +83,15 @@ const BATCH_TYPEHASH = keccak256(
   toHex('Batch(uint256 batchNonce)')
 );
 
-// Domain Separator 계산
+/**
+ * Compute the EIP-712 domain separator.
+ * @returns {string} The domain separator hash
+ */
 function getDomainSeparator() {
   const typeHash = keccak256(
     toHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')
   );
-  
+
   return keccak256(
     encodeAbiParameters(
       parseAbiParameters('bytes32, bytes32, bytes32, uint256, address'),
@@ -61,13 +100,21 @@ function getDomainSeparator() {
         keccak256(toHex(DOMAIN.name)),
         keccak256(toHex(DOMAIN.version)),
         DOMAIN.chainId,
-        DOMAIN.verifyingContract
+        DOMAIN.verifyingContract,
       ]
     )
   );
 }
 
-// VoteRecord 해시 생성
+// =============================================================================
+// Signing Functions
+// =============================================================================
+
+/**
+ * Compute the EIP-712 struct hash for a VoteRecord.
+ * @param {Object} record - The vote record object
+ * @returns {string} The keccak256 hash of the encoded record
+ */
 function hashVoteRecord(record) {
   return keccak256(
     encodeAbiParameters(
@@ -86,11 +133,19 @@ function hashVoteRecord(record) {
   );
 }
 
-// UserBatch 서명 생성
+/**
+ * Sign a UserBatch using EIP-712 typed data signing.
+ * Each user signs their own batch of vote records.
+ *
+ * @param {Object} account - viem account object (from privateKeyToAccount)
+ * @param {number} userNonce - Unique nonce for this user's batch
+ * @param {string[]} recordDigests - Array of VoteRecord hashes
+ * @returns {Promise<string>} The signature bytes
+ */
 async function signUserBatch(account, userNonce, recordDigests) {
+  // Hash all record digests into a single recordsHash
   const recordsHash = keccak256(encodePacked(['bytes32[]'], [recordDigests]));
 
-  // EIP-712 signTypedData 사용
   const signature = await account.signTypedData({
     domain: {
       name: DOMAIN.name,
@@ -116,9 +171,15 @@ async function signUserBatch(account, userNonce, recordDigests) {
   return signature;
 }
 
-// Batch 서명 생성 (Executor)
+/**
+ * Sign a Batch using EIP-712 typed data signing.
+ * The Executor signs to authorize the entire batch submission.
+ *
+ * @param {Object} executorAccount - viem account object for the executor
+ * @param {number} batchNonce - Unique nonce for this batch
+ * @returns {Promise<string>} The signature bytes
+ */
 async function signBatch(executorAccount, batchNonce) {
-  // EIP-712 signTypedData 사용
   const signature = await executorAccount.signTypedData({
     domain: {
       name: DOMAIN.name,
@@ -138,33 +199,47 @@ async function signBatch(executorAccount, batchNonce) {
   return signature;
 }
 
-// 메인 생성 함수
-async function generateStressTest() {
-  console.log('🚀 스트레스 테스트 데이터 생성 시작 (viem)...\n');
+// =============================================================================
+// Main Generator Function
+// =============================================================================
 
-  // 1. 유저 계정 생성
+/**
+ * Main function to generate stress test data.
+ * Creates users, vote records, and all required signatures.
+ */
+async function generateStressTest() {
+  console.log('[INFO] Starting stress test data generation (viem)...\n');
+
+  // -------------------------------------------------------------------------
+  // Step 1: Generate random user accounts (for testing only)
+  // -------------------------------------------------------------------------
   const userAccounts = [];
   for (let i = 0; i < CONFIG.userCount; i++) {
-    // 간단한 private key 생성 (테스트용)
-    const randomHex = '0x' + Array.from({ length: 64 }, () => 
-      Math.floor(Math.random() * 16).toString(16)
-    ).join('');
+    const randomHex =
+      '0x' +
+      Array.from({ length: 64 }, () =>
+        Math.floor(Math.random() * 16).toString(16)
+      ).join('');
     const account = privateKeyToAccount(randomHex);
     userAccounts.push(account);
   }
-  console.log(`✅ ${CONFIG.userCount}명의 유저 계정 생성 완료`);
+  console.log(`[OK] Created ${CONFIG.userCount} user accounts`);
 
-  // 2. Executor 계정 (실제 private key 사용)
+  // -------------------------------------------------------------------------
+  // Step 2: Set up Executor account
+  // NOTE: Replace with your own private key for production use
+  // -------------------------------------------------------------------------
   const executorAccount = privateKeyToAccount(
     '0x94d26f9b25e16734a747e9f789d71082cb80155d11810ba99a12f9fd163397ef'
   );
-  console.log(`✅ Executor: ${executorAccount.address}`);
+  console.log(`[OK] Executor: ${executorAccount.address}`);
 
-  // 3. VoteRecord 생성 (2차원 배열)
+  // -------------------------------------------------------------------------
+  // Step 3: Generate VoteRecords for each user
+  // -------------------------------------------------------------------------
   const now = Math.floor(Date.now() / 1000);
   const allRecords = [];
   const allUserBatchSigs = [];
-
   let totalVotes = 0;
 
   for (let userIdx = 0; userIdx < CONFIG.userCount; userIdx++) {
@@ -172,8 +247,10 @@ async function generateStressTest() {
     const userRecords = [];
 
     for (let voteIdx = 0; voteIdx < CONFIG.votesPerUser; voteIdx++) {
-      const candidateId = (voteIdx % 10) + 1; // Artist-1 ~ Artist-10 순환
-      const voteType = voteIdx < CONFIG.votesPerUser / 2 ? 1 : 0; // 첫 10개 Remember, 나머지 10개 Forget
+      // Cycle through Artist-1 to Artist-10
+      const candidateId = (voteIdx % 10) + 1;
+      // First half: Remember (1), Second half: Forget (0)
+      const voteType = voteIdx < CONFIG.votesPerUser / 2 ? 1 : 0;
 
       const record = {
         timestamp: now + userIdx * 100 + voteIdx,
@@ -183,7 +260,7 @@ async function generateStressTest() {
         candidateId: candidateId,
         voteType: voteType,
         userId: `stress-user-${userIdx}`,
-        votingAmt: 100 + voteIdx, // 포인트
+        votingAmt: 100 + voteIdx,
       };
 
       userRecords.push(record);
@@ -193,18 +270,22 @@ async function generateStressTest() {
     allRecords.push(userRecords);
   }
 
-  console.log(`✅ 총 ${totalVotes}개 투표 레코드 생성 완료 (${CONFIG.userCount}명 × ${CONFIG.votesPerUser}개)`);
+  console.log(
+    `[OK] Created ${totalVotes} vote records (${CONFIG.userCount} users x ${CONFIG.votesPerUser} votes)`
+  );
 
-  // 4. 각 유저별 서명 생성
+  // -------------------------------------------------------------------------
+  // Step 4: Generate UserBatch signatures for each user
+  // -------------------------------------------------------------------------
   for (let userIdx = 0; userIdx < CONFIG.userCount; userIdx++) {
     const userAccount = userAccounts[userIdx];
     const userRecords = allRecords[userIdx];
 
-    // 레코드 다이제스트 계산
+    // Compute hash digests for all records
     const recordDigests = userRecords.map((record) => hashVoteRecord(record));
 
-    // UserBatch 서명
-    const userNonce = userIdx; // 간단히 인덱스 사용
+    // Sign the UserBatch (using index as nonce for simplicity)
+    const userNonce = userIdx;
     const signature = await signUserBatch(userAccount, userNonce, recordDigests);
 
     allUserBatchSigs.push({
@@ -214,36 +295,52 @@ async function generateStressTest() {
     });
   }
 
-  console.log(`✅ ${CONFIG.userCount}개 유저 서명 생성 완료`);
+  console.log(`[OK] Generated ${CONFIG.userCount} user signatures`);
 
-  // 5. Batch 서명 생성
+  // -------------------------------------------------------------------------
+  // Step 5: Generate Executor (Batch) signature
+  // -------------------------------------------------------------------------
   const batchNonce = Math.floor(Math.random() * 1000000);
   const executorSig = await signBatch(executorAccount, batchNonce);
-  console.log(`✅ Executor 서명 생성 완료 (batchNonce: ${batchNonce})`);
+  console.log(`[OK] Generated executor signature (batchNonce: ${batchNonce})`);
 
-  // 6. ABI 인코딩 (Foundry가 파싱할 수 있도록)
+  // -------------------------------------------------------------------------
+  // Step 6: ABI-encode data for Foundry/viem compatibility
+  // -------------------------------------------------------------------------
   const encodedRecords = encodeAbiParameters(
-    parseAbiParameters('(uint256,uint256,uint256,address,uint256,uint8,string,uint256)[][]'),
-    [allRecords.map(userRecords =>
-      userRecords.map(r => [
-        BigInt(r.timestamp),
-        BigInt(r.missionId),
-        BigInt(r.votingId),
-        r.userAddress,
-        BigInt(r.candidateId),
-        r.voteType,
-        r.userId,
-        BigInt(r.votingAmt)
-      ])
-    )]
+    parseAbiParameters(
+      '(uint256,uint256,uint256,address,uint256,uint8,string,uint256)[][]'
+    ),
+    [
+      allRecords.map((userRecords) =>
+        userRecords.map((r) => [
+          BigInt(r.timestamp),
+          BigInt(r.missionId),
+          BigInt(r.votingId),
+          r.userAddress,
+          BigInt(r.candidateId),
+          r.voteType,
+          r.userId,
+          BigInt(r.votingAmt),
+        ])
+      ),
+    ]
   );
 
   const encodedUserBatchSigs = encodeAbiParameters(
     parseAbiParameters('(address,uint256,bytes)[]'),
-    [allUserBatchSigs.map(sig => [sig.user, BigInt(sig.userNonce), sig.signature])]
+    [
+      allUserBatchSigs.map((sig) => [
+        sig.user,
+        BigInt(sig.userNonce),
+        sig.signature,
+      ]),
+    ]
   );
 
-  // 7. JSON 출력
+  // -------------------------------------------------------------------------
+  // Step 7: Build output JSON structure
+  // -------------------------------------------------------------------------
   const output = {
     records: encodedRecords,
     userBatchSigs: encodedUserBatchSigs,
@@ -262,7 +359,9 @@ async function generateStressTest() {
     },
   };
 
-  // 7. 파일 저장
+  // -------------------------------------------------------------------------
+  // Step 8: Save to file
+  // -------------------------------------------------------------------------
   const outputDir = path.join(__dirname, '..', 'stress-artifacts');
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
@@ -271,24 +370,28 @@ async function generateStressTest() {
   const outputPath = path.join(outputDir, 'stress-test-nested.json');
   fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
 
-  console.log(`\n✅ 저장 완료: ${outputPath}`);
-  console.log(`\n📊 요약:`);
-  console.log(`   - 유저 수: ${CONFIG.userCount}명`);
-  console.log(`   - 유저당 투표: ${CONFIG.votesPerUser}개`);
-  console.log(`   - 총 투표: ${totalVotes}개`);
-  console.log(`   - Batch Nonce: ${batchNonce}`);
-  console.log(`\n🎯 다음 명령어로 실행:`);
-  console.log(`   export STRESS_FILE=stress-artifacts/stress-test-nested.json`);
-  console.log(`   export VOTING_ADDRESS=${CONFIG.votingAddress}`);
-  console.log(`   export PRIVATE_KEY=0x94d26f9b25e16734a747e9f789d71082cb80155d11810ba99a12f9fd163397ef`);
-  console.log(`   forge script script/SubmitStressVoting.s.sol:SubmitStressVoting \\`);
-  console.log(`     --rpc-url https://opbnb-testnet-rpc.bnbchain.org \\`);
-  console.log(`     --private-key $PRIVATE_KEY \\`);
-  console.log(`     --broadcast`);
+  // -------------------------------------------------------------------------
+  // Output summary and next steps
+  // -------------------------------------------------------------------------
+  console.log(`\n[OK] Saved to: ${outputPath}`);
+  console.log(`\n[SUMMARY]`);
+  console.log(`  - Users: ${CONFIG.userCount}`);
+  console.log(`  - Votes per user: ${CONFIG.votesPerUser}`);
+  console.log(`  - Total votes: ${totalVotes}`);
+  console.log(`  - Batch Nonce: ${batchNonce}`);
+  console.log(`\n[NEXT STEPS] Run the following commands to submit:`);
+  console.log(`  export STRESS_FILE=stress-artifacts/stress-test-nested.json`);
+  console.log(`  export VOTING_ADDRESS=${CONFIG.votingAddress}`);
+  console.log(
+    `  export PRIVATE_KEY=0x94d26f9b25e16734a747e9f789d71082cb80155d11810ba99a12f9fd163397ef`
+  );
+  console.log(`  node scripts/submit-stress-viem.mjs`);
 }
 
-// 실행
+// =============================================================================
+// Entry Point
+// =============================================================================
 generateStressTest().catch((error) => {
-  console.error('❌ 에러 발생:', error);
+  console.error('[ERROR]', error);
   process.exit(1);
 });

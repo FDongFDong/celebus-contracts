@@ -6,6 +6,7 @@
     "stress:viem": "node scripts/stress-viem.mjs",
     "stress:submit": "node scripts/submit-stress-viem.mjs",
     "stress:burst": "node scripts/burst-stress.mjs",
+    "stress:full": "bash scripts/full-stress-test.sh",
     "mint:parallel": "node scripts/mint-parallel.mjs"
   },
   "dependencies": {

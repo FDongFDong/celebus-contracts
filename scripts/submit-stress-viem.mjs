@@ -1,4 +1,29 @@
 #!/usr/bin/env node
+/**
+ * submit-stress-viem.mjs
+ *
+ * 스트레스 테스트 서명 데이터를 컨트랙트에 제출하는 스크립트
+ *
+ * 주요 기능:
+ *   - stress-viem.mjs가 생성한 JSON 파일 로드
+ *   - submitMultiUserBatch 함수 호출
+ *   - 가스 추정 및 nonce 지정 지원
+ *
+ * 사용법:
+ *   PRIVATE_KEY=0x... node scripts/submit-stress-viem.mjs [options]
+ *
+ * 옵션:
+ *   --file <path>         서명 데이터 JSON 파일 경로
+ *   --votingAddress       컨트랙트 주소
+ *   --rpcUrl              RPC URL
+ *   --nonce N             트랜잭션 nonce (병렬 제출용)
+ *   --gas N               가스 리밋 (미지정 시 자동 추정)
+ *   --gasBumpPercent N    가스 가격 버프 % (기본: 0)
+ *
+ * 출력:
+ *   트랜잭션 해시 및 opbnbscan 링크
+ */
+
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
@@ -11,11 +36,19 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
+// =============================================================================
+// 상수 정의
+// =============================================================================
+
 const DEFAULT_RPC_URL = 'https://opbnb-testnet-rpc.bnbchain.org';
 const DEFAULT_STRESS_FILE = 'stress-artifacts/stress-output.json';
 const DEFAULT_VOTING_ADDRESS = '0x10Fb9C7BFec7d2059b65c9e70B4F58E2E6fd0eFE';
 
-// VoteRecord 구조체 (컨트랙트와 일치)
+// =============================================================================
+// ABI 인코딩용 구조체 정의 (stress-viem.mjs와 동일)
+// =============================================================================
+
+// VoteRecord 구조체
 const VOTE_RECORD_TUPLE = {
   type: 'tuple',
   components: [
@@ -29,7 +62,7 @@ const VOTE_RECORD_TUPLE = {
   ],
 };
 
-// UserBatchSig 구조체 (컨트랙트와 일치)
+// UserBatchSig 구조체
 const USER_BATCH_SIG_TUPLE = {
   type: 'tuple',
   components: [
@@ -39,7 +72,7 @@ const USER_BATCH_SIG_TUPLE = {
   ],
 };
 
-// UserVoteBatch 구조체 (컨트랙트와 일치)
+// UserVoteBatch 구조체 배열
 const USER_VOTE_BATCH_TUPLE = {
   type: 'tuple[]',
   components: [
@@ -48,7 +81,7 @@ const USER_VOTE_BATCH_TUPLE = {
   ],
 };
 
-// 현재 컨트랙트의 submitMultiUserBatch 함수 ABI
+// submitMultiUserBatch 함수 ABI
 const MAIN_VOTING_ABI = [
   {
     type: 'function',
@@ -70,6 +103,13 @@ const MAIN_VOTING_ABI = [
   },
 ];
 
+// =============================================================================
+// 유틸리티 함수
+// =============================================================================
+
+/**
+ * CLI 인자 파싱
+ */
 function parseArgs(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i++) {
@@ -82,6 +122,9 @@ function parseArgs(argv) {
   return args;
 }
 
+/**
+ * Private Key 정규화 (0x 접두사 및 길이 검증)
+ */
 function normalizePrivateKey(value) {
   if (!value) return null;
   let hex = value.trim().toLowerCase();
@@ -92,6 +135,9 @@ function normalizePrivateKey(value) {
   return hex;
 }
 
+/**
+ * 값을 BigInt로 변환
+ */
 function toBigInt(value, label) {
   if (!value) return undefined;
   try {
@@ -101,6 +147,9 @@ function toBigInt(value, label) {
   }
 }
 
+/**
+ * 스트레스 테스트 JSON 파일 로드
+ */
 function loadStressFile(filePath) {
   const resolved = resolve(process.cwd(), filePath);
   const raw = readFileSync(resolved, 'utf8');
@@ -108,6 +157,9 @@ function loadStressFile(filePath) {
   return { json, resolved };
 }
 
+/**
+ * ABI 인코딩된 배치 데이터를 디코딩
+ */
 function decodeUserVoteBatches(encoded) {
   const [batches] = decodeAbiParameters([USER_VOTE_BATCH_TUPLE], encoded);
   return batches.map((batch) => ({
@@ -128,7 +180,14 @@ function decodeUserVoteBatches(encoded) {
   }));
 }
 
+// =============================================================================
+// 메인 함수
+// =============================================================================
+
 async function main() {
+  // -------------------------------------------------------------------------
+  // 1. 설정값 파싱
+  // -------------------------------------------------------------------------
   const cli = parseArgs(process.argv.slice(2));
   const privateKey = normalizePrivateKey(process.env.PRIVATE_KEY || cli.privateKey);
   if (!privateKey) {
@@ -138,6 +197,9 @@ async function main() {
   const rpcUrl = cli.rpcUrl || process.env.RPC_URL || DEFAULT_RPC_URL;
   const stressFile = cli.file || process.env.STRESS_FILE || DEFAULT_STRESS_FILE;
 
+  // -------------------------------------------------------------------------
+  // 2. 서명 데이터 로드
+  // -------------------------------------------------------------------------
   const { json, resolved } = loadStressFile(stressFile);
   const votingAddress = getAddress(
     cli.votingAddress || process.env.VOTING_ADDRESS || json.metadata?.votingAddress || DEFAULT_VOTING_ADDRESS
@@ -154,6 +216,9 @@ async function main() {
   const nonceInput = cli.nonce || process.env.NONCE;
   const gasBumpPercentInput = cli.gasBumpPercent || process.env.GAS_BUMP_PERCENT;
 
+  // -------------------------------------------------------------------------
+  // 3. 클라이언트 설정
+  // -------------------------------------------------------------------------
   const chain = defineChain({
     id: Number(chainId),
     name: 'opBNB Testnet',
@@ -175,6 +240,9 @@ async function main() {
   console.log(`배치 논스: ${batchNonce}`);
   console.log(`총 레코드: ${totalRecords}, 유저 배치: ${batches.length}`);
 
+  // -------------------------------------------------------------------------
+  // 4. 가스 추정
+  // -------------------------------------------------------------------------
   let gasLimit;
   if (gasLimitInput) {
     gasLimit = toBigInt(gasLimitInput, 'gas');
@@ -186,11 +254,14 @@ async function main() {
       functionName: 'submitMultiUserBatch',
       args: [batches, batchNonce, executorSig],
     });
-    // add 25% safety margin
+    // 25% 안전 마진 추가
     gasLimit = (estimate * 125n) / 100n;
-    console.log(`Estimated gas: ${estimate.toString()} → applying 25% buffer = ${gasLimit.toString()}`);
+    console.log(`Estimated gas: ${estimate.toString()} -> applying 25% buffer = ${gasLimit.toString()}`);
   }
 
+  // -------------------------------------------------------------------------
+  // 5. 가스 가격 조회 및 버프 적용
+  // -------------------------------------------------------------------------
   let maxFeePerGas;
   let maxPriorityFeePerGas;
   try {
@@ -198,6 +269,7 @@ async function main() {
     maxFeePerGas = feeData.maxFeePerGas;
     maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
   } catch (err) {
+    // EIP-1559 미지원 시 legacy gas price 사용
     const gasPrice = await publicClient.getGasPrice();
     maxFeePerGas = gasPrice;
     maxPriorityFeePerGas = gasPrice;
@@ -210,6 +282,9 @@ async function main() {
     maxPriorityFeePerGas = (maxPriorityFeePerGas * bump) / 100n;
   }
 
+  // -------------------------------------------------------------------------
+  // 6. 트랜잭션 전송
+  // -------------------------------------------------------------------------
   const nonce = nonceInput ? toBigInt(nonceInput, 'nonce') : undefined;
 
   const writeParams = {
@@ -221,16 +296,22 @@ async function main() {
     maxFeePerGas,
     maxPriorityFeePerGas,
   };
+
+  // nonce가 지정된 경우 추가 (병렬 제출용)
   if (nonce !== undefined) {
     writeParams.nonce = nonce;
   }
 
   const hash = await client.writeContract(writeParams);
 
-  console.log('✅ 제출 완료');
+  // -------------------------------------------------------------------------
+  // 7. 결과 출력
+  // -------------------------------------------------------------------------
+  console.log('[OK] 제출 완료');
   console.log(`txHash: ${hash}`);
   console.log(`opbnbscan: https://testnet.opbnbscan.com/tx/${hash}`);
 
+  // RLP 사이즈 조회 (optional)
   try {
     const rawTx = await client.transport.request({
       method: 'eth_getRawTransactionByHash',
@@ -242,11 +323,11 @@ async function main() {
       console.log(`RLP size: ${byteLen} bytes (${kb.toFixed(2)} KB)`);
     }
   } catch (err) {
-    console.warn('⚠️ raw tx size 조회 실패:', err.message ?? err);
+    console.warn('[WARN] raw tx size 조회 실패:', err.message ?? err);
   }
 }
 
 main().catch((err) => {
-  console.error('❌ 제출 중 오류 발생:', err.message ?? err);
+  console.error('[ERROR] 제출 중 오류 발생:', err.message ?? err);
   process.exitCode = 1;
 });

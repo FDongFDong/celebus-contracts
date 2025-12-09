@@ -1,4 +1,31 @@
 #!/usr/bin/env node
+/**
+ * stress-viem.mjs
+ *
+ * MainVoting 스트레스 테스트용 서명 데이터 생성 스크립트
+ *
+ * 주요 기능:
+ *   - 결정론적 유저 Private Key 생성 (USER_KEY_SALT 기반)
+ *   - EIP-712 서명 생성 (UserBatch, Batch)
+ *   - 투표 레코드 생성 및 해시 계산
+ *
+ * 사용법:
+ *   PRIVATE_KEY=0x... VOTING_ADDRESS=0x... node scripts/stress-viem.mjs [options]
+ *
+ * 옵션:
+ *   --totalVotes N      총 투표 수 (기본: 100)
+ *   --userCount N       유저 수 (기본: 20)
+ *   --perUserVotes N    유저당 투표 수 (totalVotes/userCount 대신 사용)
+ *   --missionId N       미션 ID (기본: 1)
+ *   --file <name>       출력 파일명 (기본: stress-output.json)
+ *   --votingAddress     컨트랙트 주소
+ *   --rpcUrl            RPC URL
+ *   --chainId           체인 ID (기본: 5611)
+ *
+ * 출력:
+ *   stress-artifacts/<file>.json
+ */
+
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import crypto from 'node:crypto';
@@ -13,21 +40,34 @@ import {
 import { createPublicClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
+// =============================================================================
+// 상수 정의
+// =============================================================================
+
+// 유저 키 파생용 Salt (결정론적 키 생성)
 const USER_KEY_SALT = 0x9999999999999999999999999999999999999999999999999999999999999999n;
+
+// 기본값
 const DEFAULT_RPC_URL = 'https://opbnb-testnet-rpc.bnbchain.org';
 const DEFAULT_VOTING_ADDRESS = '0x10Fb9C7BFec7d2059b65c9e70B4F58E2E6fd0eFE';
 const DEFAULT_TOTAL_VOTES = 100;
-const DEFAULT_USER_COUNT = 20;
+const DEFAULT_USER_COUNT = 10;
 const DEFAULT_MISSION_ID = 1;
+
+// 컨트랙트 제한 (MainVoting.sol과 일치)
 const MAX_RECORDS_PER_BATCH = 2000;
 const MAX_RECORDS_PER_USER_BATCH = 20;
 
-// 현재 컨트랙트의 VOTE_RECORD_TYPEHASH와 일치
-// VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 optionId,uint8 voteType,uint256 votingAmt,address user)
+// =============================================================================
+// EIP-712 타입 정의
+// =============================================================================
+
+// VoteRecord 타입해시 (컨트랙트의 VOTE_RECORD_TYPEHASH와 일치)
 const VOTE_RECORD_TYPESTRING =
   'VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 optionId,uint8 voteType,uint256 votingAmt,address user)';
 const VOTE_RECORD_TYPEHASH = keccak256(stringToHex(VOTE_RECORD_TYPESTRING));
 
+// UserBatch EIP-712 타입
 const USER_BATCH_TYPES = {
   UserBatch: [
     { name: 'user', type: 'address' },
@@ -36,13 +76,18 @@ const USER_BATCH_TYPES = {
   ],
 };
 
+// Batch EIP-712 타입 (Executor 서명용)
 const BATCH_TYPES = {
   Batch: [
     { name: 'batchNonce', type: 'uint256' },
   ],
 };
 
-// VoteRecord 구조체 (컨트랙트와 일치)
+// =============================================================================
+// ABI 인코딩용 구조체 정의
+// =============================================================================
+
+// VoteRecord 구조체
 const VOTE_RECORD_TUPLE = {
   type: 'tuple',
   components: [
@@ -56,7 +101,7 @@ const VOTE_RECORD_TUPLE = {
   ],
 };
 
-// UserBatchSig 구조체 (컨트랙트와 일치)
+// UserBatchSig 구조체
 const USER_BATCH_SIG_TUPLE = {
   type: 'tuple',
   components: [
@@ -66,7 +111,7 @@ const USER_BATCH_SIG_TUPLE = {
   ],
 };
 
-// UserVoteBatch 구조체 (컨트랙트와 일치)
+// UserVoteBatch 구조체 배열
 const USER_VOTE_BATCH_TUPLE = {
   type: 'tuple[]',
   components: [
@@ -75,6 +120,13 @@ const USER_VOTE_BATCH_TUPLE = {
   ],
 };
 
+// =============================================================================
+// 유틸리티 함수
+// =============================================================================
+
+/**
+ * CLI 인자 파싱
+ */
 function parseArgs(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i++) {
@@ -87,6 +139,9 @@ function parseArgs(argv) {
   return args;
 }
 
+/**
+ * Private Key 정규화 (0x 접두사 및 길이 검증)
+ */
 function normalizePrivateKey(value) {
   if (!value) return null;
   let hex = value.trim().toLowerCase();
@@ -97,18 +152,22 @@ function normalizePrivateKey(value) {
   return hex;
 }
 
+/**
+ * 결정론적 유저 Private Key 생성
+ * - USER_KEY_SALT + index를 해시하여 키 생성
+ * - 동일한 index는 항상 동일한 키 반환
+ */
 function deriveUserKey(index) {
   const encoded = encodeAbiParameters(
-    [
-      { type: 'uint256' },
-      { type: 'uint256' },
-    ],
+    [{ type: 'uint256' }, { type: 'uint256' }],
     [USER_KEY_SALT, BigInt(index + 1)]
   );
-  const digest = keccak256(encoded);
-  return digest;
+  return keccak256(encoded);
 }
 
+/**
+ * 값을 BigInt로 변환
+ */
 function toBigInt(value, label) {
   if (typeof value === 'bigint') return value;
   try {
@@ -118,20 +177,23 @@ function toBigInt(value, label) {
   }
 }
 
-// 컨트랙트의 _hashVoteRecord와 일치하는 해시 함수
-// 순서: TYPEHASH, timestamp, missionId, votingId, optionId, voteType, votingAmt, user
+/**
+ * VoteRecord 해시 계산
+ * - 컨트랙트의 _hashVoteRecord 함수와 동일한 로직
+ * - user 주소가 해시에 포함됨
+ */
 function hashVoteRecord(record, userAddress) {
   return keccak256(
     encodeAbiParameters(
       [
-        { type: 'bytes32' },
-        { type: 'uint256' },
-        { type: 'uint256' },
-        { type: 'uint256' },
-        { type: 'uint256' },
-        { type: 'uint8' },
-        { type: 'uint256' },
-        { type: 'address' },
+        { type: 'bytes32' },  // TYPEHASH
+        { type: 'uint256' },  // timestamp
+        { type: 'uint256' },  // missionId
+        { type: 'uint256' },  // votingId
+        { type: 'uint256' },  // optionId
+        { type: 'uint8' },    // voteType
+        { type: 'uint256' },  // votingAmt
+        { type: 'address' },  // user
       ],
       [
         VOTE_RECORD_TYPEHASH,
@@ -147,10 +209,17 @@ function hashVoteRecord(record, userAddress) {
   );
 }
 
+/**
+ * UserVoteBatch 배열을 ABI 인코딩
+ */
 function encodeUserVoteBatches(batches) {
   return encodeAbiParameters([USER_VOTE_BATCH_TUPLE], [batches]);
 }
 
+/**
+ * 유저별 고유 nonce 생성
+ * - userIndex, timestamp, salt를 조합하여 결정론적 생성
+ */
 function deriveUserNonce(userIndex, timestamp, salt) {
   const packed = encodePacked(
     ['string', 'uint256', 'uint256', 'uint256'],
@@ -159,11 +228,17 @@ function deriveUserNonce(userIndex, timestamp, salt) {
   return toBigInt(keccak256(packed), 'userNonce');
 }
 
+/**
+ * 랜덤 배치 nonce 생성
+ */
 function randomBatchNonce() {
   const rand = BigInt(`0x${crypto.randomBytes(32).toString('hex')}`);
   return (rand % 1_000_000_000n) + 10_000n;
 }
 
+/**
+ * RPC에서 chainId 조회 (실패 시 기본값 5611 사용)
+ */
 async function resolveChainId(rpcUrl, provided) {
   if (provided) return BigInt(provided);
   if (!rpcUrl) return 5611n;
@@ -172,12 +247,19 @@ async function resolveChainId(rpcUrl, provided) {
     const id = await client.getChainId();
     return BigInt(id);
   } catch (err) {
-    console.warn('[경고] RPC에서 chainId를 가져오지 못했습니다. 기본값 5611 사용');
+    console.warn('[WARN] RPC에서 chainId를 가져오지 못했습니다. 기본값 5611 사용');
     return 5611n;
   }
 }
 
+// =============================================================================
+// 메인 함수
+// =============================================================================
+
 async function main() {
+  // -------------------------------------------------------------------------
+  // 1. 설정값 파싱
+  // -------------------------------------------------------------------------
   const cli = parseArgs(process.argv.slice(2));
   const executorKey = normalizePrivateKey(process.env.PRIVATE_KEY || cli.privateKey);
   if (!executorKey) {
@@ -189,6 +271,8 @@ async function main() {
   const userCount = Number(cli.userCount || process.env.USER_COUNT || DEFAULT_USER_COUNT);
   const totalVotesInput = Number(cli.totalVotes || process.env.TOTAL_VOTES || DEFAULT_TOTAL_VOTES);
   const perUserVotesRaw = cli.perUserVotes ?? cli.recordsPerUser ?? process.env.PER_USER_VOTES;
+
+  // 총 투표 수 및 유저당 투표 수 계산
   let totalVotes;
   let votesPerUser;
   if (perUserVotesRaw !== undefined) {
@@ -204,6 +288,7 @@ async function main() {
     }
     votesPerUser = totalVotes / userCount;
   }
+
   const missionId = toBigInt(cli.missionId || process.env.MISSION_ID || DEFAULT_MISSION_ID, 'missionId');
   const timestampInput = cli.timestamp || process.env.TIMESTAMP;
   const timestamp = timestampInput ? toBigInt(timestampInput, 'timestamp') : BigInt(Math.floor(Date.now() / 1000));
@@ -211,6 +296,9 @@ async function main() {
   const randomSalt = BigInt('0x' + crypto.randomBytes(16).toString('hex'));
   const chainId = await resolveChainId(rpcUrl, cli.chainId || process.env.CHAIN_ID);
 
+  // -------------------------------------------------------------------------
+  // 2. 유효성 검증
+  // -------------------------------------------------------------------------
   if (!Number.isInteger(totalVotes) || totalVotes <= 0) {
     throw new Error('TOTAL_VOTES 는 1 이상의 정수여야 합니다.');
   }
@@ -223,14 +311,17 @@ async function main() {
   if (votesPerUser > MAX_RECORDS_PER_USER_BATCH) {
     throw new Error(`유저당 레코드 수(${votesPerUser})가 한도(${MAX_RECORDS_PER_USER_BATCH})를 초과했습니다.`);
   }
-
   if (votesPerUser % 2 !== 0) {
     throw new Error(
       'Remember/Forget 을 동일하게 맞추려면 1인당 투표 수가 짝수여야 합니다. totalVotes / userCount 를 조정해주세요.'
     );
   }
+
   const rememberCount = votesPerUser / 2;
 
+  // -------------------------------------------------------------------------
+  // 3. Executor 계정 및 EIP-712 도메인 설정
+  // -------------------------------------------------------------------------
   const executorAccount = privateKeyToAccount(executorKey);
   const domain = {
     name: 'MainVoting',
@@ -239,30 +330,36 @@ async function main() {
     verifyingContract: votingAddress,
   };
 
+  // votingId 베이스값 생성 (timestamp + missionId 해시)
   const votingBase = toBigInt(
     keccak256(encodeAbiParameters([{ type: 'uint256' }, { type: 'uint256' }], [timestamp, missionId])),
     'votingBase'
   );
 
-  // UserVoteBatch[] 배열 (컨트랙트 구조와 일치)
+  // -------------------------------------------------------------------------
+  // 4. 유저별 투표 레코드 및 서명 생성
+  // -------------------------------------------------------------------------
   const userVoteBatches = [];
 
   for (let u = 0; u < userCount; u++) {
+    // 유저 키 및 계정 생성
     const userKey = deriveUserKey(u);
     const userAccount = privateKeyToAccount(userKey);
     const perUserRecords = [];
     const perUserHashes = [];
 
+    // 유저별 고유 votingId 생성
     const votingIdBase = votingBase + BigInt(u) + (randomSalt % 1_000_000_000n) + 1n;
     const votingId = (votingIdBase % 1_000_000_000n) + 1n;
     const userNonce = deriveUserNonce(u, timestamp, nonceSalt + BigInt(u + 1));
     const userId = `stress-${u}`;
 
+    // 투표 레코드 생성
     for (let j = 0; j < votesPerUser; j++) {
       const votingAmt = BigInt(10 + j);
-      // voteType 0=Forget, 1=Remember
+      // voteType: 0=Forget, 1=Remember (전반부 Remember, 후반부 Forget)
       const voteType = j < rememberCount ? 1 : 0;
-      // optionId는 투표별로 1~10 범위로 순환 분산 (각 사용자가 다양한 아티스트에게 투표)
+      // optionId: 1~10 순환 (아티스트 ID)
       const optionId = BigInt((j % 10) + 1);
 
       const record = {
@@ -275,14 +372,16 @@ async function main() {
         votingAmt,
       };
 
-      // 해시 계산 시 user 주소 포함 (컨트랙트와 일치)
+      // 해시 계산 (user 주소 포함)
       const digest = hashVoteRecord(record, userAccount.address);
-
       perUserRecords.push(record);
       perUserHashes.push(digest);
     }
 
+    // 모든 레코드 해시를 연결하여 recordsHash 생성
     const recordsHash = keccak256(concatHex(perUserHashes));
+
+    // 유저의 EIP-712 서명 생성
     const signature = await userAccount.signTypedData({
       domain,
       types: USER_BATCH_TYPES,
@@ -294,7 +393,7 @@ async function main() {
       },
     });
 
-    // UserVoteBatch 구조 (records + userBatchSig)
+    // UserVoteBatch 구조에 저장
     userVoteBatches.push({
       records: perUserRecords,
       userBatchSig: {
@@ -305,17 +404,22 @@ async function main() {
     });
   }
 
+  // -------------------------------------------------------------------------
+  // 5. Executor 서명 생성
+  // -------------------------------------------------------------------------
   const batchNonceInput = cli.batchNonce || process.env.BATCH_NONCE;
   const batchNonce = batchNonceInput ? toBigInt(batchNonceInput, 'batchNonce') : randomBatchNonce();
+
   const executorSig = await executorAccount.signTypedData({
     domain,
     types: BATCH_TYPES,
     primaryType: 'Batch',
-    message: {
-      batchNonce,
-    },
+    message: { batchNonce },
   });
 
+  // -------------------------------------------------------------------------
+  // 6. 결과 저장
+  // -------------------------------------------------------------------------
   const encodedBatches = encodeUserVoteBatches(userVoteBatches);
 
   const outputDir = resolve(process.cwd(), 'stress-artifacts');
@@ -339,11 +443,16 @@ async function main() {
   };
 
   writeFileSync(outPath, JSON.stringify(json, null, 2));
-  console.log('✅ 스트레스 서명 세트 생성 완료');
+
+  // -------------------------------------------------------------------------
+  // 7. 결과 출력
+  // -------------------------------------------------------------------------
+  console.log('[OK] 스트레스 서명 세트 생성 완료');
   console.log(`- VOTING_ADDRESS: ${votingAddress}`);
   console.log(
     `- 총 투표 수: ${totalVotes} (유저 ${userCount}명, 1인당 ${votesPerUser}건 | Remember ${rememberCount} / Forget ${votesPerUser - rememberCount})`
   );
+
   const allRecords = userVoteBatches.flatMap(b => b.records);
   const uniqueVotingIds = [...new Set(allRecords.map((r) => r.votingId.toString()))];
   const sampleVotingIds = uniqueVotingIds.slice(0, 10);
@@ -355,6 +464,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('❌ 생성 중 오류 발생:', err.message ?? err);
+  console.error('[ERROR] 생성 중 오류 발생:', err.message ?? err);
   process.exitCode = 1;
 });

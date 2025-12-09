@@ -18,46 +18,87 @@ interface IERC1271 {
 }
 
 /**
- * @title MainVoting
- * @author Celebus Team
- * @notice 팬 투표 시스템의 메인 컨트랙트
- *
- * @dev 이 컨트랙트는 "1투표 N레코드" 구조를 사용합니다.
- *      - 한 명의 유저가 여러 개의 투표 레코드를 하나의 서명으로 제출할 수 있습니다.
- *      - 여러 유저의 배치를 하나의 트랜잭션으로 묶어서 처리합니다.
- *
- * 보안 특징:
- *      - EIP-712 구조화 서명으로 피싱 방지
- *      - Nonce 시스템으로 리플레이 공격 방지
- *      - 유저별 consumed 맵핑으로 중복 투표 방지
- *      - Chain ID 검증으로 크로스체인 리플레이 방지
- *
- * 데이터 흐름:
- *      1. 유저가 오프체인에서 투표 레코드들에 서명
- *      2. 백엔드(executorSigner)가 여러 유저의 배치를 수집
- *      3. executorSigner가 배치 전체에 서명 후 submitMultiUserBatch 호출
- *      4. 컨트랙트가 모든 서명 검증 후 투표 저장
+ * ╔══════════════════════════════════════════════════════════════════════════════╗
+ * ║                           MainVoting 컨트랙트                                  ║
+ * ╠══════════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                              ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐    ║
+ * ║  │                        전체 데이터 흐름                               │    ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘    ║
+ * ║                                                                              ║
+ * ║  [프론트엔드]                    [백엔드]                    [컨트랙트]       ║
+ * ║       │                            │                            │           ║
+ * ║       │  1. 유저가 N개 레코드에     │                            │           ║
+ * ║       │     1개 서명 생성          │                            │           ║
+ * ║       │ ─────────────────────────► │                            │           ║
+ * ║       │                            │                            │           ║
+ * ║       │                    2. 여러 유저의 배치 수집               │           ║
+ * ║       │                            │                            │           ║
+ * ║       │                    3. executor 서명 추가                 │           ║
+ * ║       │                            │                            │           ║
+ * ║       │                            │  submitMultiUserBatch()    │           ║
+ * ║       │                            │ ─────────────────────────► │           ║
+ * ║       │                            │                            │           ║
+ * ║       │                            │                    4. 검증 & 저장      ║
+ * ║       │                            │                            │           ║
+ * ╠══════════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                              ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐    ║
+ * ║  │                    조건부 스킵 패턴 (Soft Fail)                      │    ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘    ║
+ * ║                                                                              ║
+ * ║  10명의 유저가 배치로 제출될 때:                                             ║
+ * ║                                                                              ║
+ * ║  유저A ✅ 통과  ──┐                                                         ║
+ * ║  유저B ❌ 서명오류 │ → UserBatchFailed 이벤트 발생, 스킵                      ║
+ * ║  유저C ✅ 통과  ──┼──► 유효한 유저들만 저장                                  ║
+ * ║  유저D ❌ nonce  │ → UserBatchFailed 이벤트 발생, 스킵                      ║
+ * ║  유저E ✅ 통과  ──┘                                                         ║
+ * ║                                                                              ║
+ * ║  결과: 유저 A, C, E의 투표만 저장됨                                          ║
+ * ║        유저 B, D는 이벤트로 실패 사유 기록                                    ║
+ * ║                                                                              ║
+ * ╠══════════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                              ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐    ║
+ * ║  │                         보안 특징                                    │    ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘    ║
+ * ║                                                                              ║
+ * ║  • EIP-712 구조화 서명 → 피싱 방지 (사용자가 서명 내용 확인 가능)              ║
+ * ║  • Nonce 시스템 → 리플레이 공격 방지 (같은 서명 재사용 불가)                   ║
+ * ║  • consumed 맵핑 → 중복 투표 방지 (동일 레코드 재제출 불가)                   ║
+ * ║  • Chain ID 검증 → 크로스체인 리플레이 방지                                  ║
+ * ║                                                                              ║
+ * ╚══════════════════════════════════════════════════════════════════════════════╝
  */
 contract MainVoting is Ownable2Step, EIP712 {
-    // ========================================
-    // 상수 (Constants)
-    // ========================================
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║                              상수 (Constants)                              ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
 
     /**
      * @dev ERC-1271 서명 검증 성공 시 반환되는 매직 값
+     *      스마트 컨트랙트 지갑(Safe, Argent 등)에서 서명 검증 성공을 나타냄
      *      bytes4(keccak256("isValidSignature(bytes32,bytes)"))
      */
     bytes4 private constant ERC1271_MAGICVALUE = 0x1626ba7e;
 
     /**
      * @dev 한 트랜잭션에서 처리할 수 있는 최대 투표 레코드 수
-     *      가스 한도 초과 방지 및 DoS 공격 방지 목적
+     *
+     *      ┌────────────────────────────────────────┐
+     *      │ 목적:                                   │
+     *      │ • 가스 한도 초과 방지                    │
+     *      │ • DoS 공격 방지 (대량 데이터 제출)       │
+     *      │ • 블록 가스 리밋 내에서 안전하게 처리    │
+     *      └────────────────────────────────────────┘
      */
     uint256 public constant MAX_RECORDS_PER_BATCH = 2000;
 
     /**
      * @dev 한 유저가 하나의 배치에서 제출할 수 있는 최대 레코드 수
-     *      유저별 서명 검증 비용과 스토리지 사용량을 제한
+     *
+     *      예시: 유저가 20개 아티스트에게 각각 투표 가능
      */
     uint16 public constant MAX_RECORDS_PER_USER_BATCH = 20;
 
@@ -68,28 +109,73 @@ contract MainVoting is Ownable2Step, EIP712 {
     uint16 public constant MAX_STRING_LENGTH = 100;
 
     /**
-     * @dev 투표 타입의 최대값 (0부터 시작하므로 1이면 0,1 두 가지)
+     * @dev 투표 타입의 최대값
+     *
+     *      ┌─────────────────┐
+     *      │ 0 = Forget      │ → 잊기 투표
+     *      │ 1 = Remember    │ → 기억하기 투표
+     *      └─────────────────┘
      */
     uint8 public constant MAX_VOTE_TYPE = 1;
-
     uint8 public constant VOTE_TYPE_FORGET = 0;
     uint8 public constant VOTE_TYPE_REMEMBER = 1;
 
-    // ========================================
-    // EIP-712 타입 해시 (Type Hashes)
-    // ========================================
+    /**
+     * @dev 유저 배치 실패 사유 코드 (UserBatchFailed 이벤트에서 사용)
+     *
+     *      ┌─────┬─────────────────────────────────────────┐
+     *      │ 코드 │ 설명                                    │
+     *      ├─────┼─────────────────────────────────────────┤
+     *      │  1  │ 레코드 수가 0이거나 20개 초과             │
+     *      │  2  │ 유저 서명이 유효하지 않음                 │
+     *      │  3  │ nonce가 최소값보다 낮음 (취소된 범위)     │
+     *      │  4  │ nonce가 이미 사용됨 (리플레이 시도)       │
+     *      │  5  │ voteType이 유효하지 않음 (0,1 외의 값)    │
+     *      │  6  │ 허용되지 않은 아티스트에게 투표           │
+     *      └─────┴─────────────────────────────────────────┘
+     */
+    uint8 private constant REASON_USER_BATCH_TOO_LARGE = 1;
+    uint8 private constant REASON_INVALID_USER_SIGNATURE = 2;
+    uint8 private constant REASON_USER_NONCE_TOO_LOW = 3;
+    uint8 private constant REASON_USER_NONCE_ALREADY_USED = 4;
+    uint8 private constant REASON_INVALID_VOTE_TYPE = 5;
+    uint8 private constant REASON_ARTIST_NOT_ALLOWED = 6;
+
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║                       EIP-712 타입 해시 (Type Hashes)                       ║
+    // ╠═══════════════════════════════════════════════════════════════════════════╣
+    // ║                                                                           ║
+    // ║  EIP-712는 구조화된 데이터 서명 표준입니다.                                  ║
+    // ║  사용자가 지갑에서 "무엇에 서명하는지" 명확하게 볼 수 있어 피싱 방지에 효과적   ║
+    // ║                                                                           ║
+    // ║  서명 구조 (3단계 계층):                                                    ║
+    // ║                                                                           ║
+    // ║  ┌─────────────────────────────────────────────────────────────────┐      ║
+    // ║  │ Level 3: Batch (백엔드 서명)                                     │      ║
+    // ║  │   └── batchNonce: 배치 고유 번호                                 │      ║
+    // ║  │                                                                 │      ║
+    // ║  │ Level 2: UserBatch (유저 서명)                                   │      ║
+    // ║  │   ├── user: 유저 지갑 주소                                      │      ║
+    // ║  │   ├── userNonce: 유저별 고유 번호                                │      ║
+    // ║  │   └── recordsHash: 아래 레코드들의 해시                          │      ║
+    // ║  │                                                                 │      ║
+    // ║  │ Level 1: VoteRecord[] (개별 투표)                                │      ║
+    // ║  │   ├── timestamp, missionId, votingId                           │      ║
+    // ║  │   ├── optionId, voteType, votingAmt                            │      ║
+    // ║  │   └── user (서명자 주소 포함)                                    │      ║
+    // ║  └─────────────────────────────────────────────────────────────────┘      ║
+    // ║                                                                           ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
 
     /**
      * @dev 개별 투표 레코드의 EIP-712 타입 해시
      *
-     * 보안 핵심:
-     *      - user(address): 지갑 주소가 해시에 포함되어
-     *        다른 유저가 동일한 레코드를 재사용하는 것을 방지합니다.
+     *      중요: user(address)가 해시에 포함됨
+     *      → 다른 유저가 동일한 레코드를 재사용하는 것을 방지
      *
-     * 참고: userId는 서명 대상에서 제외됩니다.
-     *      - 프론트엔드에서 userId를 모르는 상태로 서명 가능
-     *      - 백엔드가 DB에서 userId를 조회하여 VoteRecord에 주입
-     *      - 온체인 저장 및 조회 시에만 userId 사용
+     *      참고: userId는 서명 대상에서 제외
+     *      → 프론트엔드에서 userId 없이 서명 가능
+     *      → 백엔드가 DB에서 userId를 조회하여 주입
      */
     bytes32 private constant VOTE_RECORD_TYPEHASH =
         keccak256(
@@ -99,8 +185,8 @@ contract MainVoting is Ownable2Step, EIP712 {
     /**
      * @dev 유저 배치의 EIP-712 타입 해시
      *
-     * 구조: 유저 주소 + 유저 nonce + 레코드들의 해시
-     * 유저가 자신의 모든 투표 레코드를 하나의 서명으로 승인합니다.
+     *      유저가 자신의 모든 투표 레코드를 하나의 서명으로 승인
+     *      recordsHash = keccak256(record1 || record2 || ... || recordN)
      */
     bytes32 private constant USER_BATCH_TYPEHASH =
         keccak256(
@@ -110,20 +196,22 @@ contract MainVoting is Ownable2Step, EIP712 {
     /**
      * @dev 전체 배치의 EIP-712 타입 해시
      *
-     * executorSigner가 여러 유저의 배치를 묶어서 서명할 때 사용됩니다.
-     * batchNonce로 리플레이 공격을 방지합니다.
+     *      executorSigner(백엔드)가 여러 유저의 배치를 묶어서 서명
+     *      batchNonce로 리플레이 공격 방지
      */
     bytes32 private constant BATCH_TYPEHASH =
         keccak256("Batch(uint256 batchNonce)");
 
-    // ========================================
-    // 커스텀 에러 (Custom Errors)
-    // ========================================
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║                          커스텀 에러 (Custom Errors)                        ║
+    // ╠═══════════════════════════════════════════════════════════════════════════╣
+    // ║  가스 효율적인 에러 처리를 위해 require 대신 custom error 사용                ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
 
     /// @dev 주소가 zero address일 때
     error ZeroAddress();
 
-    /// @dev 서명 검증 실패
+    /// @dev 서명 검증 실패 (executor 서명에 사용, 유저 서명은 soft fail)
     error InvalidSignature();
 
     /// @dev 배포 시 체인과 현재 체인이 다를 때 (크로스체인 리플레이 방지)
@@ -144,13 +232,13 @@ contract MainVoting is Ownable2Step, EIP712 {
     /// @dev 레코드 인덱스가 유효하지 않음 (빈 배치 등)
     error InvalidRecordIndices();
 
-    /// @dev 전체 배치가 MAX_RECORDS_PER_BATCH 초과
+    /// @dev 전체 배치가 MAX_RECORDS_PER_BATCH(2000) 초과
     error BatchTooLarge();
 
-    /// @dev 유저 배치가 MAX_RECORDS_PER_USER_BATCH 초과
+    /// @dev 유저 배치가 MAX_RECORDS_PER_USER_BATCH(20) 초과
     error UserBatchTooLarge();
 
-    /// @dev 문자열이 MAX_STRING_LENGTH 초과
+    /// @dev 문자열이 MAX_STRING_LENGTH(100) 초과
     error StringTooLong();
 
     /// @dev 호출자가 owner도 executorSigner도 아님
@@ -159,22 +247,30 @@ contract MainVoting is Ownable2Step, EIP712 {
     /// @dev 해당 missionId/optionId의 아티스트가 허용되지 않음
     error ArtistNotAllowed(uint256 missionId, uint256 optionId);
 
-    /// @dev 투표 타입이 유효하지 않음 (MAX_VOTE_TYPE 초과)
+    /// @dev 투표 타입이 유효하지 않음 (0,1 외의 값)
     error InvalidVoteType(uint8 value);
 
-    // ========================================
-    // 구조체 (Structs)
-    // ========================================
+    /// @dev 조건부 스킵 후, 유효한 유저/레코드가 하나도 없을 때
+    error NoSuccessfulUser();
+
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║                            구조체 (Structs)                                ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
 
     /**
      * @dev 개별 투표 레코드
-     * @param timestamp 투표 생성 시간 (오프체인에서 설정)
-     * @param missionId 미션(캠페인) ID
-     * @param votingId 투표 세션 ID (같은 미션 내 여러 투표 가능)
-     * @param optionId 투표 대상 아티스트 ID
-     * @param voteType 투표 타입 (0: Forget, 1: Remember)
-     * @param userId 유저 식별자 (오프체인 시스템의 유저 ID)
-     * @param votingAmt 투표 수량 (가중치)
+     *
+     *      ┌────────────────────────────────────────────────────────┐
+     *      │ 필드          │ 설명                                   │
+     *      ├────────────────────────────────────────────────────────┤
+     *      │ timestamp    │ 투표 생성 시간 (오프체인에서 설정)       │
+     *      │ missionId    │ 미션(캠페인) ID                         │
+     *      │ votingId     │ 투표 세션 ID (같은 미션 내 여러 투표)    │
+     *      │ optionId     │ 투표 대상 아티스트 ID                   │
+     *      │ voteType     │ 0=Forget, 1=Remember                   │
+     *      │ userId       │ 오프체인 시스템의 유저 ID               │
+     *      │ votingAmt    │ 투표 수량 (가중치)                      │
+     *      └────────────────────────────────────────────────────────┘
      */
     struct VoteRecord {
         uint256 timestamp;
@@ -188,184 +284,126 @@ contract MainVoting is Ownable2Step, EIP712 {
 
     /**
      * @dev 유저의 배치 서명 정보
-     * @param user 유저의 지갑 주소
-     * @param userNonce 유저의 nonce (리플레이 방지)
-     * @param signature 유저의 EIP-712 서명
+     *
+     *      유저가 N개의 레코드를 1개의 서명으로 승인할 때 사용
      */
     struct UserBatchSig {
-        address user;
-        uint256 userNonce;
-        bytes signature;
+        address user; // 유저 지갑 주소
+        uint256 userNonce; // 리플레이 방지용 nonce
+        bytes signature; // EIP-712 서명
     }
 
     /**
      * @dev 한 유저의 투표 배치
-     *      유저는 여러 레코드를 하나의 서명으로 제출합니다.
-     * @param records 유저의 투표 레코드 배열
-     * @param userBatchSig 유저의 서명 정보
+     *
+     *      records[]와 userBatchSig를 묶어서 전달
      */
     struct UserVoteBatch {
-        VoteRecord[] records;
-        UserBatchSig userBatchSig;
+        VoteRecord[] records; // 유저의 투표 레코드 배열
+        UserBatchSig userBatchSig; // 유저 서명 정보
     }
 
     /**
      * @dev 투표 조회용 요약 구조체
-     *      getVoteSummariesByMissionVotingId에서 반환됩니다.
-     * @param timestamp 투표 시간
-     * @param missionId 미션 ID
-     * @param votingId 투표 세션 ID
-     * @param userId 유저 식별자
-     * @param votingFor 투표 대상 아티스트 이름
-     * @param votedOn 투표 타입 이름 ("Remember" 또는 "Forget")
-     * @param votingAmt 투표 수량
+     *
+     *      getVoteSummariesByMissionVotingId()에서 반환
+     *      optionId 대신 아티스트 이름, voteType 대신 라벨 반환
      */
     struct VoteRecordSummary {
         uint256 timestamp;
         uint256 missionId;
         uint256 votingId;
         string userId;
-        string votingFor;
-        string votedOn;
+        string votingFor; // 아티스트 이름
+        string votedOn; // "Forget" 또는 "Remember"
         uint256 votingAmt;
     }
 
     /**
      * @dev 아티스트별 투표 집계
-     * @param remember Remember 투표 총합
-     * @param forget Forget 투표 총합
-     * @param total 전체 투표 총합
      */
     struct ArtistStats {
-        uint256 remember;
-        uint256 forget;
-        uint256 total;
+        uint256 remember; // Remember 투표 합계
+        uint256 forget; // Forget 투표 합계
+        uint256 total; // 전체 투표 합계
     }
 
-    // ========================================
-    // 상태 변수 (State Variables)
-    // ========================================
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║                         상태 변수 (State Variables)                        ║
+    // ╠═══════════════════════════════════════════════════════════════════════════╣
+    // ║                                                                           ║
+    // ║  ┌─────────────────────────────────────────────────────────────────┐      ║
+    // ║  │                    스토리지 구조 다이어그램                       │      ║
+    // ║  └─────────────────────────────────────────────────────────────────┘      ║
+    // ║                                                                           ║
+    // ║  votes[recordDigest] ──────────────────► VoteRecord                       ║
+    // ║                                                                           ║
+    // ║  voteHashesByMissionVotingId[missionId][votingId] ──► bytes32[]           ║
+    // ║                                                                           ║
+    // ║  userNonceUsed[user][nonce] ───────────► bool (사용 여부)                  ║
+    // ║                                                                           ║
+    // ║  minUserNonce[user] ───────────────────► uint256 (최소 유효 nonce)         ║
+    // ║                                                                           ║
+    // ║  consumed[user][recordDigest] ─────────► bool (중복 투표 방지)             ║
+    // ║                                                                           ║
+    // ║  artistStats[missionId][optionId] ─────► ArtistStats                      ║
+    // ║                                                                           ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
 
-    /**
-     * @dev 투표 레코드 저장소
-     *      key: 레코드 해시 (recordDigest)
-     *      value: 투표 레코드 데이터
-     */
+    /// @dev 투표 레코드 저장소 (recordDigest → VoteRecord)
     mapping(bytes32 => VoteRecord) public votes;
 
-    /**
-     * @dev 미션/투표 세션별 투표 해시 목록
-     *      조회 시 특정 missionId + votingId의 모든 투표를 찾을 때 사용
-     *
-     * 구조: missionId => votingId => recordDigest[]
-     *
-     * 참고: 유저당 배치 제한(20개)은 있으나, votingId당 총 레코드 수는
-     *       제한이 없습니다. 대량 데이터 시 조회 가스비에 주의하세요.
-     */
+    /// @dev 미션/투표별 레코드 해시 목록 (조회용)
     mapping(uint256 => mapping(uint256 => bytes32[]))
         private voteHashesByMissionVotingId;
 
-    /**
-     * @dev 유저별 nonce 사용 여부
-     *      리플레이 공격 방지용
-     *
-     * 구조: user => nonce => used
-     */
+    /// @dev 유저별 nonce 사용 여부 (리플레이 방지)
     mapping(address => mapping(uint256 => bool)) public userNonceUsed;
 
-    /**
-     * @dev 유저별 최소 유효 nonce
-     *      이 값 미만의 nonce는 모두 무효 처리됨
-     *      cancelAllUserNonceUpTo로 일괄 취소 시 사용
-     */
+    /// @dev 유저별 최소 유효 nonce (이 값 미만은 모두 무효 처리)
     mapping(address => uint256) public minUserNonce;
 
-    /**
-     * @dev executorSigner별 배치 nonce 사용 여부
-     *
-     * 구조: signer => nonce => used
-     */
+    /// @dev 백엔드(executorSigner)별 배치 nonce 사용 여부
     mapping(address => mapping(uint256 => bool)) public batchNonceUsed;
 
-    /**
-     * @dev executorSigner별 최소 유효 배치 nonce
-     */
+    /// @dev 백엔드별 최소 유효 배치 nonce
     mapping(address => uint256) public minBatchNonce;
 
-    /**
-     * @dev 유저별 레코드 소비 여부
-     *      동일한 유저가 같은 레코드를 중복 제출하는 것을 방지
-     *
-     * 구조: user => recordDigest => consumed
-     *
-     * 중요: user 주소가 recordDigest 계산에 포함되어 있어서,
-     *       다른 유저는 같은 레코드를 사용할 수 없습니다.
-     */
+    /// @dev 유저별 레코드 소비 여부 (중복 투표 방지)
+    ///      consumed[user][recordDigest] = true면 이미 처리됨
     mapping(address => mapping(bytes32 => bool)) public consumed;
 
-    /**
-     * @dev 배포 시점의 체인 ID (immutable)
-     *      크로스체인 리플레이 공격 방지용
-     */
+    /// @dev 배포 시 체인 ID (크로스체인 리플레이 방지)
     uint256 public immutable CHAIN_ID;
 
-    /**
-     * @dev 배치 제출 권한이 있는 서명자 주소
-     *      백엔드 서버의 핫월렛 주소가 설정됩니다.
-     */
+    /// @dev 백엔드 서명자 주소
+    ///      이 주소만 submitMultiUserBatch 호출 가능 (서명 검증)
     address public executorSigner;
 
-    /**
-     * @dev 아티스트 이름 저장소
-     *
-     * 구조: missionId => optionId => artistName
-     */
+    /// @dev 아티스트 이름 매핑 (조회용)
     mapping(uint256 => mapping(uint256 => string)) public artistName;
 
-    /**
-     * @dev 아티스트 투표 허용 여부
-     *      false인 아티스트에게는 투표할 수 없습니다.
-     *
-     * 구조: missionId => optionId => allowed
-     */
+    /// @dev 허용된 아티스트 매핑 (투표 가능 여부)
     mapping(uint256 => mapping(uint256 => bool)) public allowedArtist;
 
-    /**
-     * @dev 투표 타입별 이름
-     *      0 => "Forget", 1 => "Remember"
-     */
+    /// @dev 투표 타입 이름 (0 → "Forget", 1 → "Remember")
     mapping(uint8 => string) public voteTypeName;
 
-    /**
-     * @dev 아티스트별 투표 집계 데이터
-     *
-     * 구조: missionId => optionId => ArtistStats
-     */
+    /// @dev 아티스트별 투표 통계
     mapping(uint256 => mapping(uint256 => ArtistStats)) public artistStats;
 
-    // ========================================
-    // 이벤트 (Events)
-    // ========================================
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║                              이벤트 (Events)                               ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
 
-    /**
-     * @dev executorSigner가 변경되었을 때 발생
-     * @param oldSigner 이전 서명자 주소
-     * @param newSigner 새로운 서명자 주소
-     * @param oldMinNonce 이전 서명자의 minBatchNonce (참고용)
-     */
+    /// @dev executorSigner가 변경되었을 때
     event ExecutorSignerChanged(
         address indexed oldSigner,
         address indexed newSigner,
         uint256 oldMinNonce
     );
 
-    /**
-     * @dev 유저의 투표 배치가 처리되었을 때 발생
-     * @param batchDigest 전체 배치의 해시
-     * @param user 유저 주소
-     * @param userNonce 사용된 유저 nonce
-     * @param recordCount 처리된 레코드 수
-     */
+    /// @dev 유저 배치가 성공적으로 처리되었을 때 (soft fail 통과)
     event UserBatchProcessed(
         bytes32 indexed batchDigest,
         address indexed user,
@@ -374,45 +412,38 @@ contract MainVoting is Ownable2Step, EIP712 {
     );
 
     /**
-     * @dev 전체 배치가 처리 완료되었을 때 발생
-     * @param batchDigest 배치 해시
-     * @param executorSigner 실행한 서명자
-     * @param batchNonce 사용된 배치 nonce
-     * @param recordCount 실제 저장된 레코드 수 (중복 제외)
-     * @param userCount 참여한 유저 수
+     * @dev 유저 배치 처리 실패 (soft fail, 조건부 스킵)
+     *
+     *      이 이벤트가 발생해도 트랜잭션은 계속 진행됨
+     *      다른 유저들의 투표는 정상 처리됨
      */
+    event UserBatchFailed(
+        bytes32 indexed batchDigest,
+        address indexed user,
+        uint256 userNonce,
+        uint8 reasonCode // 위의 REASON_* 상수 참조
+    );
+
+    /// @dev 전체 배치가 완료되었을 때
     event BatchProcessed(
         bytes32 indexed batchDigest,
         address indexed executorSigner,
         uint256 batchNonce,
-        uint256 recordCount,
-        uint256 userCount
+        uint256 recordCount, // 실제 저장된 레코드 수
+        uint256 userCount, // 전체 유저 수
+        uint256 failedUserCount // 실패한 유저 수
     );
 
-    /**
-     * @dev 유저의 nonce가 일괄 취소되었을 때 발생
-     * @param user 유저 주소
-     * @param newMinUserNonce 새로운 최소 nonce (이 값 미만은 모두 무효)
-     */
+    /// @dev 유저 nonce 일괄 취소
     event CancelUserNonceUpTo(address indexed user, uint256 newMinUserNonce);
 
-    /**
-     * @dev 배치 nonce가 일괄 취소되었을 때 발생
-     * @param executorSigner 서명자 주소
-     * @param newMinBatchNonce 새로운 최소 nonce
-     */
+    /// @dev 배치 nonce 일괄 취소
     event CancelBatchNonceUpTo(
         address indexed executorSigner,
         uint256 newMinBatchNonce
     );
 
-    /**
-     * @dev 아티스트 정보가 설정되었을 때 발생
-     * @param missionId 미션 ID
-     * @param optionId 아티스트 옵션 ID
-     * @param name 아티스트 이름
-     * @param allowed 투표 허용 여부
-     */
+    /// @dev 아티스트 설정 변경
     event ArtistSet(
         uint256 indexed missionId,
         uint256 indexed optionId,
@@ -420,49 +451,49 @@ contract MainVoting is Ownable2Step, EIP712 {
         bool allowed
     );
 
-    /**
-     * @dev 투표 타입 이름이 설정되었을 때 발생
-     * @param voteType 투표 타입 (0 또는 1)
-     * @param name 타입 이름 ("Forget" 또는 "Remember")
-     */
+    /// @dev 투표 타입 이름 설정
     event VoteTypeSet(uint8 indexed voteType, string name);
 
-    // ========================================
-    // 생성자 및 관리자 함수 (Constructor & Admin)
-    // ========================================
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║                    생성자 및 관리자 함수 (Constructor & Admin)              ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
 
     /**
      * @dev 컨트랙트 생성자
-     * @param initialOwner 초기 소유자 주소
      *
-     * EIP712 도메인:
-     *   - name: "MainVoting"
-     *   - version: "1"
-     *
-     * 체인 ID가 immutable로 저장되어 크로스체인 리플레이를 방지합니다.
+     *      EIP712 도메인: name="MainVoting", version="1"
+     *      Ownable2Step: 2단계 소유권 이전 (실수 방지)
      */
     constructor(
         address initialOwner
     ) EIP712("MainVoting", "1") Ownable(initialOwner) {
         if (initialOwner == address(0)) revert ZeroAddress();
+        // 배포 시 체인 ID 저장 (크로스체인 리플레이 방지)
         CHAIN_ID = block.chainid;
     }
 
     /**
-     * @dev 배치 실행 서명자 설정
-     * @param s 새로운 서명자 주소
+     * @dev executorSigner(백엔드 서명자) 설정
+     *
+     *      ┌─────────────────────────────────────────────────────────┐
+     *      │ 동작:                                                   │
+     *      │ 1. 기존 signer의 minBatchNonce를 max로 설정 (무효화)    │
+     *      │ 2. 새 signer의 minBatchNonce를 0으로 초기화             │
+     *      │ 3. executorSigner 주소 업데이트                         │
+     *      └─────────────────────────────────────────────────────────┘
      */
     function setExecutorSigner(address s) external onlyOwner {
         if (s == address(0)) revert ZeroAddress();
+
         address oldSigner = executorSigner;
         uint256 oldMinNonce = minBatchNonce[oldSigner];
 
-        // 기존 서명자가 있으면 모든 nonce 무효화
+        // 기존 signer가 있다면 모든 nonce 무효화
         if (oldSigner != address(0)) {
             minBatchNonce[oldSigner] = type(uint256).max;
         }
 
-        // 새 서명자 설정
+        // 새 signer 설정
         minBatchNonce[s] = 0;
         executorSigner = s;
 
@@ -470,15 +501,12 @@ contract MainVoting is Ownable2Step, EIP712 {
     }
 
     /**
-     * @dev 아티스트 정보 설정
-     * @param missionId 미션 ID
-     * @param optionId 아티스트 옵션 ID
-     * @param name 아티스트 이름 (조회 시 표시용)
-     * @param allowed_ 투표 허용 여부 (false면 해당 아티스트에게 투표 불가)
+     * @dev 아티스트 설정 (투표 대상)
      *
-     * 사용 예:
-     *   setArtist(1, 1, "BTS", true)  // 미션1의 옵션1로 BTS 등록
-     *   setArtist(1, 1, "BTS", false) // BTS 투표 비활성화
+     *      @param missionId 미션 ID
+     *      @param optionId 아티스트 ID
+     *      @param name 아티스트 이름
+     *      @param allowed_ 투표 허용 여부
      */
     function setArtist(
         uint256 missionId,
@@ -493,12 +521,9 @@ contract MainVoting is Ownable2Step, EIP712 {
 
     /**
      * @dev 투표 타입 이름 설정
-     * @param voteType 투표 타입 (0: Forget, 1: Remember)
-     * @param name 타입 이름
      *
-     * 초기 설정 예:
-     *   setVoteTypeName(0, "Forget")
-     *   setVoteTypeName(1, "Remember")
+     *      예: setVoteTypeName(0, "Forget")
+     *          setVoteTypeName(1, "Remember")
      */
     function setVoteTypeName(
         uint8 voteType,
@@ -511,14 +536,9 @@ contract MainVoting is Ownable2Step, EIP712 {
 
     /**
      * @dev 특정 유저의 nonce를 일괄 취소
-     * @param user 대상 유저 주소
-     * @param newMinUserNonce 새로운 최소 nonce
      *
-     * 사용 시나리오:
-     *   - 유저가 서명한 배치를 취소하고 싶을 때
-     *   - 유저의 개인키가 유출되었을 때 긴급 조치
-     *
-     * 예: newMinUserNonce=100이면 nonce 0~99는 모두 무효
+     *      용도: 유저가 서명한 투표를 제출 전에 취소하고 싶을 때
+     *      newMinUserNonce 미만의 모든 nonce가 무효화됨
      */
     function cancelAllUserNonceUpTo(
         address user,
@@ -531,13 +551,9 @@ contract MainVoting is Ownable2Step, EIP712 {
 
     /**
      * @dev 배치 nonce를 일괄 취소
-     * @param newMinBatchNonce 새로운 최소 nonce
      *
-     * 호출 권한: owner 또는 executorSigner
-     *
-     * 사용 시나리오:
-     *   - 백엔드에서 생성한 배치를 취소하고 싶을 때
-     *   - executorSigner의 핫월렛이 위험에 노출되었을 때
+     *      owner 또는 executorSigner가 호출 가능
+     *      용도: 서명된 배치를 제출 전에 취소
      */
     function cancelAllBatchNonceUpTo(uint256 newMinBatchNonce) external {
         if (msg.sender != owner() && msg.sender != executorSigner)
@@ -548,24 +564,30 @@ contract MainVoting is Ownable2Step, EIP712 {
         emit CancelBatchNonceUpTo(executorSigner, newMinBatchNonce);
     }
 
-    // ========================================
-    // 내부 함수: 해시 로직 (Internal: Hash Logic)
-    // ========================================
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║                     내부 함수: 해시 로직 (Hash Logic)                       ║
+    // ╠═══════════════════════════════════════════════════════════════════════════╣
+    // ║                                                                           ║
+    // ║  해시 계산 흐름:                                                           ║
+    // ║                                                                           ║
+    // ║  VoteRecord ──► _hashVoteRecord() ──► recordDigest                        ║
+    // ║       │                                    │                              ║
+    // ║       │                                    ▼                              ║
+    // ║       │              keccak256(recordDigest1 || recordDigest2 || ...)     ║
+    // ║       │                                    │                              ║
+    // ║       │                                    ▼                              ║
+    // ║       └────────────────────► _hashUserBatch() ──► userBatchDigest         ║
+    // ║                                                        │                  ║
+    // ║                              _hashBatch() ──► batchDigest                 ║
+    // ║                                                                           ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
 
     /**
-     * @dev 개별 투표 레코드의 EIP-712 구조체 해시 생성
-     * @param record 투표 레코드
-     * @param user 레코드 소유자 주소
-     * @return 레코드의 해시값
+     * @dev 개별 투표 레코드의 해시 계산
      *
-     * 보안 핵심:
-     *   user 주소가 해시에 포함되어 있어서,
-     *   다른 유저가 이 레코드를 재사용할 수 없습니다.
-     *   (데이터 충돌 및 덮어쓰기 공격 방지)
-     *
-     * 참고: userId는 서명 검증에 포함되지 않습니다.
-     *   프론트엔드에서 userId 없이 서명하고,
-     *   백엔드가 나중에 userId를 주입합니다.
+     *      중요: user 주소가 해시에 포함됨
+     *      → 다른 유저가 같은 레코드를 재사용 불가
+     *      → userId는 서명 대상에서 제외 (백엔드가 주입)
      */
     function _hashVoteRecord(
         VoteRecord calldata record,
@@ -581,19 +603,15 @@ contract MainVoting is Ownable2Step, EIP712 {
                     record.optionId,
                     record.voteType,
                     record.votingAmt,
-                    user // address 충돌 방지
+                    user
                 )
             );
     }
 
     /**
-     * @dev 유저 배치의 EIP-712 다이제스트 생성
-     * @param user 유저 주소
-     * @param userNonce 유저 nonce
-     * @param recordsHash 레코드 해시들의 해시
-     * @return EIP-712 서명용 다이제스트
+     * @dev 유저 배치의 EIP-712 다이제스트 계산
      *
-     * 유저는 이 다이제스트에 서명하여 모든 레코드를 승인합니다.
+     *      recordsHash = keccak256(abi.encodePacked(recordDigest1, recordDigest2, ...))
      */
     function _hashUserBatch(
         address user,
@@ -614,11 +632,9 @@ contract MainVoting is Ownable2Step, EIP712 {
     }
 
     /**
-     * @dev 전체 배치의 EIP-712 다이제스트 생성
-     * @param batchNonce 배치 nonce
-     * @return EIP-712 서명용 다이제스트
+     * @dev 전체 배치의 EIP-712 다이제스트 계산
      *
-     * executorSigner가 이 다이제스트에 서명하여 배치 제출을 승인합니다.
+     *      executorSigner가 이 값에 서명함
      */
     function _hashBatch(uint256 batchNonce) internal view returns (bytes32) {
         return
@@ -626,24 +642,23 @@ contract MainVoting is Ownable2Step, EIP712 {
     }
 
     /**
-     * @dev 서명 검증 (EOA + 스마트 컨트랙트 지갑 모두 지원)
-     * @param signer 예상 서명자 주소
-     * @param digest 서명된 메시지 해시
-     * @param sig 서명 데이터
-     * @return 서명이 유효하면 true
+     * @dev 서명 검증 (EOA + 스마트 컨트랙트 지갑 지원)
      *
-     * 동작 방식:
-     *   1. signer가 EOA인 경우 (code.length == 0):
-     *      → ECDSA.recover로 복구한 주소와 비교
-     *   2. signer가 컨트랙트인 경우 (Safe, Argent 등):
-     *      → ERC-1271의 isValidSignature 호출
+     *      ┌─────────────────────────────────────────────────────────┐
+     *      │ EOA (일반 지갑):                                        │
+     *      │   ECDSA.recover()로 서명자 주소 복원 후 비교             │
+     *      │                                                        │
+     *      │ 스마트 컨트랙트 지갑 (Safe, Argent 등):                  │
+     *      │   ERC-1271 표준의 isValidSignature() 호출               │
+     *      │   매직 값 0x1626ba7e 반환 시 유효                        │
+     *      └─────────────────────────────────────────────────────────┘
      */
     function _isValidSig(
         address signer,
         bytes32 digest,
         bytes calldata sig
     ) internal view returns (bool) {
-        // EOA 지갑인 경우
+        // EOA인 경우 (코드가 없음)
         if (signer.code.length == 0) {
             return ECDSA.recover(digest, sig) == signer;
         }
@@ -659,29 +674,15 @@ contract MainVoting is Ownable2Step, EIP712 {
         return ok && ret.length == 4 && bytes4(ret) == ERC1271_MAGICVALUE;
     }
 
-    // ========================================
-    // 내부 함수: 처리 로직 (Internal: Processing)
-    // ========================================
-
-    /**
-     * @dev 유저 nonce 소비 (사용 처리)
-     * @param user 유저 주소
-     * @param nonce_ 사용할 nonce
-     *
-     * 검증:
-     *   1. nonce가 minUserNonce 이상인지 확인
-     *   2. nonce가 이미 사용되지 않았는지 확인
-     */
-    function _consumeUserNonce(address user, uint256 nonce_) internal {
-        if (nonce_ < minUserNonce[user]) revert UserNonceTooLow();
-        if (userNonceUsed[user][nonce_]) revert UserNonceAlreadyUsed();
-        userNonceUsed[user][nonce_] = true;
-    }
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║                내부 함수: 검증/처리 로직 (Validation & Processing)          ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
 
     /**
      * @dev 배치 nonce 소비 (사용 처리)
-     * @param signer 서명자 주소
-     * @param nonce_ 사용할 nonce
+     *
+     *      호출 시점: 모든 유저 검증이 완료된 후
+     *      실패 시: hard revert (배치 전체 무효)
      */
     function _consumeBatchNonce(address signer, uint256 nonce_) internal {
         if (nonce_ < minBatchNonce[signer]) revert BatchNonceTooLow();
@@ -690,10 +691,9 @@ contract MainVoting is Ownable2Step, EIP712 {
     }
 
     /**
-     * @dev 문자열 필드 길이 검증
-     * @param record 검증할 레코드
+     * @dev 문자열 길이 검증 (userId)
      *
-     * 과도한 스토리지 사용 방지
+     *      100자 초과 시 전체 배치 revert (데이터 품질 보장)
      */
     function _validateStrings(VoteRecord calldata record) internal pure {
         if (bytes(record.userId).length > MAX_STRING_LENGTH)
@@ -701,29 +701,14 @@ contract MainVoting is Ownable2Step, EIP712 {
     }
 
     /**
-     * @dev 레코드 공통 검증 (저장 직전에 호출)
-     * @param record 검증할 레코드
+     * @dev 유저의 모든 레코드 해시 계산
      *
-     * 검증 항목:
-     *   1. voteType이 유효한 범위인지
-     *   2. 해당 아티스트가 투표 허용되어 있는지
-     */
-    function _validateRecordCommon(VoteRecord calldata record) internal view {
-        if (record.voteType > MAX_VOTE_TYPE)
-            revert InvalidVoteType(record.voteType);
-        if (!allowedArtist[record.missionId][record.optionId])
-            revert ArtistNotAllowed(record.missionId, record.optionId);
-    }
-
-    /**
-     * @dev 유저의 모든 레코드에 대한 해시 배열 생성
-     * @param records 레코드 배열
-     * @param user 레코드 소유자 주소
-     * @return recordDigests 각 레코드의 해시 배열
-     *
-     * 처리 과정:
-     *   1. 각 레코드의 문자열 길이 검증
-     *   2. 유저 주소를 포함하여 해시 생성
+     *      ┌─────────────────────────────────────────────────────────┐
+     *      │ 동작:                                                   │
+     *      │ 1. 각 레코드의 userId 길이 검증 (hard fail)             │
+     *      │ 2. 각 레코드의 해시 계산                                 │
+     *      │ 3. 해시 배열 반환                                        │
+     *      └─────────────────────────────────────────────────────────┘
      */
     function _buildRecordDigestsForUser(
         VoteRecord[] calldata records,
@@ -731,9 +716,10 @@ contract MainVoting is Ownable2Step, EIP712 {
     ) internal pure returns (bytes32[] memory recordDigests) {
         uint256 len = records.length;
         recordDigests = new bytes32[](len);
+
         for (uint256 j; j < len; ) {
+            // userId 길이 초과는 전체 배치를 하드 실패로 처리
             _validateStrings(records[j]);
-            // 해시 생성 시 유저 주소 주입 (보안 핵심)
             recordDigests[j] = _hashVoteRecord(records[j], user);
             unchecked {
                 ++j;
@@ -742,84 +728,188 @@ contract MainVoting is Ownable2Step, EIP712 {
     }
 
     /**
-     * @dev 유저 배치 서명 검증
-     * @param batch 유저의 투표 배치
-     * @param userRecordDigests 미리 계산된 레코드 해시 배열
-     * @param batchDigest 전체 배치 해시 (이벤트용)
+     * @dev 유저 배치 soft 검증 (조건부 스킵 패턴의 핵심)
      *
-     * 검증 과정:
-     *   1. 레코드 수가 MAX_RECORDS_PER_USER_BATCH 이하인지 확인
-     *   2. 레코드 해시들을 하나의 해시로 합침 (recordsHash)
-     *   3. EIP-712 다이제스트 생성
-     *   4. 유저 서명 검증
-     *   5. 유저 nonce 소비
+     *      ╔═══════════════════════════════════════════════════════════════╗
+     *      ║                    검증 순서 (5단계)                           ║
+     *      ╠═══════════════════════════════════════════════════════════════╣
+     *      ║                                                               ║
+     *      ║  1. 레코드 수 검증 ──► 0개 또는 20개 초과 시 실패              ║
+     *      ║         │                                                    ║
+     *      ║         ▼                                                    ║
+     *      ║  2. 레코드 내용 검증 ──► voteType, allowedArtist 체크         ║
+     *      ║         │                                                    ║
+     *      ║         ▼                                                    ║
+     *      ║  3. 해시 계산 ──► recordsHash 생성                            ║
+     *      ║         │                                                    ║
+     *      ║         ▼                                                    ║
+     *      ║  4. 서명 검증 ──► 유저 서명이 유효한지 확인                    ║
+     *      ║         │                                                    ║
+     *      ║         ▼                                                    ║
+     *      ║  5. Nonce 검증 ──► 사용 가능한 nonce인지 확인                  ║
+     *      ║         │                                                    ║
+     *      ║         ▼                                                    ║
+     *      ║     ✅ 성공: nonce 소비 + UserBatchProcessed 이벤트           ║
+     *      ║     ❌ 실패: UserBatchFailed 이벤트 + return false            ║
+     *      ║                                                               ║
+     *      ╚═══════════════════════════════════════════════════════════════╝
+     *
+     *      중요: 실패해도 revert하지 않고 false 반환 (soft fail)
+     *            → 다른 유저들의 투표는 계속 처리됨
      */
-    function _verifyUserBatchSignature(
+    function _verifyUserBatchSignatureSoft(
         UserVoteBatch calldata batch,
         bytes32[] memory userRecordDigests,
         bytes32 batchDigest
-    ) internal {
+    ) internal returns (bool ok) {
         uint256 count = batch.records.length;
         UserBatchSig calldata userSig = batch.userBatchSig;
+        address user = userSig.user;
+        uint256 nonce_ = userSig.userNonce;
 
-        if (count > MAX_RECORDS_PER_USER_BATCH) revert UserBatchTooLarge();
+        // ═══════════════════════════════════════════════════════════════
+        // STEP 1: 레코드 수 검증
+        // ═══════════════════════════════════════════════════════════════
+        if (count == 0 || count > MAX_RECORDS_PER_USER_BATCH) {
+            emit UserBatchFailed(
+                batchDigest,
+                user,
+                nonce_,
+                REASON_USER_BATCH_TOO_LARGE
+            );
+            return false;
+        }
 
-        // 모든 레코드 해시를 하나로 합침
+        // ═══════════════════════════════════════════════════════════════
+        // STEP 2: 레코드 내용 사전 검증
+        // ═══════════════════════════════════════════════════════════════
+        // 레코드 중 하나라도 문제가 있으면 해당 유저 전체 스킵
+        // (유저가 N개 레코드에 1개 서명 → 부분 처리 불가)
+        for (uint256 j; j < count; ) {
+            VoteRecord calldata record = batch.records[j];
+
+            // voteType 범위 검증 (0 또는 1만 허용)
+            if (record.voteType > MAX_VOTE_TYPE) {
+                emit UserBatchFailed(
+                    batchDigest,
+                    user,
+                    nonce_,
+                    REASON_INVALID_VOTE_TYPE
+                );
+                return false;
+            }
+
+            // 허용된 아티스트인지 검증
+            if (!allowedArtist[record.missionId][record.optionId]) {
+                emit UserBatchFailed(
+                    batchDigest,
+                    user,
+                    nonce_,
+                    REASON_ARTIST_NOT_ALLOWED
+                );
+                return false;
+            }
+
+            unchecked {
+                ++j;
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // STEP 3: 레코드 해시 합산
+        // ═══════════════════════════════════════════════════════════════
         bytes32 recordsHash = keccak256(abi.encodePacked(userRecordDigests));
+        bytes32 userBatchDigest = _hashUserBatch(user, nonce_, recordsHash);
 
-        // EIP-712 다이제스트 생성
-        bytes32 userBatchDigest = _hashUserBatch(
-            userSig.user,
-            userSig.userNonce,
-            recordsHash
-        );
+        // ═══════════════════════════════════════════════════════════════
+        // STEP 4: 서명 검증
+        // ═══════════════════════════════════════════════════════════════
+        if (!_isValidSig(user, userBatchDigest, userSig.signature)) {
+            emit UserBatchFailed(
+                batchDigest,
+                user,
+                nonce_,
+                REASON_INVALID_USER_SIGNATURE
+            );
+            return false;
+        }
 
-        // 서명 검증
-        if (!_isValidSig(userSig.user, userBatchDigest, userSig.signature))
-            revert InvalidSignature();
+        // ═══════════════════════════════════════════════════════════════
+        // STEP 5: Nonce 검증
+        // ═══════════════════════════════════════════════════════════════
+        // 5a. 최소 nonce 미만인지 (취소된 범위)
+        if (nonce_ < minUserNonce[user]) {
+            emit UserBatchFailed(
+                batchDigest,
+                user,
+                nonce_,
+                REASON_USER_NONCE_TOO_LOW
+            );
+            return false;
+        }
 
-        // nonce 소비 (리플레이 방지)
-        _consumeUserNonce(userSig.user, userSig.userNonce);
+        // 5b. 이미 사용된 nonce인지 (리플레이 방지)
+        if (userNonceUsed[user][nonce_]) {
+            emit UserBatchFailed(
+                batchDigest,
+                user,
+                nonce_,
+                REASON_USER_NONCE_ALREADY_USED
+            );
+            return false;
+        }
 
-        emit UserBatchProcessed(
-            batchDigest,
-            userSig.user,
-            userSig.userNonce,
-            count
-        );
+        // ═══════════════════════════════════════════════════════════════
+        // 모든 검증 통과 → nonce 소비 및 성공 이벤트
+        // ═══════════════════════════════════════════════════════════════
+        userNonceUsed[user][nonce_] = true;
+        emit UserBatchProcessed(batchDigest, user, nonce_, count);
+
+        return true;
     }
 
     /**
      * @dev 투표 레코드들을 스토리지에 저장
-     * @param batches 모든 유저의 배치 배열
-     * @param recordDigests 미리 계산된 레코드 해시 2차원 배열
-     * @return storedCount 실제 저장된 레코드 수
      *
-     * 저장 로직:
-     *   1. votingAmt가 0이면 스킵 (무효 투표)
-     *   2. 이미 consumed된 레코드면 스킵 (중복 방지)
-     *   3. 아티스트 허용 여부 검증
-     *   4. consumed 표시
-     *   5. votes 매핑에 저장
-     *   6. voteHashesByMissionVotingId에 해시 추가
-     *   7. artistStats 집계 업데이트
+     *      ┌─────────────────────────────────────────────────────────┐
+     *      │ 전제조건:                                                │
+     *      │ • voteType, allowedArtist 검증은 이미 완료               │
+     *      │ • userOk[i] == true인 유저만 처리                        │
+     *      │                                                         │
+     *      │ 추가 필터링:                                             │
+     *      │ • votingAmt == 0 → 스킵 (의미 없는 투표)                 │
+     *      │ • consumed[user][recordDigest] == true → 스킵 (중복)     │
+     *      └─────────────────────────────────────────────────────────┘
      */
     function _storeVoteRecords(
         UserVoteBatch[] calldata batches,
-        bytes32[][] memory recordDigests
+        bytes32[][] memory recordDigests,
+        bool[] memory userOk
     ) internal returns (uint256 storedCount) {
         uint256 userCount = batches.length;
 
+        // 각 유저별로 처리
         for (uint256 i; i < userCount; ) {
+            // 검증 실패한 유저는 스킵
+            if (!userOk[i]) {
+                unchecked {
+                    ++i;
+                }
+                continue;
+            }
+
             address user = batches[i].userBatchSig.user;
             VoteRecord[] calldata userRecords = batches[i].records;
             uint256 userRecordLen = userRecords.length;
 
+            // 유저의 각 레코드 처리
             for (uint256 j; j < userRecordLen; ) {
                 VoteRecord calldata record = userRecords[j];
                 bytes32 recordDigest = recordDigests[i][j];
 
-                // 무효 투표(amount=0) 또는 이미 처리된 레코드는 스킵
+                // ─────────────────────────────────────────────────────
+                // 필터링: 0 투표 또는 이미 처리된 레코드는 스킵
+                // ─────────────────────────────────────────────────────
                 if (record.votingAmt == 0 || consumed[user][recordDigest]) {
                     unchecked {
                         ++j;
@@ -827,20 +917,20 @@ contract MainVoting is Ownable2Step, EIP712 {
                     continue;
                 }
 
-                // 아티스트 허용 여부 등 검증
-                _validateRecordCommon(record);
-
-                // 중복 방지 표시
+                // ─────────────────────────────────────────────────────
+                // 스토리지 저장
+                // ─────────────────────────────────────────────────────
+                // 1. 중복 방지 마킹
                 consumed[user][recordDigest] = true;
 
-                // 레코드 저장
+                // 2. 투표 레코드 저장
                 votes[recordDigest] = record;
 
-                // 조회용 인덱스에 추가
+                // 3. 조회용 인덱스에 추가
                 voteHashesByMissionVotingId[record.missionId][record.votingId]
                     .push(recordDigest);
 
-                // 집계 업데이트
+                // 4. 아티스트 통계 업데이트
                 ArtistStats storage stats = artistStats[record.missionId][
                     record.optionId
                 ];
@@ -856,142 +946,209 @@ contract MainVoting is Ownable2Step, EIP712 {
                     ++j;
                 }
             }
+
             unchecked {
                 ++i;
             }
         }
     }
 
-    // ========================================
-    // 메인 진입점 (Main Entry Point)
-    // ========================================
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║                       메인 진입점 (Main Entry Point)                       ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
 
     /**
      * @notice 여러 유저의 투표 배치를 한 번에 제출
+     *
+     * ╔═════════════════════════════════════════════════════════════════════════╗
+     * ║                         전체 처리 흐름                                   ║
+     * ╠═════════════════════════════════════════════════════════════════════════╣
+     * ║                                                                         ║
+     * ║  ┌─────────────────────────────────────────────────────────────────┐   ║
+     * ║  │ PHASE 1: 글로벌 검증 (실패 시 전체 revert)                       │   ║
+     * ║  │   • 빈 배치 체크                                                 │   ║
+     * ║  │   • 레코드 수 제한 (2000개)                                      │   ║
+     * ║  │   • executorSigner 설정 여부                                     │   ║
+     * ║  │   • Chain ID 일치 여부                                           │   ║
+     * ║  │   • executor 서명 검증                                           │   ║
+     * ║  └─────────────────────────────────────────────────────────────────┘   ║
+     * ║                              │                                         ║
+     * ║                              ▼                                         ║
+     * ║  ┌─────────────────────────────────────────────────────────────────┐   ║
+     * ║  │ PHASE 2: 유저별 soft 검증 (실패 시 해당 유저만 스킵)             │   ║
+     * ║  │   • userId 길이 검증 (hard fail - 데이터 품질)                   │   ║
+     * ║  │   • 레코드 해시 계산                                             │   ║
+     * ║  │   • 레코드 내용 검증 (voteType, allowedArtist)                   │   ║
+     * ║  │   • 서명 검증                                                    │   ║
+     * ║  │   • Nonce 검증                                                   │   ║
+     * ║  │   • 실패 시 UserBatchFailed 이벤트 + 스킵                        │   ║
+     * ║  └─────────────────────────────────────────────────────────────────┘   ║
+     * ║                              │                                         ║
+     * ║                              ▼                                         ║
+     * ║  ┌─────────────────────────────────────────────────────────────────┐   ║
+     * ║  │ PHASE 3: 최종 검증                                               │   ║
+     * ║  │   • 유효한 유저가 0명이면 revert                                  │   ║
+     * ║  │   • 배치 nonce 소비                                              │   ║
+     * ║  └─────────────────────────────────────────────────────────────────┘   ║
+     * ║                              │                                         ║
+     * ║                              ▼                                         ║
+     * ║  ┌─────────────────────────────────────────────────────────────────┐   ║
+     * ║  │ PHASE 4: 스토리지 저장                                           │   ║
+     * ║  │   • 유효한 유저들의 레코드만 저장                                  │   ║
+     * ║  │   • votingAmt=0, 중복 레코드 스킵                                 │   ║
+     * ║  │   • 저장된 레코드가 0개면 revert                                  │   ║
+     * ║  └─────────────────────────────────────────────────────────────────┘   ║
+     * ║                              │                                         ║
+     * ║                              ▼                                         ║
+     * ║  ┌─────────────────────────────────────────────────────────────────┐   ║
+     * ║  │ PHASE 5: 완료                                                    │   ║
+     * ║  │   • BatchProcessed 이벤트 발생                                   │   ║
+     * ║  └─────────────────────────────────────────────────────────────────┘   ║
+     * ║                                                                         ║
+     * ╚═════════════════════════════════════════════════════════════════════════╝
+     *
      * @param batches 유저별 투표 배치 배열
      * @param batchNonce 이 배치의 고유 nonce (리플레이 방지)
      * @param executorSig executorSigner의 서명
-     *
-     * @dev 이 함수는 누구나 호출할 수 있습니다.
-     *      유효한 서명이 있다면 제3자도 제출 가능합니다.
-     *      (가스비를 대신 내주는 메타트랜잭션 패턴)
-     *
-     * 처리 순서:
-     *   1. 기본 검증 (빈 배치, 크기 제한, 체인 ID)
-     *   2. executorSigner 서명 검증 및 nonce 소비
-     *   3. 모든 레코드의 해시 계산 (유저 주소 포함)
-     *   4. 각 유저의 서명 검증 및 nonce 소비
-     *   5. 투표 레코드 저장 및 집계 업데이트
-     *   6. 완료 이벤트 발생
-     *
-     * 가스 최적화:
-     *   - unchecked 블록으로 오버플로우 체크 생략 (안전한 범위)
-     *   - calldata 사용으로 메모리 복사 최소화
-     *
-     * 보안 고려사항:
-     *   - Front-running: 제3자가 먼저 제출해도 결과는 동일
-     *   - Replay: nonce와 chainId로 방지
-     *   - 데이터 조작: EIP-712 서명으로 방지
      */
     function submitMultiUserBatch(
         UserVoteBatch[] calldata batches,
         uint256 batchNonce,
         bytes calldata executorSig
     ) external {
+        // 서명 개수
         uint256 userCount = batches.length;
 
-        // 빈 배치 방지
+        // ═══════════════════════════════════════════════════════════════
+        // PHASE 1: 글로벌 검증 (hard fail)
+        // ═══════════════════════════════════════════════════════════════
+
+        // 빈 배치(서명) 체크
         if (userCount == 0) revert InvalidRecordIndices();
 
-        // 전체 레코드 수 계산 및 제한 검사
+        // 전체 레코드 수 제한 (2000개)
         uint256 totalRecords;
         for (uint256 i; i < userCount; ) {
+            // 각 배치를 순회하며 레코드 수를 합산
             totalRecords += batches[i].records.length;
             unchecked {
                 ++i;
             }
         }
+        // 전체 레코드 수 제한 (2000개) 초과 시 에러
         if (totalRecords > MAX_RECORDS_PER_BATCH) revert BatchTooLarge();
 
-        // executorSigner 설정 확인
+        // executorSigner 설정 여부
         if (executorSigner == address(0)) revert ZeroAddress();
 
-        // 크로스체인 리플레이 방지
+        // Chain ID 검증 (크로스체인 리플레이 방지)
         if (block.chainid != CHAIN_ID) revert BadChain();
 
         // executor 서명 검증
         bytes32 batchDigest = _hashBatch(batchNonce);
+        // 검증을 위한 배치 다이제스트 생성
+        // executorSigner가 제출한 서명과 비교하기 위해 생성
         if (!_isValidSig(executorSigner, batchDigest, executorSig))
             revert InvalidSignature();
-        _consumeBatchNonce(executorSigner, batchNonce);
 
-        // 모든 레코드의 해시 미리 계산 (유저 주소 포함)
+        // ═══════════════════════════════════════════════════════════════
+        // PHASE 2: 유저별 soft 검증
+        // ═══════════════════════════════════════════════════════════════
+
+        // 결과 저장용 배열
         bytes32[][] memory recordDigests = new bytes32[][](userCount);
+        bool[] memory userOk = new bool[](userCount);
+        uint256 successUserCount;
+
         for (uint256 i; i < userCount; ) {
             address user = batches[i].userBatchSig.user;
+
+            // 2a. 레코드 해시 계산 (userId 길이 초과 시 전체 revert)
             recordDigests[i] = _buildRecordDigestsForUser(
                 batches[i].records,
                 user
             );
-            unchecked {
-                ++i;
-            }
-        }
 
-        // 각 유저의 서명 검증
-        for (uint256 i; i < userCount; ) {
-            _verifyUserBatchSignature(
+            // 2b. soft 검증 (실패해도 계속 진행)
+            bool ok = _verifyUserBatchSignatureSoft(
                 batches[i],
                 recordDigests[i],
                 batchDigest
             );
+
+            if (ok) {
+                userOk[i] = true;
+                unchecked {
+                    ++successUserCount;
+                }
+            }
+
             unchecked {
                 ++i;
             }
         }
 
-        // 투표 저장
-        uint256 stored = _storeVoteRecords(batches, recordDigests);
+        // ═══════════════════════════════════════════════════════════════
+        // PHASE 3: 최종 검증
+        // ═══════════════════════════════════════════════════════════════
+
+        // 모든 유저가 실패했다면 배치 자체를 실패 처리
+        if (successUserCount == 0) {
+            revert NoSuccessfulUser();
+        }
+
+        // 배치 nonce 소비 (이제 이 배치는 재사용 불가)
+        _consumeBatchNonce(executorSigner, batchNonce);
+
+        // ═══════════════════════════════════════════════════════════════
+        // PHASE 4: 스토리지 저장
+        // ═══════════════════════════════════════════════════════════════
+
+        uint256 stored = _storeVoteRecords(batches, recordDigests, userOk);
+
+        // 저장된 레코드가 0개면 실패
+        // (모두 votingAmt=0 또는 이미 consumed인 경우)
+        if (stored == 0) {
+            revert NoSuccessfulUser();
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // PHASE 5: 완료 이벤트
+        // ═══════════════════════════════════════════════════════════════
+
+        uint256 failedUserCount = userCount - successUserCount;
 
         emit BatchProcessed(
             batchDigest,
             executorSigner,
             batchNonce,
-            stored,
-            userCount
+            stored, // 실제 저장된 레코드 수
+            userCount, // 전체 유저 수
+            failedUserCount // 실패한 유저 수
         );
     }
 
-    // ========================================
-    // 조회 함수 (View Functions)
-    // ========================================
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║                          조회 함수 (View Functions)                        ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
 
     /**
-     * @notice EIP-712 도메인 구분자 조회
-     * @return EIP-712 도메인 구분자 해시
+     * @dev EIP-712 도메인 구분자 반환
      *
-     * 오프체인에서 서명 생성 시 이 값이 필요합니다.
+     *      프론트엔드에서 서명 생성 시 필요
      */
     function domainSeparator() external view returns (bytes32) {
         return _domainSeparatorV4();
     }
 
     /**
-     * @notice 특정 미션/투표 세션의 모든 투표 요약 조회
-     * @param missionId 미션 ID
-     * @param votingId 투표 세션 ID
-     * @return 투표 요약 배열
+     * @dev 특정 미션/투표의 모든 투표 기록 조회
      *
-     * @dev 주의: votingId당 레코드 수 제한이 없으므로 대량 데이터 시
-     *      가스 비용이 높아질 수 있습니다. 필요 시 오프체인 조회를 권장합니다.
+     *      @param missionId 미션 ID
+     *      @param votingId 투표 세션 ID
+     *      @return 투표 요약 정보 배열
      *
-     * 반환 데이터:
-     *   - timestamp: 투표 시간
-     *   - missionId, votingId: 투표 세션 정보
-     *   - userId: 유저 식별자
-     *   - votingFor: 아티스트 이름
-     *   - votedOn: 투표 타입 ("Remember" 또는 "Forget")
-     *   - votingAmt: 투표 수량
+     *      주의: 대량의 데이터가 있는 경우 가스 비용이 높을 수 있음
      */
     function getVoteSummariesByMissionVotingId(
         uint256 missionId,
@@ -1006,9 +1163,13 @@ contract MainVoting is Ownable2Step, EIP712 {
 
         for (uint256 i; i < totalCount; ) {
             VoteRecord storage record = votes[allHashes[i]];
+
+            // optionId → 아티스트 이름으로 변환
             string memory artist = artistName[record.missionId][
                 record.optionId
             ];
+
+            // voteType → 라벨로 변환 ("Forget" 또는 "Remember")
             string memory voteTypeLabel = voteTypeName[record.voteType];
 
             result[i] = VoteRecordSummary({
@@ -1020,26 +1181,23 @@ contract MainVoting is Ownable2Step, EIP712 {
                 votedOn: voteTypeLabel,
                 votingAmt: record.votingAmt
             });
+
             unchecked {
                 ++i;
             }
         }
+
         return result;
     }
 
     /**
-     * @notice 특정 아티스트의 투표 집계 조회
-     * @param missionId 미션 ID
-     * @param optionId 아티스트 옵션 ID
-     * @return remember Remember 투표 총합
-     * @return forget Forget 투표 총합
-     * @return total 전체 투표 총합
+     * @dev 특정 아티스트의 투표 집계 조회
      *
-     * 사용 예:
-     *   (uint256 r, uint256 f, uint256 t) = getArtistAggregates(1, 1);
-     *   // r: BTS의 Remember 투표 수
-     *   // f: BTS의 Forget 투표 수
-     *   // t: BTS의 총 투표 수
+     *      @param missionId 미션 ID
+     *      @param optionId 아티스트 ID
+     *      @return remember Remember 투표 합계
+     *      @return forget Forget 투표 합계
+     *      @return total 전체 투표 합계
      */
     function getArtistAggregates(
         uint256 missionId,

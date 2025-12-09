@@ -1,9 +1,43 @@
 #!/usr/bin/env node
+/**
+ * burst-stress.mjs
+ *
+ * 동시 다발적 스트레스 테스트 오케스트레이터
+ *
+ * 주요 기능:
+ *   - 여러 배치를 생성하고 병렬로 제출
+ *   - nonce 사전 할당으로 동시 트랜잭션 지원
+ *   - stress-viem.mjs, submit-stress-viem.mjs 호출
+ *
+ * 사용법:
+ *   VOTING_ADDRESS=0x... PRIVATE_KEY=0x... node scripts/burst-stress.mjs [options]
+ *
+ * 옵션:
+ *   --count N           동시 제출할 배치 수 (기본: 2)
+ *   --totalVotes N      배치당 총 투표 수 (기본: 100)
+ *   --userCount N       유저 수 (기본: 20)
+ *   --perUserVotes N    유저당 투표 수 (totalVotes/userCount로 계산됨)
+ *   --missionId N       미션 ID (기본: 1)
+ *   --gasBumpPercent N  가스 버프 % (기본: 10)
+ *   --dryRun            실제 제출 없이 데이터 생성만
+ */
+
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
-import { createPublicClient, defineChain, http } from 'viem';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createPublicClient, defineChain, http, getAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// =============================================================================
+// 유틸리티 함수
+// =============================================================================
+
+/**
+ * CLI 인자 파싱
+ */
 function parseArgs(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i++) {
@@ -16,48 +50,170 @@ function parseArgs(argv) {
   return args;
 }
 
+/**
+ * Private Key 정규화 (0x 접두사 및 길이 검증)
+ */
+function normalizePrivateKey(value) {
+  if (!value) return null;
+  let hex = value.trim().toLowerCase();
+  if (!hex.startsWith('0x')) hex = `0x${hex}`;
+  if (hex.length !== 66) {
+    throw new Error('PRIVATE_KEY must be 32 bytes (64 hex chars)');
+  }
+  return hex;
+}
+
+/**
+ * 자식 프로세스 실행 및 출력 캡처
+ */
 function runCommand(command, commandArgs, envOverrides = {}, label) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolvePromise, reject) => {
+    console.log(`\n[RUN] [${label}] ${command} ${commandArgs.slice(0, 3).join(' ')}...`);
+
     const child = spawn(command, commandArgs, {
-      stdio: 'inherit',
+      stdio: 'pipe',
       env: { ...process.env, ...envOverrides },
+      cwd: resolve(__dirname, '..'),
     });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+      process.stdout.write(data);
+    });
+
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+      process.stderr.write(data);
+    });
+
     child.on('exit', (code) => {
       if (code === 0) {
-        resolve();
+        resolvePromise({ stdout, stderr });
       } else {
-        reject(new Error(`${label ?? command} exited with code ${code}`));
+        reject(new Error(`${label ?? command} exited with code ${code}\n${stderr}`));
       }
+    });
+
+    child.on('error', (err) => {
+      reject(new Error(`${label ?? command} failed to start: ${err.message}`));
     });
   });
 }
 
+/**
+ * 구분선 출력
+ */
+function printBanner(title) {
+  console.log('\n' + '='.repeat(60));
+  console.log(`  ${title}`);
+  console.log('='.repeat(60));
+}
+
+/**
+ * 설정값 출력
+ */
+function printConfig(config) {
+  console.log('\n[CONFIG]');
+  console.log(`   count:          ${config.count}`);
+  console.log(`   totalVotes:     ${config.totalVotes}`);
+  console.log(`   userCount:      ${config.userCount}`);
+  console.log(`   votesPerUser:   ${config.votesPerUser}`);
+  console.log(`   missionId:      ${config.missionId}`);
+  console.log(`   gasBumpPercent: ${config.gasBumpPercent}%`);
+  console.log(`   votingAddress:  ${config.votingAddress}`);
+  console.log(`   rpcUrl:         ${config.rpcUrl}`);
+}
+
+// =============================================================================
+// 메인 함수
+// =============================================================================
+
 async function main() {
+  printBanner('MainVoting Burst Stress Test');
+
   const cli = parseArgs(process.argv.slice(2));
-  const count = Number(cli.count || process.env.STRESS_BURST_COUNT || 2);
-  const perUserVotes = cli.perUserVotes || cli.recordsPerUser || process.env.PER_USER_VOTES;
-  const userCount = Number(cli.userCount || process.env.USER_COUNT || 35);
-  const totalVotes = perUserVotes ? Number(perUserVotes) * userCount : Number(cli.totalVotes || 175);
-  const missionId = Number(cli.missionId || 1);
-  const rpcUrl = cli.rpcUrl || process.env.RPC_URL;
+
+  // -------------------------------------------------------------------------
+  // 1. 설정값 파싱 및 검증
+  // -------------------------------------------------------------------------
+  const privateKey = normalizePrivateKey(process.env.PRIVATE_KEY || cli.privateKey);
+  if (!privateKey) {
+    console.error('[ERROR] PRIVATE_KEY 환경변수가 필요합니다.');
+    console.error('   예시: PRIVATE_KEY=0x... node scripts/burst-stress.mjs');
+    process.exit(1);
+  }
+
+  const rpcUrl = cli.rpcUrl || process.env.RPC_URL || 'https://opbnb-testnet-rpc.bnbchain.org';
   const votingAddress = cli.votingAddress || cli.VOTING_ADDRESS || process.env.VOTING_ADDRESS;
-  const gasBumpPercent = Number(cli.gasBumpPercent || process.env.GAS_BUMP_PERCENT || 10);
 
-  if (!process.env.PRIVATE_KEY) {
-    throw new Error('환경변수 PRIVATE_KEY가 필요합니다.');
-  }
   if (!votingAddress) {
-    throw new Error('환경변수 VOTING_ADDRESS 또는 --votingAddress (--VOTING_ADDRESS) 가 필요합니다.');
-  }
-  if (!rpcUrl) {
-    throw new Error('환경변수 RPC_URL 또는 --rpcUrl 가 필요합니다.');
-  }
-  if (!Number.isInteger(count) || count <= 0) {
-    throw new Error('--count 는 1 이상의 정수여야 합니다.');
+    console.error('[ERROR] VOTING_ADDRESS 환경변수가 필요합니다.');
+    console.error('   예시: VOTING_ADDRESS=0x... node scripts/burst-stress.mjs');
+    process.exit(1);
   }
 
+  const normalizedVotingAddress = getAddress(votingAddress);
+
+  // 설정값 파싱
+  const count = Number(cli.count || process.env.STRESS_BURST_COUNT || 2);
+  const userCount = Number(cli.userCount || process.env.USER_COUNT || 20);
+  const perUserVotes = cli.perUserVotes || cli.recordsPerUser || process.env.PER_USER_VOTES;
+
+  let totalVotes;
+  let votesPerUser;
+
+  if (perUserVotes) {
+    votesPerUser = Number(perUserVotes);
+    totalVotes = votesPerUser * userCount;
+  } else {
+    totalVotes = Number(cli.totalVotes || process.env.TOTAL_VOTES || 100);
+    if (totalVotes % userCount !== 0) {
+      console.error(`[ERROR] totalVotes(${totalVotes})가 userCount(${userCount})로 나누어 떨어져야 합니다.`);
+      process.exit(1);
+    }
+    votesPerUser = totalVotes / userCount;
+  }
+
+  // 유효성 검증
+  if (votesPerUser > 20) {
+    console.error(`[ERROR] 유저당 투표 수(${votesPerUser})가 최대치(20)를 초과합니다.`);
+    process.exit(1);
+  }
+  if (votesPerUser % 2 !== 0) {
+    console.error(`[ERROR] 유저당 투표 수(${votesPerUser})는 짝수여야 합니다 (Remember/Forget 균등 분배).`);
+    process.exit(1);
+  }
+  if (totalVotes > 2000) {
+    console.error(`[ERROR] 배치당 총 투표 수(${totalVotes})가 최대치(2000)를 초과합니다.`);
+    process.exit(1);
+  }
+
+  const missionId = Number(cli.missionId || process.env.MISSION_ID || 1);
+  const gasBumpPercent = Number(cli.gasBumpPercent || process.env.GAS_BUMP_PERCENT || 10);
   const chainId = Number(cli.chainId || process.env.CHAIN_ID || 5611);
-  const account = privateKeyToAccount(process.env.PRIVATE_KEY);
+  const dryRun = cli.dryRun === 'true' || cli.dryRun === true;
+
+  const config = {
+    count,
+    totalVotes,
+    userCount,
+    votesPerUser,
+    missionId,
+    gasBumpPercent,
+    votingAddress: normalizedVotingAddress,
+    rpcUrl,
+    chainId,
+    dryRun,
+  };
+
+  printConfig(config);
+
+  // -------------------------------------------------------------------------
+  // 2. Nonce 조회
+  // -------------------------------------------------------------------------
   const chain = defineChain({
     id: chainId,
     name: 'opBNB Testnet',
@@ -65,74 +221,149 @@ async function main() {
     nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
     rpcUrls: { default: { http: [rpcUrl] }, public: { http: [rpcUrl] } },
   });
+
+  const account = privateKeyToAccount(privateKey);
   const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-  const baseNonce = BigInt(
-    await publicClient.getTransactionCount({ address: account.address, blockTag: 'pending' })
-  );
+
+  console.log(`\n[INFO] Executor: ${account.address}`);
+
+  let baseNonce;
+  try {
+    baseNonce = BigInt(
+      await publicClient.getTransactionCount({ address: account.address, blockTag: 'pending' })
+    );
+    console.log(`[INFO] Current pending nonce: ${baseNonce}`);
+  } catch (err) {
+    console.error(`[ERROR] nonce 조회 실패: ${err.message}`);
+    process.exit(1);
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase 1: 서명 데이터 생성
+  // -------------------------------------------------------------------------
+  printBanner(`Phase 1: Generate Signatures (${count} batches, ${totalVotes} votes each)`);
 
   const generatedFiles = [];
-  console.log(`== 1. Signatures 생성 (${count}회, ${totalVotes} votes씩) ==`);
+  const stressViemPath = resolve(__dirname, 'stress-viem.mjs');
+
   for (let i = 0; i < count; i++) {
     const timestamp = Date.now();
     const fileName = `burst-${totalVotes}-${missionId}-${timestamp}-${i}.json`;
-    const filePath = resolve(process.cwd(), 'stress-artifacts', fileName);
-    await runCommand(
-      'npm',
-      [
-        'run',
-        'stress:viem',
-        '--',
-        '--totalVotes',
-        String(totalVotes),
-        '--userCount',
-        String(userCount),
-        '--missionId',
-        String(missionId),
-        '--file',
-        fileName,
-        '--votingAddress',
-        votingAddress,
-      ],
-      {
-        VOTING_ADDRESS: votingAddress,
-        RPC_URL: rpcUrl,
-      },
-      `stress:viem #${i + 1}`
-    );
-    generatedFiles.push(filePath);
+    const filePath = resolve(__dirname, '..', 'stress-artifacts', fileName);
+
+    try {
+      await runCommand(
+        'node',
+        [
+          stressViemPath,
+          '--totalVotes', String(totalVotes),
+          '--userCount', String(userCount),
+          '--missionId', String(missionId),
+          '--file', fileName,
+          '--votingAddress', normalizedVotingAddress,
+          '--rpcUrl', rpcUrl,
+          '--chainId', String(chainId),
+        ],
+        {
+          PRIVATE_KEY: privateKey,
+          VOTING_ADDRESS: normalizedVotingAddress,
+          RPC_URL: rpcUrl,
+        },
+        `Generate #${i + 1}/${count}`
+      );
+      generatedFiles.push(filePath);
+      console.log(`   [OK] Generated: ${fileName}`);
+    } catch (err) {
+      console.error(`   [ERROR] Generate failed #${i + 1}: ${err.message}`);
+      process.exit(1);
+    }
   }
 
-  console.log('== 2. 동시 제출 시작 ==');
-  const submitPromises = generatedFiles.map((filePath, idx) =>
-    runCommand(
+  console.log(`\n[OK] ${generatedFiles.length} signature files generated`);
+
+  if (dryRun) {
+    printBanner('Dry Run Complete (submission skipped)');
+    console.log('\nGenerated files:');
+    generatedFiles.forEach((f, i) => console.log(`   ${i + 1}. ${f}`));
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase 2: 동시 제출
+  // -------------------------------------------------------------------------
+  printBanner(`Phase 2: Parallel Submit (${count} transactions)`);
+
+  console.log('\n[INFO] Starting parallel submission...');
+  console.log(`   Base nonce: ${baseNonce}`);
+  console.log(`   Nonce range: ${baseNonce} ~ ${baseNonce + BigInt(count - 1)}`);
+
+  const submitViemPath = resolve(__dirname, 'submit-stress-viem.mjs');
+
+  const submitPromises = generatedFiles.map((filePath, idx) => {
+    const assignedNonce = baseNonce + BigInt(idx);
+    console.log(`   [SUBMIT] #${idx + 1}: nonce=${assignedNonce}`);
+
+    return runCommand(
       'node',
-      ['scripts/submit-stress-viem.mjs', '--file', filePath, '--votingAddress', votingAddress],
+      [
+        submitViemPath,
+        '--file', filePath,
+        '--votingAddress', normalizedVotingAddress,
+        '--rpcUrl', rpcUrl,
+        '--nonce', assignedNonce.toString(),
+        '--gasBumpPercent', String(gasBumpPercent),
+      ],
       {
-        VOTING_ADDRESS: votingAddress,
+        VOTING_ADDRESS: normalizedVotingAddress,
         RPC_URL: rpcUrl,
-        PRIVATE_KEY: process.env.PRIVATE_KEY,
-        NONCE: (baseNonce + BigInt(idx)).toString(),
+        PRIVATE_KEY: privateKey,
+        NONCE: assignedNonce.toString(),
         GAS_BUMP_PERCENT: String(gasBumpPercent),
       },
-      `submit #${idx + 1}`
-    )
-  );
+      `Submit #${idx + 1}`
+    );
+  });
 
   const results = await Promise.allSettled(submitPromises);
+
+  // -------------------------------------------------------------------------
+  // 결과 요약
+  // -------------------------------------------------------------------------
+  printBanner('Results Summary');
+
+  let successCount = 0;
+  let failCount = 0;
+
   results.forEach((res, idx) => {
+    const nonce = baseNonce + BigInt(idx);
     if (res.status === 'fulfilled') {
-      console.log(`submit #${idx + 1}: ✅ success`);
+      console.log(`   [OK] Submit #${idx + 1} (nonce=${nonce}): Success`);
+      successCount++;
     } else {
-      console.warn(`submit #${idx + 1}: ❌ ${res.reason?.message || res.reason}`);
+      console.log(`   [FAIL] Submit #${idx + 1} (nonce=${nonce}): Failed`);
+      console.log(`      -> ${res.reason?.message?.split('\n')[0] || res.reason}`);
+      failCount++;
     }
   });
 
-  console.log('== 완료 ==');
-  console.log('생성한 파일 목록:');
-  generatedFiles.forEach((file) => console.log(`- ${file}`));
+  console.log('\n' + '-'.repeat(40));
+  console.log(`   Success: ${successCount}/${count}`);
+  console.log(`   Failed:  ${failCount}/${count}`);
+  console.log(`   Total vote records: ${successCount * totalVotes}`);
+  console.log('-'.repeat(40));
+
+  if (failCount > 0) {
+    console.log('\n[WARN] Some transactions failed.');
+    process.exitCode = 1;
+  } else {
+    console.log('\n[OK] All stress tests completed!');
+  }
+
+  console.log('\nGenerated files:');
+  generatedFiles.forEach((f, i) => console.log(`   ${i + 1}. ${f}`));
 }
 
 main().catch((err) => {
-  console.error('❌ burst 스크립트 오류:', err.message ?? err);
+  console.error('\n[ERROR] Script error:', err.message ?? err);
   process.exit(1);
 });
