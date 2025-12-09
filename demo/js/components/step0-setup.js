@@ -3,7 +3,7 @@
  * 컨트랙트 배포 + Owner 권한으로 Executor, Vote Type, Artist를 설정합니다
  */
 
-import { MAINVOTING_BYTECODE } from '../config.js';
+import { MAINVOTING_BYTECODE, CONFIG } from '../config.js';
 
 export class Step0Setup {
   constructor(state) {
@@ -20,10 +20,10 @@ export class Step0Setup {
   async loadBytecode() {
     // 임베디드 바이트코드 사용, fetch() 불필요
     if (this.bytecode) {
-      console.log('✅ 바이트코드 로드 완료 (embedded):', this.bytecode.substring(0, 50) + '...');
+      console.log('[SUCCESS] 바이트코드 로드 완료 (embedded):', this.bytecode.substring(0, 50) + '...');
       return true;
     } else {
-      console.error('❌ 바이트코드가 없습니다');
+      console.error('[ERROR] 바이트코드가 없습니다');
       return false;
     }
   }
@@ -66,12 +66,12 @@ export class Step0Setup {
         this.showStatus('바이트코드 로드 중...', 'info', 'deployStatus');
         const loaded = await this.loadBytecode();
         if (!loaded) {
-          this.showStatus('❌ 바이트코드 파일을 로드할 수 없습니다', 'error', 'deployStatus');
+          this.showStatus('[ERROR] 바이트코드 파일을 로드할 수 없습니다', 'error', 'deployStatus');
           return;
         }
       }
 
-      this.showStatus('🚀 컨트랙트 배포 중...', 'info', 'deployStatus');
+      this.showStatus('[DEPLOY] 컨트랙트 배포 중...', 'info', 'deployStatus');
 
       // ContractFactory 생성 (ABI + Bytecode)
       const abi = [
@@ -86,7 +86,7 @@ export class Step0Setup {
       // 배포 (initialOwner = 배포자 주소)
       const contract = await factory.deploy(this.deployerWallet.address);
 
-      this.showStatus(`📤 트랜잭션 전송됨. 대기 중...\nTX: ${contract.deploymentTransaction().hash}`, 'info', 'deployStatus');
+      this.showStatus(`[TX] 트랜잭션 전송됨. 대기 중...\nTX: ${contract.deploymentTransaction().hash}`, 'info', 'deployStatus');
 
       // 배포 완료 대기
       await contract.waitForDeployment();
@@ -95,7 +95,7 @@ export class Step0Setup {
       this.deployedAddress = deployedAddress;
 
       // UI 업데이트
-      this.showStatus(`✅ 배포 완료!\n주소: ${deployedAddress}`, 'success', 'deployStatus');
+      this.showStatus(`[SUCCESS] 배포 완료!\n주소: ${deployedAddress}`, 'success', 'deployStatus');
 
       // 배포된 주소 표시
       const displayEl = document.getElementById('deployedAddressDisplay');
@@ -111,7 +111,7 @@ export class Step0Setup {
 
     } catch (error) {
       console.error('컨트랙트 배포 실패:', error);
-      this.showStatus(`❌ 배포 실패: ${error.message}`, 'error', 'deployStatus');
+      this.showStatus(`[ERROR] 배포 실패: ${error.message}`, 'error', 'deployStatus');
     }
   }
 
@@ -138,7 +138,7 @@ export class Step0Setup {
     // 기존 서명 무효화 (컨트랙트 주소가 변경되면 서명이 무효해짐)
     if (this.state.userBatchSigs && this.state.userBatchSigs.length > 0) {
       this.state.userBatchSigs = [];
-      console.log('⚠️ 컨트랙트 주소 변경으로 기존 서명이 초기화되었습니다');
+      console.log('[WARN] 컨트랙트 주소 변경으로 기존 서명이 초기화되었습니다');
 
       // STEP 3 UI 초기화
       const user1Sig = document.getElementById('user1Signature');
@@ -148,8 +148,8 @@ export class Step0Setup {
 
       if (user1Sig) user1Sig.value = '';
       if (user2Sig) user2Sig.value = '';
-      if (user1Result) user1Result.innerHTML = '<p class="text-yellow-600">⚠️ 컨트랙트 주소 변경됨 - 서명 재생성 필요</p>';
-      if (user2Result) user2Result.innerHTML = '<p class="text-yellow-600">⚠️ 컨트랙트 주소 변경됨 - 서명 재생성 필요</p>';
+      if (user1Result) user1Result.innerHTML = '<p class="text-yellow-600"><i data-lucide="alert-triangle" class="w-4 h-4 inline"></i> 컨트랙트 주소 변경됨 - 서명 재생성 필요</p>';
+      if (user2Result) user2Result.innerHTML = '<p class="text-yellow-600"><i data-lucide="alert-triangle" class="w-4 h-4 inline"></i> 컨트랙트 주소 변경됨 - 서명 재생성 필요</p>';
     }
 
     // Executor 서명도 초기화
@@ -159,7 +159,7 @@ export class Step0Setup {
       if (executorSigEl) executorSigEl.value = '';
     }
 
-    this.showStatus(`✅ 컨트랙트 주소가 업데이트되었습니다: ${this.deployedAddress}\n⚠️ 기존 서명이 초기화되었습니다. STEP 3부터 다시 진행하세요.`, 'success', 'deployStatus');
+    this.showStatus(`[SUCCESS] 컨트랙트 주소가 업데이트되었습니다: ${this.deployedAddress}\n[WARN] 기존 서명이 초기화되었습니다. STEP 3부터 다시 진행하세요.`, 'success', 'deployStatus');
   }
 
   /**
@@ -215,11 +215,11 @@ export class Step0Setup {
       this.showStatus(`트랜잭션 전송됨. 대기 중... (${tx.hash.substring(0, 10)}...)`, 'info', 'executorSetStatus');
 
       await tx.wait();
-      this.showStatus(`✅ Executor 등록 완료!\nTX: ${tx.hash}`, 'success', 'executorSetStatus');
+      this.showStatus(`[SUCCESS] Executor 등록 완료!\nTX: ${tx.hash}`, 'success', 'executorSetStatus');
 
     } catch (error) {
       console.error('Executor 등록 실패:', error);
-      this.showStatus(`❌ 오류: ${error.message}`, 'error', 'executorSetStatus');
+      this.showStatus(`[ERROR] 오류: ${error.message}`, 'error', 'executorSetStatus');
     }
   }
 
@@ -259,11 +259,11 @@ export class Step0Setup {
       this.showStatus(`Type 1 설정 중... (${tx1.hash.substring(0, 10)}...)`, 'info', 'voteTypeStatus');
       await tx1.wait();
 
-      this.showStatus(`✅ Vote Type 이름 설정 완료!\n0: ${name0}\n1: ${name1}`, 'success', 'voteTypeStatus');
+      this.showStatus(`[SUCCESS] Vote Type 이름 설정 완료!\n0: ${name0}\n1: ${name1}`, 'success', 'voteTypeStatus');
 
     } catch (error) {
       console.error('Vote Type 설정 실패:', error);
-      this.showStatus(`❌ 오류: ${error.message}`, 'error', 'voteTypeStatus');
+      this.showStatus(`[ERROR] 오류: ${error.message}`, 'error', 'voteTypeStatus');
     }
   }
 
@@ -298,11 +298,11 @@ export class Step0Setup {
       this.showStatus(`트랜잭션 전송됨. 대기 중... (${tx.hash.substring(0, 10)}...)`, 'info', 'candidateStatus');
 
       await tx.wait();
-      this.showStatus(`✅ 후보 등록 완료!\n이름: ${name}\nMission ID: ${missionId}\nArtist ID: ${artistId}\nTX: ${tx.hash}`, 'success', 'candidateStatus');
+      this.showStatus(`[SUCCESS] 후보 등록 완료!\n이름: ${name}\nMission ID: ${missionId}\nArtist ID: ${artistId}\nTX: ${tx.hash}`, 'success', 'candidateStatus');
 
     } catch (error) {
       console.error('후보 등록 실패:', error);
-      this.showStatus(`❌ 오류: ${error.message}`, 'error', 'candidateStatus');
+      this.showStatus(`[ERROR] 오류: ${error.message}`, 'error', 'candidateStatus');
     }
   }
 
@@ -325,6 +325,88 @@ export class Step0Setup {
     element.style.whiteSpace = 'pre-line';
     element.textContent = message;
     element.classList.remove('hidden');
+  }
+
+  /**
+   * ABI JSON 다운로드
+   */
+  downloadAbi() {
+    const abi = CONFIG.ABI;
+    const blob = new Blob([JSON.stringify(abi, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'MainVoting-abi.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Bytecode 다운로드
+   */
+  downloadBytecode() {
+    const blob = new Blob([this.bytecode], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'MainVoting-bytecode.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Standard JSON Input 다운로드 (Etherscan 검증용)
+   */
+  async downloadStandardJsonInput() {
+    try {
+      const response = await fetch('./standard-json-input.json');
+      if (!response.ok) throw new Error('파일을 찾을 수 없습니다');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'standard-json-input.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Standard JSON Input 다운로드 실패:', error);
+      alert('Standard JSON Input 파일을 다운로드할 수 없습니다.\n로컬 서버에서 실행 중인지 확인하세요.');
+    }
+  }
+
+  /**
+   * Constructor Args 다운로드 (Etherscan 검증용)
+   * constructor(address initialOwner) 형식의 ABI-encoded 인자
+   */
+  downloadConstructorArgs() {
+    // 배포자 주소 가져오기 (배포된 주소가 있으면 그것을, 아니면 입력된 지갑 주소 사용)
+    let ownerAddress = this.deployerWallet?.address;
+
+    if (!ownerAddress) {
+      alert('배포자 지갑 주소가 필요합니다.\n배포자 비밀키를 먼저 입력하세요.');
+      return;
+    }
+
+    // ABI-encode address (32 bytes, left-padded with zeros)
+    // address는 20 bytes이므로 앞에 12 bytes(24 hex chars)의 0을 추가
+    const addressWithoutPrefix = ownerAddress.toLowerCase().replace('0x', '');
+    const encodedArgs = '0x' + addressWithoutPrefix.padStart(64, '0');
+
+    const blob = new Blob([encodedArgs], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'constructor-args.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   /**
@@ -373,7 +455,28 @@ export class Step0Setup {
       candidateBtn.addEventListener('click', () => this.registerArtist());
     }
 
-    console.log('📝 STEP 0 Event Listeners Attached');
+    // 다운로드 버튼들
+    const downloadAbiBtn = document.getElementById('downloadAbiBtn');
+    if (downloadAbiBtn) {
+      downloadAbiBtn.addEventListener('click', () => this.downloadAbi());
+    }
+
+    const downloadBytecodeBtn = document.getElementById('downloadBytecodeBtn');
+    if (downloadBytecodeBtn) {
+      downloadBytecodeBtn.addEventListener('click', () => this.downloadBytecode());
+    }
+
+    const downloadStandardJsonBtn = document.getElementById('downloadStandardJsonBtn');
+    if (downloadStandardJsonBtn) {
+      downloadStandardJsonBtn.addEventListener('click', () => this.downloadStandardJsonInput());
+    }
+
+    const downloadConstructorArgsBtn = document.getElementById('downloadConstructorArgsBtn');
+    if (downloadConstructorArgsBtn) {
+      downloadConstructorArgsBtn.addEventListener('click', () => this.downloadConstructorArgs());
+    }
+
+    console.log('[INFO] STEP 0 Event Listeners Attached');
   }
 
   /**
@@ -387,6 +490,6 @@ export class Step0Setup {
     // 바이트코드 미리 로드
     await this.loadBytecode();
 
-    console.log('✅ STEP 0 Setup Component Initialized (with Deploy)');
+    console.log('[SUCCESS] STEP 0 Setup Component Initialized (with Deploy)');
   }
 }

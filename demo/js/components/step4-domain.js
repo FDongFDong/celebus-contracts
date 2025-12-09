@@ -15,7 +15,7 @@ export class Step4Domain {
       <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-indigo-500">
         <h2 class="text-xl font-semibold mb-4">
           <span class="step-badge bg-indigo-500">STEP 4</span>
-          🔐 Domain Separator 계산
+          <i data-lucide="lock" class="w-5 h-5 inline"></i> Domain Separator 계산
         </h2>
         <p class="text-sm text-gray-600 mb-4">EIP-712 Domain을 식별하는 고유 해시를 계산합니다</p>
 
@@ -49,7 +49,7 @@ export class Step4Domain {
         <!-- 계산 버튼 -->
         <button onclick="step4.calculate()"
                 class="bg-indigo-500 text-white px-4 py-2 rounded-md hover:bg-indigo-600">
-          🔢 Domain Separator 계산
+          <i data-lucide="hash" class="w-4 h-4 inline"></i> Domain Separator 계산
         </button>
 
         <!-- 계산 결과 -->
@@ -61,14 +61,14 @@ export class Step4Domain {
                  class="w-full px-3 py-2 border rounded-md font-mono text-xs bg-green-50"
                  readonly>
           <p class="text-xs text-green-600 mt-1">
-            ✅ 이 값이 Step 6에서 자동으로 사용됩니다
+            <i data-lucide="check-circle" class="w-3 h-3 inline"></i> 이 값이 Step 6에서 자동으로 사용됩니다
           </p>
         </div>
 
         <!-- 계산 과정 설명 (접을 수 있음) -->
         <details class="mt-4">
           <summary class="cursor-pointer text-indigo-600 font-semibold hover:text-indigo-800">
-            📖 계산 과정 보기
+            <i data-lucide="book-open" class="w-4 h-4 inline"></i> 계산 과정 보기
           </summary>
           <div id="domainExplanation" class="mt-3 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
             <p class="text-sm text-gray-600">계산 버튼을 클릭하면 여기에 상세한 계산 과정이 표시됩니다.</p>
@@ -103,13 +103,13 @@ export class Step4Domain {
       const explanation = generateExplanation('domain', domain);
       document.getElementById('domainExplanation').innerHTML = explanation;
 
-      console.log('✅ Domain Separator calculated:', {
+      console.log('[SUCCESS] Domain Separator calculated:', {
         domain,
         domainSeparator
       });
 
     } catch (error) {
-      console.error('❌ Domain Separator calculation failed:', error);
+      console.error('[ERROR] Domain Separator calculation failed:', error);
       alert('계산 실패: ' + error.message);
     }
   }

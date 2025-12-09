@@ -16,16 +16,16 @@ export class Step3UserSigs {
       <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-purple-500">
         <h2 class="text-xl font-semibold mb-4">
           <span class="step-badge bg-purple-500">STEP 3</span>
-          ✍️ User Batch Signatures 생성(Frontend)
+          <i data-lucide="pen-tool" class="w-5 h-5 inline"></i> User Batch Signatures 생성(Frontend)
         </h2>
         <p class="text-sm text-gray-600 mb-4">각 사용자가 자신의 레코드에 서명합니다</p>
 
         <div class="grid grid-cols-2 gap-4 mb-4">
           <!-- User 1 서명 -->
           <div class="bg-blue-50 rounded-lg border border-blue-200 p-4">
-            <h3 class="text-lg font-semibold text-blue-800 mb-3">👤 User 1 서명</h3>
+            <h3 class="text-lg font-semibold text-blue-800 mb-3"><i data-lucide="user" class="w-4 h-4 inline"></i> User 1 서명</h3>
             <button onclick="step3.signUserBatch(0)" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 w-full">
-              🔐 User 1 서명 생성
+              <i data-lucide="lock" class="w-4 h-4 inline"></i> User 1 서명 생성
             </button>
             <div id="user1SigResult" class="mt-3 hidden">
               <p class="text-xs text-gray-600">서명:</p>
@@ -35,9 +35,9 @@ export class Step3UserSigs {
 
           <!-- User 2 서명 -->
           <div class="bg-green-50 rounded-lg border border-green-200 p-4">
-            <h3 class="text-lg font-semibold text-green-800 mb-3">👤 User 2 서명</h3>
+            <h3 class="text-lg font-semibold text-green-800 mb-3"><i data-lucide="user" class="w-4 h-4 inline"></i> User 2 서명</h3>
             <button onclick="step3.signUserBatch(1)" class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 w-full">
-              🔐 User 2 서명 생성
+              <i data-lucide="lock" class="w-4 h-4 inline"></i> User 2 서명 생성
             </button>
             <div id="user2SigResult" class="mt-3 hidden">
               <p class="text-xs text-gray-600">서명:</p>
@@ -48,7 +48,7 @@ export class Step3UserSigs {
 
         <div id="batchSigSummary" class="mt-4 hidden">
           <div class="bg-purple-50 border border-purple-200 rounded p-4">
-            <p class="font-semibold text-purple-900 mb-2">📋 서명 완료:</p>
+            <p class="font-semibold text-purple-900 mb-2"><i data-lucide="clipboard" class="w-4 h-4 inline"></i> 서명 완료:</p>
             <p class="text-sm" id="sigSummaryText">-</p>
           </div>
         </div>
@@ -57,17 +57,17 @@ export class Step3UserSigs {
         <div id="backendDataSection" class="mt-6 hidden">
           <div class="bg-gradient-to-r from-blue-50 to-green-50 border-l-4 border-purple-400 rounded p-4">
             <h3 class="font-semibold text-gray-900 mb-2">
-              🚀 Frontend → Backend 전달 데이터
+              <i data-lucide="upload" class="w-4 h-4 inline"></i> Frontend → Backend 전달 데이터
             </h3>
             <p class="text-sm text-gray-700 mb-4">
-              <strong>⚠️ 실제 프로덕션:</strong> 각 사용자는 <strong>자신의 기기</strong>에서 별도로 백엔드 API에 전송합니다
+              <strong><i data-lucide="alert-triangle" class="w-4 h-4 inline"></i> 실제 프로덕션:</strong> 각 사용자는 <strong>자신의 기기</strong>에서 별도로 백엔드 API에 전송합니다
             </p>
 
             <div class="grid grid-cols-2 gap-4" id="backendDataGrid">
               <!-- User 1 전송 데이터 -->
               <div class="bg-blue-50 border-2 border-blue-300 rounded-lg p-4">
                 <div class="flex items-center mb-3">
-                  <span class="text-2xl mr-2">📱</span>
+                  <i data-lucide="smartphone" class="w-8 h-8 mr-2 text-blue-600"></i>
                   <div>
                     <h4 class="font-bold text-blue-900">User 1의 기기</h4>
                     <p class="text-xs text-blue-700">iPhone, Seoul, 10:00:01</p>
@@ -84,7 +84,7 @@ export class Step3UserSigs {
               <!-- User 2 전송 데이터 -->
               <div class="bg-green-50 border-2 border-green-300 rounded-lg p-4">
                 <div class="flex items-center mb-3">
-                  <span class="text-2xl mr-2">💻</span>
+                  <i data-lucide="monitor" class="w-8 h-8 mr-2 text-green-600"></i>
                   <div>
                     <h4 class="font-bold text-green-900">User 2의 기기</h4>
                     <p class="text-xs text-green-700">Desktop, Busan, 10:00:05</p>
@@ -102,7 +102,7 @@ export class Step3UserSigs {
             <!-- 백엔드 배치 처리 설명 -->
             <div class="mt-4 bg-yellow-50 border border-yellow-300 rounded p-3">
               <p class="text-sm text-yellow-900">
-                <strong>💡 백엔드가 처리:</strong> 서버가 여러 사용자의 제출을 수집 → userId 자동 주입 → 배치로 결합 → Executor 서명 → 컨트랙트 제출
+                <strong><i data-lucide="lightbulb" class="w-4 h-4 inline"></i> 백엔드가 처리:</strong> 서버가 여러 사용자의 제출을 수집 → userId 자동 주입 → 배치로 결합 → Executor 서명 → 컨트랙트 제출
               </p>
             </div>
           </div>
@@ -199,14 +199,14 @@ export class Step3UserSigs {
 
       this.updateSummary();
 
-      console.log(`✅ User ${userIndex + 1} batch signature created:`, {
+      console.log(`[SUCCESS] User ${userIndex + 1} batch signature created:`, {
         user: wallet.address,
         recordCount: userRecords.length,
         signature
       });
 
     } catch (error) {
-      console.error('❌ Signature creation failed:', error);
+      console.error('[ERROR] Signature creation failed:', error);
       alert('서명 생성 실패: ' + error.message);
     }
   }

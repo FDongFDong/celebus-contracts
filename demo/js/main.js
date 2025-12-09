@@ -62,7 +62,7 @@ class MainVotingApp {
   }
 
   async init() {
-    console.log('🚀 MainVoting App Initializing...');
+    console.log('[INIT] MainVoting App Initializing...');
     this.render();
     this.attachEventListeners();
     this.setupInterStepCommunication();
@@ -73,7 +73,7 @@ class MainVotingApp {
       await this.steps.step0.init();
     }
 
-    console.log('✅ MainVoting App Ready!');
+    console.log('[SUCCESS] MainVoting App Ready!');
   }
 
   /**
@@ -100,7 +100,7 @@ class MainVotingApp {
           if (oldAddress && oldAddress.toLowerCase() !== newAddress.toLowerCase()) {
             if (this.state.userBatchSigs && this.state.userBatchSigs.length > 0) {
               this.state.userBatchSigs = [];
-              console.log('⚠️ 컨트랙트 주소 변경으로 기존 서명이 초기화되었습니다');
+              console.log('[WARN] 컨트랙트 주소 변경으로 기존 서명이 초기화되었습니다');
 
               // STEP 3 UI 초기화
               const user1Sig = document.getElementById('user1Signature');
@@ -110,8 +110,8 @@ class MainVotingApp {
 
               if (user1Sig) user1Sig.value = '';
               if (user2Sig) user2Sig.value = '';
-              if (user1Result) user1Result.innerHTML = '<p class="text-yellow-600">⚠️ 컨트랙트 주소 변경됨 - 서명 재생성 필요</p>';
-              if (user2Result) user2Result.innerHTML = '<p class="text-yellow-600">⚠️ 컨트랙트 주소 변경됨 - 서명 재생성 필요</p>';
+              if (user1Result) user1Result.innerHTML = '<p class="text-yellow-600"><i data-lucide="alert-triangle" class="w-4 h-4 inline"></i> 컨트랙트 주소 변경됨 - 서명 재생성 필요</p>';
+              if (user2Result) user2Result.innerHTML = '<p class="text-yellow-600"><i data-lucide="alert-triangle" class="w-4 h-4 inline"></i> 컨트랙트 주소 변경됨 - 서명 재생성 필요</p>';
             }
 
             // Executor 서명도 초기화
@@ -122,7 +122,7 @@ class MainVotingApp {
             }
           }
 
-          console.log('📝 Contract address updated:', newAddress);
+          console.log('[INFO] Contract address updated:', newAddress);
         }
       });
     }
@@ -142,6 +142,10 @@ class MainVotingApp {
         ${this.steps.step8.render()}
       </div>
     `;
+    // 동적으로 생성된 아이콘 초기화
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
   }
 
   attachEventListeners() {
@@ -157,7 +161,7 @@ class MainVotingApp {
     window.step8 = this.steps.step8;
 
     // State 변경 감지 (디버깅용)
-    console.log('📡 Event Listeners Attached');
+    console.log('[EVENT] Event Listeners Attached');
   }
 
   setupInterStepCommunication() {
@@ -226,7 +230,7 @@ class MainVotingApp {
       });
     }
 
-    console.log('🔗 Inter-Step Communication Setup Complete');
+    console.log('[LINK] Inter-Step Communication Setup Complete');
   }
 
   // Utility: Show Toast Notification
@@ -235,11 +239,14 @@ class MainVotingApp {
     toast.className = `toast ${type}`;
     toast.innerHTML = `
       <div class="flex items-center">
-        <span class="mr-2">${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span>
+        <i data-lucide="${type === 'success' ? 'check-circle' : type === 'error' ? 'x-circle' : 'info'}" class="w-4 h-4 inline mr-2"></i>
         <span>${message}</span>
       </div>
     `;
     document.body.appendChild(toast);
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
 
     setTimeout(() => {
       toast.style.opacity = '0';
@@ -258,6 +265,11 @@ class MainVotingApp {
 // Initialize App on DOM Ready
 window.addEventListener('DOMContentLoaded', () => {
   window.app = new MainVotingApp();
+
+  // Lucide 아이콘 초기화
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons();
+  }
 });
 
 // Export for debugging

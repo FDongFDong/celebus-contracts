@@ -15,7 +15,7 @@ export class Step5Struct {
       <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-yellow-500">
         <h2 class="text-xl font-semibold mb-4">
           <span class="step-badge bg-yellow-500">STEP 5</span>
-          📊 Struct Hash 계산
+          <i data-lucide="bar-chart-2" class="w-5 h-5 inline"></i> Struct Hash 계산
         </h2>
         <p class="text-sm text-gray-600 mb-4">서명할 데이터 구조의 해시를 계산합니다</p>
 
@@ -23,9 +23,9 @@ export class Step5Struct {
           <label class="block text-sm font-medium text-gray-700 mb-1">Batch Nonce</label>
           <div class="flex gap-2">
             <input type="number" id="batchNonce" class="flex-1 px-3 py-2 border rounded-md" value="0" min="0">
-            <button onclick="step5.findNextNonce()" 
+            <button onclick="step5.findNextNonce()"
                     class="bg-purple-500 text-white px-4 py-2 rounded-md hover:bg-purple-600 whitespace-nowrap">
-              🔍 다음 Nonce 찾기
+              <i data-lucide="search" class="w-4 h-4 inline"></i> 다음 Nonce 찾기
             </button>
           </div>
           <p class="text-xs text-gray-500 mt-1">
@@ -37,7 +37,7 @@ export class Step5Struct {
         <!-- 계산 버튼 -->
         <button onclick="step5.calculate()"
                 class="bg-yellow-500 text-white px-4 py-2 rounded-md hover:bg-yellow-600">
-          🔢 Struct Hash 계산
+          <i data-lucide="hash" class="w-4 h-4 inline"></i> Struct Hash 계산
         </button>
 
         <!-- 계산 결과 -->
@@ -59,7 +59,7 @@ export class Step5Struct {
                    class="w-full px-3 py-2 border rounded-md font-mono text-xs bg-green-50"
                    readonly>
             <p class="text-xs text-green-600 mt-1">
-              ✅ 이 값이 Step 6에서 자동으로 사용됩니다
+              <i data-lucide="check-circle" class="w-3 h-3 inline"></i> 이 값이 Step 6에서 자동으로 사용됩니다
             </p>
           </div>
         </div>
@@ -67,7 +67,7 @@ export class Step5Struct {
         <!-- 계산 과정 설명 -->
         <details class="mt-4">
           <summary class="cursor-pointer text-yellow-600 font-semibold hover:text-yellow-800">
-            📖 계산 과정 보기
+            <i data-lucide="book-open" class="w-4 h-4 inline"></i> 계산 과정 보기
           </summary>
           <div id="structExplanation" class="mt-3 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
             <p class="text-sm text-gray-600">계산 버튼을 클릭하면 여기에 상세한 계산 과정이 표시됩니다.</p>
@@ -85,40 +85,30 @@ export class Step5Struct {
       }
 
       const resultDiv = document.getElementById('nonceCheckResult');
-      resultDiv.innerHTML = '<p class="text-sm text-blue-600">🔍 사용 가능한 nonce를 찾는 중...</p>';
+      resultDiv.innerHTML = '<p class="text-sm text-blue-600"><i data-lucide="search" class="w-4 h-4 inline"></i> 다음 nonce를 조회하는 중...</p>';
       resultDiv.classList.remove('hidden');
 
       const provider = new ethers.JsonRpcProvider('https://opbnb-testnet-rpc.bnbchain.org');
       const contract = new ethers.Contract(
         this.state.contractAddress,
-        ['function batchNonceUsed(address,uint256) view returns (bool)'],
+        ['function batchNonce(address) view returns (uint256)'],
         provider
       );
 
       const executorAddress = this.state.executorWallet.address;
-      
-      // 0부터 20까지 확인
-      let nextNonce = null;
-      for (let i = 0; i < 20; i++) {
-        const used = await contract.batchNonceUsed(executorAddress, i);
-        if (!used) {
-          nextNonce = i;
-          break;
-        }
-      }
 
-      if (nextNonce !== null) {
-        document.getElementById('batchNonce').value = nextNonce;
-        resultDiv.innerHTML = `<p class="text-sm text-green-600">✅ 사용 가능한 nonce: ${nextNonce}</p>`;
-        console.log('✅ Next available batch nonce:', nextNonce);
-      } else {
-        resultDiv.innerHTML = '<p class="text-sm text-red-600">❌ 0-19 범위에서 사용 가능한 nonce를 찾을 수 없습니다</p>';
-      }
+      // 순차 카운터 방식: batchNonce(address)로 다음 사용할 Nonce 직접 조회
+      const nextNonce = await contract.batchNonce(executorAddress);
+      const nonceValue = parseInt(nextNonce.toString());
+
+      document.getElementById('batchNonce').value = nonceValue;
+      resultDiv.innerHTML = `<p class="text-sm text-green-600"><i data-lucide="check-circle" class="w-4 h-4 inline"></i> 다음 사용할 nonce: ${nonceValue}</p>`;
+      console.log('[SUCCESS] Next batch nonce:', nonceValue);
 
     } catch (error) {
-      console.error('❌ Nonce check failed:', error);
-      document.getElementById('nonceCheckResult').innerHTML = 
-        `<p class="text-sm text-red-600">❌ 확인 실패: ${error.message}</p>`;
+      console.error('[ERROR] Nonce check failed:', error);
+      document.getElementById('nonceCheckResult').innerHTML =
+        `<p class="text-sm text-red-600"><i data-lucide="x-circle" class="w-4 h-4 inline"></i> 조회 실패: ${error.message}</p>`;
     }
   }
 
@@ -149,14 +139,14 @@ export class Step5Struct {
       const explanation = generateExplanation('struct', { batchNonce });
       document.getElementById('structExplanation').innerHTML = explanation;
 
-      console.log('✅ Struct Hash calculated:', {
+      console.log('[SUCCESS] Struct Hash calculated:', {
         batchNonce,
         batchTypeHash,
         structHash
       });
 
     } catch (error) {
-      console.error('❌ Struct Hash calculation failed:', error);
+      console.error('[ERROR] Struct Hash calculation failed:', error);
       alert('계산 실패: ' + error.message);
     }
   }

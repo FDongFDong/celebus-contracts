@@ -16,7 +16,7 @@ export class Step8Query {
       <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-purple-500">
         <h2 class="text-xl font-semibold mb-4">
           <span class="step-badge bg-purple-500">STEP 8</span>
-          🔍 컨트랙트 조회
+          <i data-lucide="search" class="w-5 h-5 inline"></i> 컨트랙트 조회
         </h2>
         <p class="text-sm text-gray-600 mb-4">
           컨트랙트의 다양한 데이터를 조회합니다
@@ -26,27 +26,27 @@ export class Step8Query {
         <div class="flex border-b border-gray-200 mb-4 overflow-x-auto">
           <button id="tab-voteResults" onclick="step8.switchTab('voteResults')"
                   class="tab-btn px-4 py-2 text-sm font-medium border-b-2 border-purple-500 text-purple-600">
-            📊 투표 결과
+            <i data-lucide="bar-chart-2" class="w-4 h-4 inline"></i> 투표 결과
           </button>
           <button id="tab-artist" onclick="step8.switchTab('artist')"
                   class="tab-btn px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700">
-            🎨 Artist
+            <i data-lucide="palette" class="w-4 h-4 inline"></i> Artist
           </button>
           <button id="tab-record" onclick="step8.switchTab('record')"
                   class="tab-btn px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700">
-            📝 레코드
+            <i data-lucide="file-text" class="w-4 h-4 inline"></i> 레코드
           </button>
           <button id="tab-nonce" onclick="step8.switchTab('nonce')"
                   class="tab-btn px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700">
-            🔢 Nonce
+            <i data-lucide="hash" class="w-4 h-4 inline"></i> Nonce
           </button>
           <button id="tab-settings" onclick="step8.switchTab('settings')"
                   class="tab-btn px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700">
-            ⚙️ 설정
+            <i data-lucide="settings" class="w-4 h-4 inline"></i> 설정
           </button>
           <button id="tab-failedLogs" onclick="step8.switchTab('failedLogs')"
                   class="tab-btn px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700">
-            ❌ 실패 로그
+            <i data-lucide="x-circle" class="w-4 h-4 inline"></i> 실패 로그
           </button>
         </div>
 
@@ -104,7 +104,7 @@ export class Step8Query {
       <div class="space-y-6">
         <!-- 투표 요약 조회 -->
         <div class="bg-purple-50 rounded-lg p-4 border border-purple-200">
-          <h3 class="font-semibold text-purple-900 mb-3">📊 투표 요약 조회</h3>
+          <h3 class="font-semibold text-purple-900 mb-3"><i data-lucide="bar-chart-2" class="w-4 h-4 inline"></i> 투표 요약 조회</h3>
           <p class="text-xs text-gray-600 mb-3">getVoteSummariesByMissionVotingId(missionId, votingId)</p>
           <div class="grid grid-cols-2 gap-3 mb-3">
             <div>
@@ -127,7 +127,7 @@ export class Step8Query {
 
         <!-- Artist 집계 조회 -->
         <div class="bg-purple-50 rounded-lg p-4 border border-purple-200">
-          <h3 class="font-semibold text-purple-900 mb-3">📈 Artist 집계 조회</h3>
+          <h3 class="font-semibold text-purple-900 mb-3"><i data-lucide="trending-up" class="w-4 h-4 inline"></i> Artist 집계 조회</h3>
           <p class="text-xs text-gray-600 mb-3">getArtistAggregates(missionId, optionId)</p>
           <div class="grid grid-cols-2 gap-3 mb-3">
             <div>
@@ -156,7 +156,7 @@ export class Step8Query {
       <div class="space-y-6">
         <!-- Artist 통계 -->
         <div class="bg-indigo-50 rounded-lg p-4 border border-indigo-200">
-          <h3 class="font-semibold text-indigo-900 mb-3">📊 Artist 통계</h3>
+          <h3 class="font-semibold text-indigo-900 mb-3"><i data-lucide="bar-chart-2" class="w-4 h-4 inline"></i> Artist 통계</h3>
           <p class="text-xs text-gray-600 mb-3">artistStats(missionId, optionId)</p>
           <div class="grid grid-cols-2 gap-3 mb-3">
             <div>
@@ -179,7 +179,7 @@ export class Step8Query {
 
         <!-- Artist 이름 -->
         <div class="bg-indigo-50 rounded-lg p-4 border border-indigo-200">
-          <h3 class="font-semibold text-indigo-900 mb-3">🏷️ Artist 이름</h3>
+          <h3 class="font-semibold text-indigo-900 mb-3"><i data-lucide="tag" class="w-4 h-4 inline"></i> Artist 이름</h3>
           <p class="text-xs text-gray-600 mb-3">artistName(missionId, optionId)</p>
           <div class="grid grid-cols-2 gap-3 mb-3">
             <div>
@@ -202,7 +202,7 @@ export class Step8Query {
 
         <!-- Artist 허용 여부 -->
         <div class="bg-indigo-50 rounded-lg p-4 border border-indigo-200">
-          <h3 class="font-semibold text-indigo-900 mb-3">✅ Artist 허용 여부</h3>
+          <h3 class="font-semibold text-indigo-900 mb-3"><i data-lucide="check-circle" class="w-4 h-4 inline"></i> Artist 허용 여부</h3>
           <p class="text-xs text-gray-600 mb-3">allowedArtist(missionId, optionId)</p>
           <div class="grid grid-cols-2 gap-3 mb-3">
             <div>
@@ -231,7 +231,7 @@ export class Step8Query {
       <div class="space-y-6">
         <!-- 투표 레코드 조회 -->
         <div class="bg-teal-50 rounded-lg p-4 border border-teal-200">
-          <h3 class="font-semibold text-teal-900 mb-3">📝 투표 레코드 조회</h3>
+          <h3 class="font-semibold text-teal-900 mb-3"><i data-lucide="file-text" class="w-4 h-4 inline"></i> 투표 레코드 조회</h3>
           <p class="text-xs text-gray-600 mb-3">votes(digest) - bytes32 digest로 특정 레코드 조회</p>
           <div class="mb-3">
             <label class="block text-xs text-gray-600 mb-1">Digest (bytes32)</label>
@@ -251,82 +251,45 @@ export class Step8Query {
   renderNonceTab() {
     return `
       <div class="space-y-6">
-        <!-- Min User Nonce -->
+        <!-- 순차 카운터 방식 안내 -->
+        <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
+          <h3 class="font-semibold text-blue-900 mb-2"><i data-lucide="info" class="w-4 h-4 inline"></i> Nonce 시스템 안내</h3>
+          <p class="text-sm text-blue-800">
+            순차 카운터 방식: 각 사용자/Executor는 0부터 시작하여 순서대로 Nonce를 사용합니다.
+            조회되는 값은 <strong>다음에 사용할 Nonce</strong>입니다.
+          </p>
+        </div>
+
+        <!-- User Nonce -->
         <div class="bg-orange-50 rounded-lg p-4 border border-orange-200">
-          <h3 class="font-semibold text-orange-900 mb-3">🔢 Min User Nonce</h3>
-          <p class="text-xs text-gray-600 mb-3">minUserNonce(user)</p>
+          <h3 class="font-semibold text-orange-900 mb-3"><i data-lucide="hash" class="w-4 h-4 inline"></i> User Nonce</h3>
+          <p class="text-xs text-gray-600 mb-3">userNonce(user) - 다음 사용할 Nonce 반환</p>
           <div class="mb-3">
             <label class="block text-xs text-gray-600 mb-1">User Address</label>
-            <input id="q_minUserNonce_user" type="text" placeholder="0x..."
+            <input id="q_userNonce_user" type="text" placeholder="0x..."
                    class="w-full p-2 border rounded text-sm font-mono">
           </div>
-          <button onclick="step8.queryMinUserNonce()"
+          <button onclick="step8.queryUserNonce()"
                   class="bg-orange-500 text-white px-4 py-2 rounded text-sm hover:bg-orange-600">
             조회
           </button>
-          <div id="result_minUserNonce" class="mt-3"></div>
+          <div id="result_userNonce" class="mt-3"></div>
         </div>
 
-        <!-- Min Batch Nonce -->
+        <!-- Batch Nonce -->
         <div class="bg-orange-50 rounded-lg p-4 border border-orange-200">
-          <h3 class="font-semibold text-orange-900 mb-3">🔢 Min Batch Nonce</h3>
-          <p class="text-xs text-gray-600 mb-3">minBatchNonce(executor)</p>
+          <h3 class="font-semibold text-orange-900 mb-3"><i data-lucide="hash" class="w-4 h-4 inline"></i> Batch Nonce</h3>
+          <p class="text-xs text-gray-600 mb-3">batchNonce(executor) - 다음 사용할 Nonce 반환</p>
           <div class="mb-3">
             <label class="block text-xs text-gray-600 mb-1">Executor Address</label>
-            <input id="q_minBatchNonce_executor" type="text" placeholder="0x..."
+            <input id="q_batchNonce_executor" type="text" placeholder="0x..."
                    class="w-full p-2 border rounded text-sm font-mono">
           </div>
-          <button onclick="step8.queryMinBatchNonce()"
+          <button onclick="step8.queryBatchNonce()"
                   class="bg-orange-500 text-white px-4 py-2 rounded text-sm hover:bg-orange-600">
             조회
           </button>
-          <div id="result_minBatchNonce" class="mt-3"></div>
-        </div>
-
-        <!-- User Nonce Used -->
-        <div class="bg-orange-50 rounded-lg p-4 border border-orange-200">
-          <h3 class="font-semibold text-orange-900 mb-3">✅ User Nonce 사용 여부</h3>
-          <p class="text-xs text-gray-600 mb-3">userNonceUsed(user, nonce)</p>
-          <div class="grid grid-cols-2 gap-3 mb-3">
-            <div>
-              <label class="block text-xs text-gray-600 mb-1">User Address</label>
-              <input id="q_userNonceUsed_user" type="text" placeholder="0x..."
-                     class="w-full p-2 border rounded text-sm font-mono">
-            </div>
-            <div>
-              <label class="block text-xs text-gray-600 mb-1">Nonce</label>
-              <input id="q_userNonceUsed_nonce" type="number" value="0" min="0"
-                     class="w-full p-2 border rounded text-sm">
-            </div>
-          </div>
-          <button onclick="step8.queryUserNonceUsed()"
-                  class="bg-orange-500 text-white px-4 py-2 rounded text-sm hover:bg-orange-600">
-            조회
-          </button>
-          <div id="result_userNonceUsed" class="mt-3"></div>
-        </div>
-
-        <!-- Batch Nonce Used -->
-        <div class="bg-orange-50 rounded-lg p-4 border border-orange-200">
-          <h3 class="font-semibold text-orange-900 mb-3">✅ Batch Nonce 사용 여부</h3>
-          <p class="text-xs text-gray-600 mb-3">batchNonceUsed(executor, nonce)</p>
-          <div class="grid grid-cols-2 gap-3 mb-3">
-            <div>
-              <label class="block text-xs text-gray-600 mb-1">Executor Address</label>
-              <input id="q_batchNonceUsed_executor" type="text" placeholder="0x..."
-                     class="w-full p-2 border rounded text-sm font-mono">
-            </div>
-            <div>
-              <label class="block text-xs text-gray-600 mb-1">Nonce</label>
-              <input id="q_batchNonceUsed_nonce" type="number" value="0" min="0"
-                     class="w-full p-2 border rounded text-sm">
-            </div>
-          </div>
-          <button onclick="step8.queryBatchNonceUsed()"
-                  class="bg-orange-500 text-white px-4 py-2 rounded text-sm hover:bg-orange-600">
-            조회
-          </button>
-          <div id="result_batchNonceUsed" class="mt-3"></div>
+          <div id="result_batchNonce" class="mt-3"></div>
         </div>
       </div>
     `;
@@ -337,7 +300,7 @@ export class Step8Query {
       <div class="space-y-6">
         <!-- Vote Type Name -->
         <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
-          <h3 class="font-semibold text-gray-900 mb-3">🏷️ Vote Type 이름</h3>
+          <h3 class="font-semibold text-gray-900 mb-3"><i data-lucide="tag" class="w-4 h-4 inline"></i> Vote Type 이름</h3>
           <p class="text-xs text-gray-600 mb-3">voteTypeName(voteType)</p>
           <div class="mb-3">
             <label class="block text-xs text-gray-600 mb-1">Vote Type (0=Forget, 1=Remember)</label>
@@ -353,7 +316,7 @@ export class Step8Query {
 
         <!-- Executor Signer -->
         <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
-          <h3 class="font-semibold text-gray-900 mb-3">👤 Executor Signer</h3>
+          <h3 class="font-semibold text-gray-900 mb-3"><i data-lucide="user" class="w-4 h-4 inline"></i> Executor Signer</h3>
           <p class="text-xs text-gray-600 mb-3">executorSigner() - 현재 등록된 Executor 주소</p>
           <button onclick="step8.queryExecutorSigner()"
                   class="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
@@ -364,7 +327,7 @@ export class Step8Query {
 
         <!-- Owner -->
         <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
-          <h3 class="font-semibold text-gray-900 mb-3">👑 Owner</h3>
+          <h3 class="font-semibold text-gray-900 mb-3"><i data-lucide="crown" class="w-4 h-4 inline"></i> Owner</h3>
           <p class="text-xs text-gray-600 mb-3">owner() - 컨트랙트 소유자 주소</p>
           <button onclick="step8.queryOwner()"
                   class="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
@@ -375,7 +338,7 @@ export class Step8Query {
 
         <!-- Domain Separator -->
         <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
-          <h3 class="font-semibold text-gray-900 mb-3">🔐 Domain Separator</h3>
+          <h3 class="font-semibold text-gray-900 mb-3"><i data-lucide="lock" class="w-4 h-4 inline"></i> Domain Separator</h3>
           <p class="text-xs text-gray-600 mb-3">domainSeparator() - EIP-712 Domain Separator</p>
           <button onclick="step8.queryDomainSeparator()"
                   class="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
@@ -392,7 +355,7 @@ export class Step8Query {
       <div class="space-y-6">
         <!-- UserBatchFailed 이벤트 조회 -->
         <div class="bg-red-50 rounded-lg p-4 border border-red-200">
-          <h3 class="font-semibold text-red-900 mb-3">❌ 실패한 유저 배치 조회</h3>
+          <h3 class="font-semibold text-red-900 mb-3"><i data-lucide="x-circle" class="w-4 h-4 inline"></i> 실패한 유저 배치 조회</h3>
           <p class="text-xs text-gray-600 mb-3">UserBatchFailed 이벤트 - Soft Fail로 처리된 유저 목록</p>
 
           <div class="grid grid-cols-2 gap-3 mb-3">
@@ -423,12 +386,11 @@ export class Step8Query {
 
         <!-- REASON 코드 설명 -->
         <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
-          <h3 class="font-semibold text-gray-900 mb-3">📋 실패 사유 코드 안내</h3>
+          <h3 class="font-semibold text-gray-900 mb-3"><i data-lucide="clipboard" class="w-4 h-4 inline"></i> 실패 사유 코드 안내</h3>
           <div class="text-sm space-y-1">
             <div class="flex"><span class="w-12 font-mono text-red-600">1</span><span>레코드 수가 0개이거나 20개 초과</span></div>
             <div class="flex"><span class="w-12 font-mono text-red-600">2</span><span>유저 서명이 유효하지 않음</span></div>
-            <div class="flex"><span class="w-12 font-mono text-red-600">3</span><span>Nonce가 최소값보다 낮음 (취소된 범위)</span></div>
-            <div class="flex"><span class="w-12 font-mono text-red-600">4</span><span>Nonce가 이미 사용됨 (중복 제출)</span></div>
+            <div class="flex"><span class="w-12 font-mono text-red-600">3</span><span>Nonce 순서 위반 (순차 카운터 불일치)</span></div>
             <div class="flex"><span class="w-12 font-mono text-red-600">5</span><span>VoteType이 유효하지 않음 (0,1 외의 값)</span></div>
             <div class="flex"><span class="w-12 font-mono text-red-600">6</span><span>허용되지 않은 아티스트에게 투표</span></div>
           </div>
@@ -474,7 +436,7 @@ export class Step8Query {
     if (!el) return;
     el.innerHTML = `
       <div class="bg-red-50 border border-red-200 rounded p-3 mt-2">
-        <p class="text-red-800 text-sm">❌ ${message}</p>
+        <p class="text-red-800 text-sm"><i data-lucide="x-circle" class="w-4 h-4 inline"></i> ${message}</p>
       </div>
     `;
   }
@@ -544,7 +506,7 @@ export class Step8Query {
         <span class="font-mono text-sm">${address}</span>
         <button onclick="step8.copyToClipboard('${address}')"
                 class="bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-xs">
-          📋 복사
+          <i data-lucide="clipboard" class="w-3 h-3 inline"></i> 복사
         </button>
       </div>
     `;
@@ -555,7 +517,7 @@ export class Step8Query {
     return `
       <div class="mt-2 p-3 rounded ${isTrue ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'} border">
         <span class="font-semibold ${isTrue ? 'text-green-700' : 'text-red-700'}">
-          ${isTrue ? '✅ True (사용됨/허용됨)' : '❌ False (미사용/비허용)'}
+          ${isTrue ? 'True (사용됨/허용됨)' : 'False (미사용/비허용)'}
         </span>
       </div>
     `;
@@ -568,7 +530,7 @@ export class Step8Query {
           <span class="font-mono text-xs break-all">${value}</span>
           <button onclick="step8.copyToClipboard('${value}')"
                   class="bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-xs ml-2 flex-shrink-0">
-            📋 복사
+            <i data-lucide="clipboard" class="w-3 h-3 inline"></i> 복사
           </button>
         </div>
       </div>
@@ -584,7 +546,7 @@ export class Step8Query {
 
   copyToClipboard(text) {
     navigator.clipboard.writeText(text).then(() => {
-      alert('📋 복사되었습니다!');
+      alert('복사되었습니다!');
     }).catch(err => {
       console.error('복사 실패:', err);
     });
@@ -726,80 +688,46 @@ export class Step8Query {
 
   // ==================== Nonce 조회 ====================
 
-  async queryMinUserNonce() {
-    const resultId = 'result_minUserNonce';
+  async queryUserNonce() {
+    const resultId = 'result_userNonce';
     try {
       this.showLoading(resultId);
       const contract = this.getContract();
-      const user = document.getElementById('q_minUserNonce_user').value;
+      const user = document.getElementById('q_userNonce_user').value;
 
       if (!ethers.isAddress(user)) {
         throw new Error('올바른 주소를 입력해주세요');
       }
 
-      const nonce = await contract.minUserNonce(user);
-      this.showResult(resultId, { minUserNonce: nonce.toString() });
+      const nonce = await contract.userNonce(user);
+      this.showResult(resultId, {
+        nextNonce: nonce.toString(),
+        description: `이 사용자의 다음 투표는 nonce ${nonce.toString()}을 사용해야 합니다`
+      });
     } catch (err) {
-      console.error('queryMinUserNonce error:', err);
+      console.error('queryUserNonce error:', err);
       this.showError(resultId, err.message);
     }
   }
 
-  async queryMinBatchNonce() {
-    const resultId = 'result_minBatchNonce';
+  async queryBatchNonce() {
+    const resultId = 'result_batchNonce';
     try {
       this.showLoading(resultId);
       const contract = this.getContract();
-      const executor = document.getElementById('q_minBatchNonce_executor').value;
+      const executor = document.getElementById('q_batchNonce_executor').value;
 
       if (!ethers.isAddress(executor)) {
         throw new Error('올바른 주소를 입력해주세요');
       }
 
-      const nonce = await contract.minBatchNonce(executor);
-      this.showResult(resultId, { minBatchNonce: nonce.toString() });
+      const nonce = await contract.batchNonce(executor);
+      this.showResult(resultId, {
+        nextNonce: nonce.toString(),
+        description: `이 Executor의 다음 배치는 nonce ${nonce.toString()}을 사용해야 합니다`
+      });
     } catch (err) {
-      console.error('queryMinBatchNonce error:', err);
-      this.showError(resultId, err.message);
-    }
-  }
-
-  async queryUserNonceUsed() {
-    const resultId = 'result_userNonceUsed';
-    try {
-      this.showLoading(resultId);
-      const contract = this.getContract();
-      const user = document.getElementById('q_userNonceUsed_user').value;
-      const nonce = document.getElementById('q_userNonceUsed_nonce').value;
-
-      if (!ethers.isAddress(user)) {
-        throw new Error('올바른 주소를 입력해주세요');
-      }
-
-      const used = await contract.userNonceUsed(user, nonce);
-      this.showResult(resultId, used, 'bool');
-    } catch (err) {
-      console.error('queryUserNonceUsed error:', err);
-      this.showError(resultId, err.message);
-    }
-  }
-
-  async queryBatchNonceUsed() {
-    const resultId = 'result_batchNonceUsed';
-    try {
-      this.showLoading(resultId);
-      const contract = this.getContract();
-      const executor = document.getElementById('q_batchNonceUsed_executor').value;
-      const nonce = document.getElementById('q_batchNonceUsed_nonce').value;
-
-      if (!ethers.isAddress(executor)) {
-        throw new Error('올바른 주소를 입력해주세요');
-      }
-
-      const used = await contract.batchNonceUsed(executor, nonce);
-      this.showResult(resultId, used, 'bool');
-    } catch (err) {
-      console.error('queryBatchNonceUsed error:', err);
+      console.error('queryBatchNonce error:', err);
       this.showError(resultId, err.message);
     }
   }
@@ -869,8 +797,7 @@ export class Step8Query {
     const reasons = {
       1: '레코드 수가 0개이거나 20개 초과',
       2: '유저 서명이 유효하지 않음',
-      3: 'Nonce가 최소값보다 낮음 (취소된 범위)',
-      4: 'Nonce가 이미 사용됨 (중복 제출)',
+      3: 'Nonce 순서 위반 (순차 카운터 불일치)',
       5: 'VoteType이 유효하지 않음',
       6: '허용되지 않은 아티스트'
     };
@@ -912,7 +839,7 @@ export class Step8Query {
         const el = document.getElementById(resultId);
         el.innerHTML = `
           <div class="bg-green-50 border border-green-200 rounded p-3 mt-2">
-            <p class="text-green-800 text-sm">✅ 해당 블록 범위에서 실패한 유저가 없습니다.</p>
+            <p class="text-green-800 text-sm"><i data-lucide="check-circle" class="w-4 h-4 inline"></i> 해당 블록 범위에서 실패한 유저가 없습니다.</p>
             <p class="text-xs text-gray-500 mt-1">조회 범위: 블록 ${fromBlock} ~ ${toBlock === 'latest' ? currentBlock : toBlock}</p>
           </div>
         `;

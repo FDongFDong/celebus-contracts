@@ -15,7 +15,7 @@ export class Step6Digest {
       <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-green-500">
         <h2 class="text-xl font-semibold mb-4">
           <span class="step-badge bg-green-500">STEP 6</span>
-          🔏 Final Digest 및 Executor 서명
+          <i data-lucide="shield" class="w-5 h-5 inline"></i> Final Digest 및 Executor 서명
         </h2>
         <p class="text-sm text-gray-600 mb-4">
           Step 4와 5의 결과를 결합하여 최종 서명할 해시를 생성합니다
@@ -45,7 +45,7 @@ export class Step6Digest {
         <!-- Digest 계산 버튼 -->
         <button onclick="step6.calculateDigest()"
                 class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 mr-2">
-          🔢 Final Digest 계산
+          <i data-lucide="hash" class="w-4 h-4 inline"></i> Final Digest 계산
         </button>
 
         <!-- 계산 결과 -->
@@ -62,12 +62,12 @@ export class Step6Digest {
         <div id="signatureSection" class="mt-4 hidden">
           <button onclick="step6.generateSignature()"
                   class="bg-purple-500 text-white px-4 py-2 rounded-md hover:bg-purple-600">
-            ✍️ Executor 서명 생성
+            <i data-lucide="pen-tool" class="w-4 h-4 inline"></i> Executor 서명 생성
           </button>
 
           <div id="signatureResult" class="mt-4 hidden">
             <div class="bg-purple-50 border border-purple-200 rounded p-4">
-              <p class="font-semibold text-purple-900 mb-2">🔐 ECDSA 서명 컴포넌트:</p>
+              <p class="font-semibold text-purple-900 mb-2"><i data-lucide="lock" class="w-4 h-4 inline"></i> ECDSA 서명 컴포넌트:</p>
 
               <div class="space-y-2 text-xs">
                 <div>
@@ -102,7 +102,7 @@ export class Step6Digest {
         <!-- 계산 과정 설명 -->
         <details class="mt-4">
           <summary class="cursor-pointer text-green-600 font-semibold hover:text-green-800">
-            📖 계산 과정 보기
+            <i data-lucide="book-open" class="w-4 h-4 inline"></i> 계산 과정 보기
           </summary>
           <div id="digestExplanation" class="mt-3 p-4 bg-green-50 rounded-lg border border-green-200">
             <p class="text-sm text-gray-600">Digest 계산 버튼을 클릭하면 여기에 상세한 계산 과정이 표시됩니다.</p>
@@ -149,10 +149,10 @@ export class Step6Digest {
       const explanation = generateExplanation('digest', {});
       document.getElementById('digestExplanation').innerHTML = explanation;
 
-      console.log('✅ Final Digest calculated:', finalDigest);
+      console.log('[SUCCESS] Final Digest calculated:', finalDigest);
 
     } catch (error) {
-      console.error('❌ Digest calculation failed:', error);
+      console.error('[ERROR] Digest calculation failed:', error);
       alert('계산 실패: ' + error.message);
     }
   }
@@ -194,7 +194,7 @@ export class Step6Digest {
       document.getElementById('executorSignerAddress').textContent = executorWallet.address;
       document.getElementById('signatureResult').classList.remove('hidden');
 
-      console.log('✅ Executor signature generated:', {
+      console.log('[SUCCESS] Executor signature generated:', {
         signature,
         signer: executorWallet.address,
         r: sig.r,
@@ -203,7 +203,7 @@ export class Step6Digest {
       });
 
     } catch (error) {
-      console.error('❌ Signature generation failed:', error);
+      console.error('[ERROR] Signature generation failed:', error);
       alert('서명 생성 실패: ' + error.message);
     }
   }

@@ -15,14 +15,14 @@ export class Step2Records {
       <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-blue-500">
         <h2 class="text-xl font-semibold mb-4">
           <span class="step-badge">STEP 2</span>
-          📝 투표 레코드 생성(Frontend)
+          <i data-lucide="file-text" class="w-5 h-5 inline"></i> 투표 레코드 생성(Frontend)
         </h2>
         <p class="text-sm text-gray-600 mb-4">각 사용자가 투표할 데이터를 입력합니다</p>
 
         <!-- 백엔드 시뮬레이션 안내 -->
         <div class="mb-4 p-3 bg-purple-50 border-l-4 border-purple-400 rounded">
           <p class="text-sm text-purple-800">
-            <strong>💡 백엔드 시뮬레이션:</strong>
+            <strong><i data-lucide="lightbulb" class="w-4 h-4 inline"></i> 백엔드 시뮬레이션:</strong>
           </p>
           <ul class="text-xs text-purple-700 mt-1 ml-4 list-disc space-y-1">
             <li><strong>User Nonce:</strong> 컨트랙트에서 자동 조회 (재사용 방지)</li>
@@ -33,7 +33,7 @@ export class Step2Records {
 
         <div class="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">👤 사용자 선택</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1"><i data-lucide="user" class="w-4 h-4 inline"></i> 사용자 선택</label>
             <select id="selectedUser" class="w-full px-3 py-2 border rounded-md bg-yellow-50">
               <option value="0">User 1</option>
               <option value="1">User 2</option>
@@ -41,11 +41,11 @@ export class Step2Records {
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">🔢 User Nonce</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1"><i data-lucide="hash" class="w-4 h-4 inline"></i> User Nonce</label>
             <div class="flex gap-2">
               <input type="text" id="userNonce" class="flex-1 px-3 py-2 border rounded-md bg-gray-100" readonly placeholder="컨트랙트에서 조회">
               <button onclick="step2.fetchUserNonce()" class="px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm whitespace-nowrap" title="컨트랙트에서 사용자 Nonce 조회">
-                🔄 조회
+                <i data-lucide="refresh-cw" class="w-4 h-4 inline"></i> 조회
               </button>
             </div>
             <p class="text-xs text-gray-500 mt-1">사용자별 서명 카운터 (컨트랙트에서 자동 조회)</p>
@@ -64,7 +64,7 @@ export class Step2Records {
             <div class="flex gap-2">
               <input type="text" id="votingId" class="flex-1 px-3 py-2 border rounded-md bg-gray-100" readonly placeholder="자동 생성 버튼 클릭">
               <button onclick="step2.generateVotingId()" class="px-3 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 text-sm whitespace-nowrap" title="타임스탬프 + 사용자 인덱스 기반 유니크 ID 생성">
-                🎲 생성
+                <i data-lucide="dice-3" class="w-4 h-4 inline"></i> 생성
               </button>
             </div>
             <p class="text-xs text-gray-500 mt-1">타임스탬프 + 사용자 인덱스 (사용자별로 유니크한 8~9자리 숫자)</p>
@@ -102,7 +102,7 @@ export class Step2Records {
             <!-- User 1 레코드 -->
             <div class="bg-blue-50 rounded-lg border-2 border-blue-200 p-3">
               <p class="text-sm font-semibold text-blue-800 mb-2">
-                👤 User 1 레코드 (<span id="user1RecordCount">0</span>개)
+                <i data-lucide="user" class="w-4 h-4 inline"></i> User 1 레코드 (<span id="user1RecordCount">0</span>개)
               </p>
               <div id="user1RecordsList" class="space-y-2 min-h-[80px]">
                 <p class="text-blue-400 text-xs">User 1 레코드가 없습니다</p>
@@ -112,7 +112,7 @@ export class Step2Records {
             <!-- User 2 레코드 -->
             <div class="bg-green-50 rounded-lg border-2 border-green-200 p-3">
               <p class="text-sm font-semibold text-green-800 mb-2">
-                👤 User 2 레코드 (<span id="user2RecordCount">0</span>개)
+                <i data-lucide="user" class="w-4 h-4 inline"></i> User 2 레코드 (<span id="user2RecordCount">0</span>개)
               </p>
               <div id="user2RecordsList" class="space-y-2 min-h-[80px]">
                 <p class="text-green-400 text-xs">User 2 레코드가 없습니다</p>
@@ -181,7 +181,7 @@ export class Step2Records {
     this.state.records = this.records;
     this.updateUI();
 
-    console.log('✅ Record added:', record);
+    console.log('[SUCCESS] Record added:', record);
   }
 
   updateUI() {
@@ -210,7 +210,7 @@ export class Step2Records {
           </button>
           <p class="text-xs font-mono text-blue-700">
             #${idx + 1}: M${r.missionId} V${r.votingId} C${r.optionId}
-            ${r.voteType === 1 ? '👍' : '👎'} ${r.votingAmt}
+            ${r.voteType === 1 ? '<i data-lucide="thumbs-up" class="w-3 h-3 inline"></i>' : '<i data-lucide="thumbs-down" class="w-3 h-3 inline"></i>'} ${r.votingAmt}
           </p>
           <p class="text-xs text-gray-500 mt-1">
             User: <span class="font-mono">${r.userId}</span>
@@ -238,7 +238,7 @@ export class Step2Records {
           </button>
           <p class="text-xs font-mono text-green-700">
             #${idx + 1}: M${r.missionId} V${r.votingId} C${r.optionId}
-            ${r.voteType === 1 ? '👍' : '👎'} ${r.votingAmt}
+            ${r.voteType === 1 ? '<i data-lucide="thumbs-up" class="w-3 h-3 inline"></i>' : '<i data-lucide="thumbs-down" class="w-3 h-3 inline"></i>'} ${r.votingAmt}
           </p>
           <p class="text-xs text-gray-500 mt-1">
             User: <span class="font-mono">${r.userId}</span>
@@ -262,7 +262,7 @@ export class Step2Records {
       this.records.splice(index, 1);
       this.state.records = this.records;
       this.updateUI();
-      console.log(`✅ Record deleted at index ${index}`);
+      console.log(`[SUCCESS] Record deleted at index ${index}`);
     }
   }
 
@@ -282,12 +282,12 @@ export class Step2Records {
     const votingId = timestampPart + selectedUserIndex;
 
     document.getElementById('votingId').value = votingId;
-    console.log(`✅ Voting ID generated for User ${selectedUserIndex + 1}:`, votingId);
+    console.log(`[SUCCESS] Voting ID generated for User ${selectedUserIndex + 1}:`, votingId);
   }
 
   /**
    * 컨트랙트에서 User Nonce 조회 (백엔드 시뮬레이션)
-   * 사용 가능한 다음 Nonce를 자동으로 찾음
+   * 순차 카운터 방식: userNonce(address)로 다음 사용할 Nonce를 직접 조회
    */
   async fetchUserNonce() {
     try {
@@ -303,41 +303,29 @@ export class Step2Records {
       const provider = this.state.provider;
       const contract = new ethers.Contract(
         this.state.contractAddress,
-        [
-          'function minUserNonce(address) view returns (uint256)',
-          'function userNonceUsed(address,uint256) view returns (bool)'
-        ],
+        ['function userNonce(address) view returns (uint256)'],
         provider
       );
 
-      // minUserNonce 조회
-      console.log(`🔍 Fetching next available nonce for ${wallet.address}...`);
-      const minNonce = await contract.minUserNonce(wallet.address);
-      let nextNonce = parseInt(minNonce.toString());
-
-      // 사용 가능한 다음 Nonce 찾기 (최대 10번까지 확인)
-      for (let i = 0; i < 10; i++) {
-        const isUsed = await contract.userNonceUsed(wallet.address, nextNonce);
-        if (!isUsed) {
-          break; // 사용 가능한 Nonce 찾음
-        }
-        nextNonce++; // 다음 Nonce 확인
-      }
+      // userNonce 조회 (순차 카운터 - 다음 사용할 Nonce가 바로 반환됨)
+      console.log(`[SEARCH] Fetching next nonce for ${wallet.address}...`);
+      const nextNonce = await contract.userNonce(wallet.address);
+      const nonceValue = parseInt(nextNonce.toString());
 
       // UI 업데이트
-      document.getElementById('userNonce').value = nextNonce;
+      document.getElementById('userNonce').value = nonceValue;
 
-      console.log(`✅ Next available nonce for User ${selectedUserIndex + 1}: ${nextNonce}`);
+      console.log(`[SUCCESS] Next nonce for User ${selectedUserIndex + 1}: ${nonceValue}`);
 
       // state에도 저장
       if (selectedUserIndex === 0) {
-        this.state.user1Nonce = nextNonce;
+        this.state.user1Nonce = nonceValue;
       } else {
-        this.state.user2Nonce = nextNonce;
+        this.state.user2Nonce = nonceValue;
       }
 
     } catch (error) {
-      console.error('❌ Failed to fetch user nonce:', error);
+      console.error('[ERROR] Failed to fetch user nonce:', error);
       alert(`User Nonce 조회 실패: ${error.message}`);
     }
   }
