@@ -62,8 +62,8 @@ contract MainVotingTest is Test {
     uint8 private constant REASON_USER_BATCH_TOO_LARGE = 1;
     uint8 private constant REASON_INVALID_USER_SIGNATURE = 2;
     uint8 private constant REASON_USER_NONCE_INVALID = 3;
-    uint8 private constant REASON_INVALID_VOTE_TYPE = 5;
-    uint8 private constant REASON_ARTIST_NOT_ALLOWED = 6;
+    uint8 private constant REASON_INVALID_VOTE_TYPE = 4;
+    uint8 private constant REASON_ARTIST_NOT_ALLOWED = 5;
 
     function setUp() public {
         owner = address(this);

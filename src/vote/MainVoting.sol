@@ -44,12 +44,12 @@ contract MainVoting is Ownable2Step, EIP712 {
     uint8 public constant VOTE_TYPE_FORGET = 0;
     uint8 public constant VOTE_TYPE_REMEMBER = 1;
 
-    // UserBatchFailed 이벤트용 실패 사유 코드
+    // UserBatchFailed / UserVoteResult 이벤트용 실패 사유 코드
     uint8 private constant REASON_USER_BATCH_TOO_LARGE = 1;
     uint8 private constant REASON_INVALID_USER_SIGNATURE = 2;
     uint8 private constant REASON_USER_NONCE_INVALID = 3;
-    uint8 private constant REASON_INVALID_VOTE_TYPE = 5;
-    uint8 private constant REASON_ARTIST_NOT_ALLOWED = 6;
+    uint8 private constant REASON_INVALID_VOTE_TYPE = 4;
+    uint8 private constant REASON_ARTIST_NOT_ALLOWED = 5;
 
     // EIP-712 TypeHash: 서명 검증용 구조체 해시
     bytes32 private constant VOTE_RECORD_TYPEHASH =
@@ -199,6 +199,15 @@ contract MainVoting is Ownable2Step, EIP712 {
         uint256 recordCount,
         uint256 userCount,
         uint256 failedUserCount
+    );
+
+    /// @notice votingId 단위 유저 투표 결과 이벤트
+    /// @dev 한 UserVoteBatch(=한 유저 서명)에 포함된 모든 레코드의 votingId는 동일하다는 전제를 사용
+    event UserVoteResult(
+        uint256 indexed votingId,
+        bool success,
+        uint256[] failedOptionIds,
+        uint8 reasonCode
     );
 
     event SetUserNonce(address indexed user, uint256 newNonce);
@@ -363,7 +372,7 @@ contract MainVoting is Ownable2Step, EIP712 {
 
     /**
      * @dev 사용자 배치 검증 (Soft-fail 방식)
-     *      실패 시 revert 대신 false 반환 + 이벤트 발생
+     *      실패 시 revert 대신 (false, reasonCode) 반환 + 이벤트 발생
      *      → 다른 사용자의 투표는 계속 처리 가능
      *
      * 검증 순서:
@@ -371,12 +380,15 @@ contract MainVoting is Ownable2Step, EIP712 {
      * 2) 각 레코드의 voteType, 아티스트 허용 여부
      * 3) EIP-712 서명 검증
      * 4) userNonce 순차 검증
+     *
+     * @return ok         배치 검증 성공 여부
+     * @return reasonCode 실패 시 실패 사유 코드 (성공 시 0)
      */
     function _verifyUserBatchSignatureSoft(
         UserVoteBatch calldata batch,
         bytes32[] memory userRecordDigests,
         bytes32 batchDigest
-    ) internal returns (bool ok) {
+    ) internal returns (bool ok, uint8 reasonCode) {
         uint256 count = batch.records.length;
         UserBatchSig calldata userSig = batch.userBatchSig;
         address user = userSig.user;
@@ -384,35 +396,23 @@ contract MainVoting is Ownable2Step, EIP712 {
 
         // 1) 레코드 개수 검증
         if (count == 0 || count > MAX_RECORDS_PER_USER_BATCH) {
-            emit UserBatchFailed(
-                batchDigest,
-                user,
-                nonce_,
-                REASON_USER_BATCH_TOO_LARGE
-            );
-            return false;
+            reasonCode = REASON_USER_BATCH_TOO_LARGE;
+            emit UserBatchFailed(batchDigest, user, nonce_, reasonCode);
+            return (false, reasonCode);
         }
 
         // 2) 각 레코드 검증
         for (uint256 j; j < count; ) {
             VoteRecord calldata record = batch.records[j];
             if (record.voteType > MAX_VOTE_TYPE) {
-                emit UserBatchFailed(
-                    batchDigest,
-                    user,
-                    nonce_,
-                    REASON_INVALID_VOTE_TYPE
-                );
-                return false;
+                reasonCode = REASON_INVALID_VOTE_TYPE;
+                emit UserBatchFailed(batchDigest, user, nonce_, reasonCode);
+                return (false, reasonCode);
             }
             if (!allowedArtist[record.missionId][record.optionId]) {
-                emit UserBatchFailed(
-                    batchDigest,
-                    user,
-                    nonce_,
-                    REASON_ARTIST_NOT_ALLOWED
-                );
-                return false;
+                reasonCode = REASON_ARTIST_NOT_ALLOWED;
+                emit UserBatchFailed(batchDigest, user, nonce_, reasonCode);
+                return (false, reasonCode);
             }
             unchecked {
                 ++j;
@@ -424,25 +424,17 @@ contract MainVoting is Ownable2Step, EIP712 {
         bytes32 userBatchDigest = _hashUserBatch(user, nonce_, recordsHash);
 
         if (!_isValidSig(user, userBatchDigest, userSig.signature)) {
-            emit UserBatchFailed(
-                batchDigest,
-                user,
-                nonce_,
-                REASON_INVALID_USER_SIGNATURE
-            );
-            return false;
+            reasonCode = REASON_INVALID_USER_SIGNATURE;
+            emit UserBatchFailed(batchDigest, user, nonce_, reasonCode);
+            return (false, reasonCode);
         }
 
         // 4) Nonce 순차 검증
         uint256 expected = userNonce[user];
         if (nonce_ != expected) {
-            emit UserBatchFailed(
-                batchDigest,
-                user,
-                nonce_,
-                REASON_USER_NONCE_INVALID
-            );
-            return false;
+            reasonCode = REASON_USER_NONCE_INVALID;
+            emit UserBatchFailed(batchDigest, user, nonce_, reasonCode);
+            return (false, reasonCode);
         }
 
         unchecked {
@@ -450,7 +442,7 @@ contract MainVoting is Ownable2Step, EIP712 {
         }
 
         emit UserBatchProcessed(batchDigest, user, nonce_, count);
-        return true;
+        return (true, 0);
     }
 
     /**
@@ -458,23 +450,56 @@ contract MainVoting is Ownable2Step, EIP712 {
      *      - 중복 방지: consumed 체크
      *      - votingAmt=0인 레코드 스킵
      *      - 아티스트별 통계 업데이트
+     *      - votingId 단위 UserVoteResult 이벤트 발생
      */
     function _storeVoteRecords(
         UserVoteBatch[] calldata batches,
         bytes32[][] memory recordDigests,
-        bool[] memory userOk
+        bool[] memory userOk,
+        uint8[] memory userReason
     ) internal returns (uint256 storedCount) {
         uint256 userCount = batches.length;
+
         for (uint256 i; i < userCount; ) {
+            UserVoteBatch calldata ub = batches[i];
+            VoteRecord[] calldata userRecords = ub.records;
+            uint256 userRecordLen = userRecords.length;
+
+            // 유저 배치가 검증 단계에서 실패한 경우
             if (!userOk[i]) {
+                if (userRecordLen > 0) {
+                    // 전제: 유저 배치의 모든 레코드는 동일한 votingId
+                    uint256 votingId_ = userRecords[0].votingId;
+
+                    // 실패한 옵션ID 목록 (이번 배치에 포함된 전체 옵션ID)
+                    uint256[] memory failedOptionIds = new uint256[](
+                        userRecordLen
+                    );
+                    for (uint256 j; j < userRecordLen; ) {
+                        failedOptionIds[j] = userRecords[j].optionId;
+                        unchecked {
+                            ++j;
+                        }
+                    }
+
+                    emit UserVoteResult(
+                        votingId_,
+                        false, // 하나라도 실패 → 전체 실패
+                        failedOptionIds,
+                        userReason[i] // 검증 단계에서 설정된 실패 코드
+                    );
+                }
                 unchecked {
                     ++i;
                 }
                 continue;
             }
-            address user = batches[i].userBatchSig.user;
-            VoteRecord[] calldata userRecords = batches[i].records;
-            uint256 userRecordLen = userRecords.length;
+
+            // 여기부터는 유저 배치 검증 통과 → 실제 저장 로직
+            address user = ub.userBatchSig.user;
+
+            // 전제: 유저의 모든 레코드는 동일한 votingId
+            uint256 votingId = userRecordLen > 0 ? userRecords[0].votingId : 0;
 
             for (uint256 j; j < userRecordLen; ) {
                 VoteRecord calldata record = userRecords[j];
@@ -510,6 +535,17 @@ contract MainVoting is Ownable2Step, EIP712 {
                     ++j;
                 }
             }
+
+            // 검증 + 저장까지 완료된 votingId에 대한 결과 이벤트
+            if (userRecordLen > 0) {
+                emit UserVoteResult(
+                    votingId,
+                    true, // 검증에 통과했고, 저장 시 치명 오류는 없음
+                    new uint256[](0), // 실패 옵션 없음
+                    0 // 성공이므로 실패 코드 0
+                );
+            }
+
             unchecked {
                 ++i;
             }
@@ -527,6 +563,7 @@ contract MainVoting is Ownable2Step, EIP712 {
      *      2. Executor 서명 검증 → 배치 Nonce 소비
      *      3. 각 사용자별 검증 (Soft-fail: 실패해도 다른 사용자 계속)
      *      4. 검증 통과한 레코드 저장 + 통계 업데이트
+     *      5. votingId 단위 UserVoteResult 이벤트 발생
      *
      * @param batches 사용자별 투표 배치 배열
      * @param batchNonce_ 배치 순서 번호 (리플레이 방지)
@@ -561,6 +598,7 @@ contract MainVoting is Ownable2Step, EIP712 {
         // === 3. 각 사용자 배치 검증 ===
         bytes32[][] memory recordDigests = new bytes32[][](userCount);
         bool[] memory userOk = new bool[](userCount);
+        uint8[] memory userReason = new uint8[](userCount);
         uint256 successUserCount;
 
         for (uint256 i; i < userCount; ) {
@@ -570,18 +608,21 @@ contract MainVoting is Ownable2Step, EIP712 {
                 user
             );
 
-            if (
-                _verifyUserBatchSignatureSoft(
-                    batches[i],
-                    recordDigests[i],
-                    batchDigest
-                )
-            ) {
+            (bool ok, uint8 reason) = _verifyUserBatchSignatureSoft(
+                batches[i],
+                recordDigests[i],
+                batchDigest
+            );
+
+            if (ok) {
                 userOk[i] = true;
                 unchecked {
                     ++successUserCount;
                 }
             }
+            // 성공 시 reason=0, 실패 시 reason>0
+            userReason[i] = reason;
+
             unchecked {
                 ++i;
             }
@@ -589,8 +630,13 @@ contract MainVoting is Ownable2Step, EIP712 {
 
         if (successUserCount == 0) revert NoSuccessfulUser();
 
-        // === 4. 레코드 저장 ===
-        uint256 stored = _storeVoteRecords(batches, recordDigests, userOk);
+        // === 4. 레코드 저장 + UserVoteResult 이벤트 ===
+        uint256 stored = _storeVoteRecords(
+            batches,
+            recordDigests,
+            userOk,
+            userReason
+        );
         if (stored == 0) revert NoSuccessfulUser();
 
         emit BatchProcessed(
