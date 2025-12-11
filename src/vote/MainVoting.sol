@@ -222,16 +222,6 @@ contract MainVoting is Ownable2Step, EIP712 {
         bool allowed
     );
     event VoteTypeSet(uint8 indexed voteType, string name);
-    /// @notice 디버그용: 각 레코드 검증 시 상태 로그
-    event DebugRecordCheck(
-        uint256 recordId,
-        uint256 missionId,
-        uint256 optionId,
-        uint8 voteType,
-        bool allowedArtistFlag,
-        bool consumedFlag,
-        uint256 votingAmt
-    );
 
     // ============================================================
     //                      생성자 & 관리 함수
@@ -511,15 +501,6 @@ contract MainVoting is Ownable2Step, EIP712 {
             for (uint256 j; j < userRecordLen; ) {
                 VoteRecord calldata record = userRecords[j];
                 bytes32 recordDigest = recordDigests[i][j];
-                emit DebugRecordCheck(
-                    record.recordId,
-                    record.missionId,
-                    record.optionId,
-                    record.voteType,
-                    allowedArtist[record.missionId][record.optionId],
-                    consumed[user][recordDigest],
-                    record.votingAmt
-                );
 
                 // 중복 또는 빈 투표 스킵 (이 경우는 "실패"로 보지 않고 그냥 무시)
                 if (record.votingAmt == 0 || consumed[user][recordDigest]) {

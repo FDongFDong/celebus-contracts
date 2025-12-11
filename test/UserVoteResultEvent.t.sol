@@ -353,7 +353,9 @@ contract UserVoteResultEventTest is Test {
         console.log("========================================\n");
     }
 
-    /// @notice Artist 미허용 시
+    /// @notice Artist 미허용 시 - per-record 검증은 저장 단계에서 수행
+    /// @dev artistNotAllowed는 저장 단계에서 검증되므로 UserBatchFailed 이벤트 없이
+    ///      UserVoteResult에서 실패 처리됨. 서명/nonce 검증은 통과하므로 nonce 증가.
     function test_UserBatchFailed_ArtistNotAllowed() public {
         console.log("\n========================================");
         console.log("TEST: Fail Case - Artist Not Allowed");
@@ -375,19 +377,16 @@ contract UserVoteResultEventTest is Test {
 
         console.log("Submitting votes with not-allowed artist...");
         console.log("  User1: votingId=400 -> SUCCESS");
-        console.log("  User2: votingId=401, optionId=99 -> FAIL");
+        console.log("  User2: votingId=401, optionId=99 -> FAIL (at store phase)");
 
         uint256[] memory emptyArray = new uint256[](0);
 
-        // 1. User2 실패 - UserBatchFailed 이벤트
-        vm.expectEmit(false, true, false, true);
-        emit UserBatchFailed(bytes32(0), user2, 0, REASON_ARTIST_NOT_ALLOWED);
-
-        // 2. User1 성공
+        // artistNotAllowed 검증은 저장 단계에서 수행되므로 UserBatchFailed 이벤트 없음
+        // User1 성공
         vm.expectEmit(true, false, false, true);
         emit UserVoteResult(400, true, emptyArray, 0);
 
-        // 3. User2 실패 결과
+        // User2 실패 결과 (저장 단계에서 검증 실패)
         vm.expectEmit(true, false, false, false);
         emit UserVoteResult(401, false, emptyArray, REASON_ARTIST_NOT_ALLOWED);
 
@@ -397,7 +396,9 @@ contract UserVoteResultEventTest is Test {
         console.log("========================================\n");
     }
 
-    /// @notice voteType 무효 시
+    /// @notice voteType 무효 시 - per-record 검증은 저장 단계에서 수행
+    /// @dev voteType 검증은 저장 단계에서 수행되므로 UserBatchFailed 이벤트 없이
+    ///      UserVoteResult에서 실패 처리됨. 서명/nonce 검증은 통과하므로 nonce 증가.
     function test_UserBatchFailed_InvalidVoteType() public {
         console.log("\n========================================");
         console.log("TEST: Fail Case - Invalid Vote Type");
@@ -419,19 +420,16 @@ contract UserVoteResultEventTest is Test {
 
         console.log("Submitting votes with invalid voteType...");
         console.log("  User1: votingId=500 -> SUCCESS");
-        console.log("  User2: votingId=501, voteType=5 -> FAIL");
+        console.log("  User2: votingId=501, voteType=5 -> FAIL (at store phase)");
 
         uint256[] memory emptyArray = new uint256[](0);
 
-        // 1. User2 실패 - UserBatchFailed 이벤트
-        vm.expectEmit(false, true, false, true);
-        emit UserBatchFailed(bytes32(0), user2, 0, REASON_INVALID_VOTE_TYPE);
-
-        // 2. User1 성공
+        // voteType 검증은 저장 단계에서 수행되므로 UserBatchFailed 이벤트 없음
+        // User1 성공
         vm.expectEmit(true, false, false, true);
         emit UserVoteResult(500, true, emptyArray, 0);
 
-        // 3. User2 실패 결과
+        // User2 실패 결과 (저장 단계에서 검증 실패)
         vm.expectEmit(true, false, false, false);
         emit UserVoteResult(501, false, emptyArray, REASON_INVALID_VOTE_TYPE);
 

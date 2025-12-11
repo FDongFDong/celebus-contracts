@@ -638,8 +638,9 @@ contract MainVotingTest is Test {
         assertEq(voting.userNonce(user1), 1);
         assertEq(voting.userNonce(user3), 1);
 
-        // User2는 실패
-        assertEq(voting.userNonce(user2), 0);
+        // User2는 서명/nonce 검증은 통과하므로 nonce가 증가함
+        // voteType 검증은 저장 단계에서 발생하여 레코드만 저장 안됨
+        assertEq(voting.userNonce(user2), 1);
     }
 
     function test_ConditionalSkip_ArtistNotAllowed_PartialSuccess() public {
@@ -664,7 +665,9 @@ contract MainVotingTest is Test {
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
         assertEq(voting.userNonce(user1), 1);
-        assertEq(voting.userNonce(user2), 0);
+        // User2는 서명/nonce 검증은 통과하므로 nonce가 증가함
+        // artistNotAllowed 검증은 저장 단계에서 발생하여 레코드만 저장 안됨
+        assertEq(voting.userNonce(user2), 1);
         assertEq(voting.userNonce(user3), 1);
     }
 
@@ -716,11 +719,12 @@ contract MainVotingTest is Test {
          * - Record2: 잘못된 voteType (5)
          * - Record3: 유효
          *
-         * 결과: 유저 전체 스킵 (부분 처리 불가)
+         * 결과: 서명/nonce 검증은 통과하고 유효한 레코드만 저장됨
+         *       (per-record 검증은 저장 단계에서 수행)
          */
         MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](2);
 
-        // User1: 3개 레코드 중 1개가 잘못됨 → 전체 스킵
+        // User1: 3개 레코드 중 1개가 잘못됨 → 유효한 2개만 저장
         MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](3);
         records1[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
         records1[1] = _createVoteRecord("user1", 1, 2, 2, 5, 50); // voteType 5 invalid
@@ -735,18 +739,18 @@ contract MainVotingTest is Test {
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
-        // User1 전체 실패
-        assertEq(voting.userNonce(user1), 0);
+        // User1: 서명/nonce 검증 통과 → nonce 증가
+        assertEq(voting.userNonce(user1), 1);
 
         // User2 성공
         assertEq(voting.userNonce(user2), 1);
 
-        // User1의 투표는 모두 제외
+        // User1의 유효한 레코드 2개 집계 (100 + 80 = 180)
         (uint256 r1,, uint256 t1) = voting.getArtistAggregates(1, 1);
-        assertEq(r1, 0);
-        assertEq(t1, 0);
+        assertEq(r1, 180);
+        assertEq(t1, 180);
 
-        // User2의 투표만 집계
+        // User2의 투표 집계
         (,uint256 f2, uint256 t2) = voting.getArtistAggregates(1, 2);
         assertEq(f2, 200);
         assertEq(t2, 200);
