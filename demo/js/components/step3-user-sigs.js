@@ -24,9 +24,14 @@ export class Step3UserSigs {
           <!-- User 1 서명 -->
           <div class="bg-blue-50 rounded-lg border border-blue-200 p-4">
             <h3 class="text-lg font-semibold text-blue-800 mb-3"><i data-lucide="user" class="w-4 h-4 inline"></i> User 1 서명</h3>
-            <button onclick="step3.signUserBatch(0)" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 w-full">
-              <i data-lucide="lock" class="w-4 h-4 inline"></i> User 1 서명 생성
-            </button>
+            <div class="flex gap-2">
+              <button onclick="step3.signUserBatch(0)" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 flex-1">
+                <i data-lucide="lock" class="w-4 h-4 inline"></i> User 1 서명 생성
+              </button>
+              <button onclick="step3.clearUserBatch(0)" id="user1ClearBtn" class="bg-red-500 text-white px-3 py-2 rounded-md hover:bg-red-600 hidden">
+                <i data-lucide="trash-2" class="w-4 h-4 inline"></i>
+              </button>
+            </div>
             <div id="user1SigResult" class="mt-3 hidden">
               <p class="text-xs text-gray-600">서명:</p>
               <p class="text-xs font-mono bg-white p-2 rounded mt-1 break-all" id="user1Signature">-</p>
@@ -36,9 +41,14 @@ export class Step3UserSigs {
           <!-- User 2 서명 -->
           <div class="bg-green-50 rounded-lg border border-green-200 p-4">
             <h3 class="text-lg font-semibold text-green-800 mb-3"><i data-lucide="user" class="w-4 h-4 inline"></i> User 2 서명</h3>
-            <button onclick="step3.signUserBatch(1)" class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 w-full">
-              <i data-lucide="lock" class="w-4 h-4 inline"></i> User 2 서명 생성
-            </button>
+            <div class="flex gap-2">
+              <button onclick="step3.signUserBatch(1)" class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 flex-1">
+                <i data-lucide="lock" class="w-4 h-4 inline"></i> User 2 서명 생성
+              </button>
+              <button onclick="step3.clearUserBatch(1)" id="user2ClearBtn" class="bg-red-500 text-white px-3 py-2 rounded-md hover:bg-red-600 hidden">
+                <i data-lucide="trash-2" class="w-4 h-4 inline"></i>
+              </button>
+            </div>
             <div id="user2SigResult" class="mt-3 hidden">
               <p class="text-xs text-gray-600">서명:</p>
               <p class="text-xs font-mono bg-white p-2 rounded mt-1 break-all" id="user2Signature">-</p>
@@ -194,8 +204,10 @@ export class Step3UserSigs {
       // UI 업데이트
       const sigId = `user${userIndex + 1}Signature`;
       const resultId = `user${userIndex + 1}SigResult`;
+      const clearBtnId = `user${userIndex + 1}ClearBtn`;
       document.getElementById(sigId).textContent = signature;
       document.getElementById(resultId).classList.remove('hidden');
+      document.getElementById(clearBtnId).classList.remove('hidden');
 
       this.updateSummary();
 
@@ -265,5 +277,44 @@ export class Step3UserSigs {
       counts.push(userRecords.length);
     });
     return counts;
+  }
+
+  clearUserBatch(userIndex) {
+    const wallet = userIndex === 0 ? this.state.user1Wallet : this.state.user2Wallet;
+    if (!wallet) return;
+
+    // 해당 사용자의 서명 제거
+    const sigIndex = this.userBatchSigs.findIndex(sig => sig.user === wallet.address);
+    if (sigIndex >= 0) {
+      this.userBatchSigs.splice(sigIndex, 1);
+    }
+
+    this.state.userBatchSigs = this.userBatchSigs;
+
+    // UI 초기화
+    const sigId = `user${userIndex + 1}Signature`;
+    const resultId = `user${userIndex + 1}SigResult`;
+    const clearBtnId = `user${userIndex + 1}ClearBtn`;
+    const backendDataId = `user${userIndex + 1}BackendData`;
+
+    document.getElementById(sigId).textContent = '-';
+    document.getElementById(resultId).classList.add('hidden');
+    document.getElementById(clearBtnId).classList.add('hidden');
+
+    const backendDataEl = document.getElementById(backendDataId);
+    if (backendDataEl) {
+      backendDataEl.textContent = '-';
+    }
+
+    // 서명이 모두 없어지면 요약 및 백엔드 데이터 섹션 숨기기
+    if (this.userBatchSigs.length === 0) {
+      document.getElementById('batchSigSummary').classList.add('hidden');
+      document.getElementById('backendDataSection').classList.add('hidden');
+    } else {
+      // 남은 서명으로 요약 업데이트
+      this.updateSummary();
+    }
+
+    console.log(`[INFO] User ${userIndex + 1} 서명이 삭제되었습니다.`);
   }
 }
