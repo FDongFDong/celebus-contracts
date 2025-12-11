@@ -52,6 +52,7 @@ contract MainVoting is Ownable2Step, EIP712 {
     uint8 private constant REASON_ARTIST_NOT_ALLOWED = 5;
 
     // EIP-712 TypeHash: 서명 검증용 구조체 해시
+    // recordId는 서명 데이터에 포함되지 않음 (백엔드 생성, 온체인 식별용)
     bytes32 private constant VOTE_RECORD_TYPEHASH =
         keccak256(
             "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 optionId,uint8 voteType,uint256 votingAmt,address user)"
@@ -88,6 +89,7 @@ contract MainVoting is Ownable2Step, EIP712 {
 
     /// @notice 개별 투표 레코드
     struct VoteRecord {
+        uint256 recordId; // 백엔드가 생성하는 유니크 ID (서명 데이터에는 포함 X)
         uint256 timestamp; // 투표 시각 (Unix timestamp)
         uint256 missionId; // 미션 ID
         uint256 votingId; // 투표 ID
@@ -175,7 +177,7 @@ contract MainVoting is Ownable2Step, EIP712 {
         address indexed newSigner
     );
 
-    /// @notice 사용자 배치 처리 성공
+    /// @notice 사용자 배치 처리 성공 (검증 기준)
     event UserBatchProcessed(
         bytes32 indexed batchDigest,
         address indexed user,
@@ -183,7 +185,7 @@ contract MainVoting is Ownable2Step, EIP712 {
         uint256 recordCount
     );
 
-    /// @notice 사용자 배치 처리 실패 (reasonCode로 원인 파악)
+    /// @notice 사용자 배치 처리 실패 (검증 기준, 레코드 저장 전 단계)
     event UserBatchFailed(
         bytes32 indexed batchDigest,
         address indexed user,
@@ -203,10 +205,11 @@ contract MainVoting is Ownable2Step, EIP712 {
 
     /// @notice votingId 단위 유저 투표 결과 이벤트
     /// @dev 한 UserVoteBatch(=한 유저 서명)에 포함된 모든 레코드의 votingId는 동일하다는 전제를 사용
+    /// @dev 일부 레코드만 실패해도 success는 false, 실패한 recordId만 배열에 포함
     event UserVoteResult(
         uint256 indexed votingId,
         bool success,
-        uint256[] failedOptionIds,
+        uint256[] failedRecordIds,
         uint8 reasonCode
     );
 
@@ -219,6 +222,16 @@ contract MainVoting is Ownable2Step, EIP712 {
         bool allowed
     );
     event VoteTypeSet(uint8 indexed voteType, string name);
+    /// @notice 디버그용: 각 레코드 검증 시 상태 로그
+    event DebugRecordCheck(
+        uint256 recordId,
+        uint256 missionId,
+        uint256 optionId,
+        uint8 voteType,
+        bool allowedArtistFlag,
+        bool consumedFlag,
+        uint256 votingAmt
+    );
 
     // ============================================================
     //                      생성자 & 관리 함수
@@ -283,6 +296,7 @@ contract MainVoting is Ownable2Step, EIP712 {
     // ============================================================
 
     /// @dev 개별 투표 레코드의 EIP-712 해시 생성
+    ///      recordId는 해시/서명에 포함되지 않음
     function _hashVoteRecord(
         VoteRecord calldata record,
         address user
@@ -375,14 +389,12 @@ contract MainVoting is Ownable2Step, EIP712 {
      *      실패 시 revert 대신 (false, reasonCode) 반환 + 이벤트 발생
      *      → 다른 사용자의 투표는 계속 처리 가능
      *
-     * 검증 순서:
-     * 1) 레코드 개수 검증
-     * 2) 각 레코드의 voteType, 아티스트 허용 여부
-     * 3) EIP-712 서명 검증
-     * 4) userNonce 순차 검증
+     * 여기서는 "배치 수준" 검증만 수행:
+     * 1) 레코드 개수
+     * 2) 서명 검증
+     * 3) userNonce 순차 검증
      *
-     * @return ok         배치 검증 성공 여부
-     * @return reasonCode 실패 시 실패 사유 코드 (성공 시 0)
+     * per-record 검증(allowedArtist, voteType)은 _storeVoteRecords에서 처리
      */
     function _verifyUserBatchSignatureSoft(
         UserVoteBatch calldata batch,
@@ -401,25 +413,7 @@ contract MainVoting is Ownable2Step, EIP712 {
             return (false, reasonCode);
         }
 
-        // 2) 각 레코드 검증
-        for (uint256 j; j < count; ) {
-            VoteRecord calldata record = batch.records[j];
-            if (record.voteType > MAX_VOTE_TYPE) {
-                reasonCode = REASON_INVALID_VOTE_TYPE;
-                emit UserBatchFailed(batchDigest, user, nonce_, reasonCode);
-                return (false, reasonCode);
-            }
-            if (!allowedArtist[record.missionId][record.optionId]) {
-                reasonCode = REASON_ARTIST_NOT_ALLOWED;
-                emit UserBatchFailed(batchDigest, user, nonce_, reasonCode);
-                return (false, reasonCode);
-            }
-            unchecked {
-                ++j;
-            }
-        }
-
-        // 3) 서명 검증
+        // 2) 서명 검증
         bytes32 recordsHash = keccak256(abi.encodePacked(userRecordDigests));
         bytes32 userBatchDigest = _hashUserBatch(user, nonce_, recordsHash);
 
@@ -429,7 +423,7 @@ contract MainVoting is Ownable2Step, EIP712 {
             return (false, reasonCode);
         }
 
-        // 4) Nonce 순차 검증
+        // 3) Nonce 순차 검증
         uint256 expected = userNonce[user];
         if (nonce_ != expected) {
             reasonCode = REASON_USER_NONCE_INVALID;
@@ -451,6 +445,15 @@ contract MainVoting is Ownable2Step, EIP712 {
      *      - votingAmt=0인 레코드 스킵
      *      - 아티스트별 통계 업데이트
      *      - votingId 단위 UserVoteResult 이벤트 발생
+     *
+     * 설계:
+     * - userOk[i] == false:
+     *     → 배치 수준에서 실패 (서명/nonce/개수)
+     *     → 그 유저의 모든 recordId를 실패로 처리
+     * - userOk[i] == true:
+     *     → per-record 검증 수행
+     *     → invalid voteType / artist인 레코드만 failedRecordIds에 포함
+     *     → 일부라도 실패가 있으면 success=false
      */
     function _storeVoteRecords(
         UserVoteBatch[] calldata batches,
@@ -468,15 +471,13 @@ contract MainVoting is Ownable2Step, EIP712 {
             // 유저 배치가 검증 단계에서 실패한 경우
             if (!userOk[i]) {
                 if (userRecordLen > 0) {
-                    // 전제: 유저 배치의 모든 레코드는 동일한 votingId
                     uint256 votingId_ = userRecords[0].votingId;
 
-                    // 실패한 옵션ID 목록 (이번 배치에 포함된 전체 옵션ID)
-                    uint256[] memory failedOptionIds = new uint256[](
+                    uint256[] memory failedRecordIds = new uint256[](
                         userRecordLen
                     );
                     for (uint256 j; j < userRecordLen; ) {
-                        failedOptionIds[j] = userRecords[j].optionId;
+                        failedRecordIds[j] = userRecords[j].recordId;
                         unchecked {
                             ++j;
                         }
@@ -484,9 +485,9 @@ contract MainVoting is Ownable2Step, EIP712 {
 
                     emit UserVoteResult(
                         votingId_,
-                        false, // 하나라도 실패 → 전체 실패
-                        failedOptionIds,
-                        userReason[i] // 검증 단계에서 설정된 실패 코드
+                        false, // 배치 수준에서 실패 → 전체 실패
+                        failedRecordIds,
+                        userReason[i]
                     );
                 }
                 unchecked {
@@ -495,17 +496,32 @@ contract MainVoting is Ownable2Step, EIP712 {
                 continue;
             }
 
-            // 여기부터는 유저 배치 검증 통과 → 실제 저장 로직
+            // 여기부터는 유저 배치 검증 통과 → 실제 저장 로직 (per-record 검증 포함)
             address user = ub.userBatchSig.user;
 
-            // 전제: 유저의 모든 레코드는 동일한 votingId
             uint256 votingId = userRecordLen > 0 ? userRecords[0].votingId : 0;
+            uint256 localStored; // 이 유저 배치에서 실제로 저장된 레코드 수
+            uint256 failedCount;
+            bool hasReason;
+            uint8 localReason;
+
+            // 최대 길이 배열 만들어두고, 실제 사용 개수만큼 잘라서 이벤트에 사용
+            uint256[] memory tmpFailedRecordIds = new uint256[](userRecordLen);
 
             for (uint256 j; j < userRecordLen; ) {
                 VoteRecord calldata record = userRecords[j];
                 bytes32 recordDigest = recordDigests[i][j];
+                emit DebugRecordCheck(
+                    record.recordId,
+                    record.missionId,
+                    record.optionId,
+                    record.voteType,
+                    allowedArtist[record.missionId][record.optionId],
+                    consumed[user][recordDigest],
+                    record.votingAmt
+                );
 
-                // 중복 또는 빈 투표 스킵
+                // 중복 또는 빈 투표 스킵 (이 경우는 "실패"로 보지 않고 그냥 무시)
                 if (record.votingAmt == 0 || consumed[user][recordDigest]) {
                     unchecked {
                         ++j;
@@ -513,13 +529,40 @@ contract MainVoting is Ownable2Step, EIP712 {
                     continue;
                 }
 
-                // 저장
+                // per-record 검증: voteType
+                if (record.voteType > MAX_VOTE_TYPE) {
+                    tmpFailedRecordIds[failedCount] = record.recordId;
+                    failedCount++;
+                    if (!hasReason) {
+                        hasReason = true;
+                        localReason = REASON_INVALID_VOTE_TYPE;
+                    }
+                    unchecked {
+                        ++j;
+                    }
+                    continue;
+                }
+
+                // per-record 검증: artist allowed
+                if (!allowedArtist[record.missionId][record.optionId]) {
+                    tmpFailedRecordIds[failedCount] = record.recordId;
+                    failedCount++;
+                    if (!hasReason) {
+                        hasReason = true;
+                        localReason = REASON_ARTIST_NOT_ALLOWED;
+                    }
+                    unchecked {
+                        ++j;
+                    }
+                    continue;
+                }
+
+                // 여기까지 왔다면 이 레코드는 온전히 유효 → 저장 + 통계 반영
                 consumed[user][recordDigest] = true;
                 votes[recordDigest] = record;
                 voteHashesByMissionVotingId[record.missionId][record.votingId]
                     .push(recordDigest);
 
-                // 통계 업데이트
                 ArtistStats storage stats = artistStats[record.missionId][
                     record.optionId
                 ];
@@ -532,17 +575,36 @@ contract MainVoting is Ownable2Step, EIP712 {
 
                 unchecked {
                     ++storedCount;
+                    ++localStored;
                     ++j;
                 }
             }
 
-            // 검증 + 저장까지 완료된 votingId에 대한 결과 이벤트
+            // 이 유저 배치에 대한 UserVoteResult 이벤트 발행
             if (userRecordLen > 0) {
+                // failedRecordIds 배열 사이즈 맞게 잘라서 생성
+                uint256[] memory finalFailedIds;
+                if (failedCount > 0) {
+                    finalFailedIds = new uint256[](failedCount);
+                    for (uint256 k; k < failedCount; ) {
+                        finalFailedIds[k] = tmpFailedRecordIds[k];
+                        unchecked {
+                            ++k;
+                        }
+                    }
+                } else {
+                    finalFailedIds = new uint256[](0);
+                }
+
+                // 일부라도 실패가 있으면 success = false
+                bool success = (failedCount == 0 && localStored > 0);
+                uint8 reasonCode = success ? 0 : (hasReason ? localReason : 0);
+
                 emit UserVoteResult(
                     votingId,
-                    true, // 검증에 통과했고, 저장 시 치명 오류는 없음
-                    new uint256[](0), // 실패 옵션 없음
-                    0 // 성공이므로 실패 코드 0
+                    success,
+                    finalFailedIds,
+                    reasonCode
                 );
             }
 
@@ -620,8 +682,7 @@ contract MainVoting is Ownable2Step, EIP712 {
                     ++successUserCount;
                 }
             }
-            // 성공 시 reason=0, 실패 시 reason>0
-            userReason[i] = reason;
+            userReason[i] = reason; // 성공 시 0, 실패 시 > 0
 
             unchecked {
                 ++i;

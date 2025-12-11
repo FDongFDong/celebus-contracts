@@ -1,30 +1,251 @@
-# Celebus Voting Smart Contracts
+# MainVoting Contract
 
-Foundry 기반 Solidity 스마트 컨트랙트 프로젝트 - EIP-712 서명 기반 배치 투표 시스템
+EIP-712 기반 배치 투표 시스템. 다중 사용자의 Off-chain 서명을 수집하여 단일 트랜잭션으로 처리하는 가스 최적화 스마트 컨트랙트.
 
-## 프로젝트 개요
+---
 
-Celebus 투표 시스템은 다중 사용자의 투표를 효율적으로 처리하는 가스 최적화 배치 시스템입니다.
+## 컨트랙트 목적
 
-### 주요 컨트랙트
+MainVoting은 대규모 투표 시스템에서 발생하는 가스 비용 문제를 해결하기 위해 설계되었다. 개별 사용자가 각자 트랜잭션을 발생시키는 대신, 백엔드 서버가 다수의 사용자 서명을 수집하여 하나의 트랜잭션으로 일괄 제출한다.
 
-- **MainVoting**: EIP-712 배치 투표 시스템 (한 사용자 = 1개 서명 = N개 투표)
-- **SubVoting**: 단순 투표 시스템
-- **Boosting**: 부스팅 시스템
+**주요 목표:**
+- 다중 사용자 투표의 가스 비용 최소화
+- Off-chain 서명 수집 및 On-chain 일괄 검증
+- 리플레이 공격 및 서명 위조 방지
 
-### 핵심 특징
+---
 
-- ✅ **가스 최적화**: 배치 처리로 70-80% 가스 절감
-- ✅ **이중 서명**: 사용자 서명 + Executor 서명
-- ✅ **3단계 Nonce**: User/Batch/Record Nonce 시스템
-- ✅ **문자열 해시화**: 프라이버시 강화 및 가스 절감
-- ✅ **보안 감사 완료**: 99.5%+ 프로덕션 준비도
+## 핵심 기능 요약
+
+| 기능 | 설명 |
+|------|------|
+| submitMultiUserBatch | 다수 사용자의 투표를 단일 트랜잭션으로 처리 |
+| 2단계 서명 검증 | Executor 서명 + 개별 User 서명 |
+| Soft-fail 처리 | 일부 사용자 검증 실패 시에도 나머지 처리 진행 |
+| Nonce 기반 순서 보장 | batchNonce(Executor), userNonce(사용자) |
+| 아티스트별 통계 집계 | Remember/Forget 투표량 실시간 집계 |
+
+---
+
+## 보안 설계 포인트
+
+### 리플레이 공격 방지
+
+```
+1. CHAIN_ID: 배포 시점의 체인 ID를 immutable로 저장하여 크로스체인 리플레이 차단
+2. batchNonce: Executor별 순차 카운터로 배치 중복 제출 방지
+3. userNonce: 사용자별 순차 카운터로 동일 서명 재사용 차단
+4. consumed 매핑: (user, recordDigest) => bool로 개별 레코드 중복 처리 방지
+```
+
+### 2단계 서명 검증 구조
+
+```
+Executor 서명 검증 (배치 레벨)
+    -> 배치 전체의 무결성 보장
+    -> Executor만 배치 제출 가능
+
+User 서명 검증 (사용자 레벨)
+    -> 개별 사용자의 투표 의사 확인
+    -> EOA: ECDSA, 컨트랙트 지갑: ERC-1271
+```
+
+### 권한 분리
+
+- Owner: 컨트랙트 설정 변경 (Ownable2Step 적용)
+- Executor: 배치 제출 권한만 보유
+- User: 자신의 투표에 대해서만 서명 가능
+
+---
+
+## Off-chain Signature 흐름 (EIP-712 구조)
+
+### TypeHash 정의
+
+```solidity
+// 개별 투표 레코드
+VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 optionId,uint8 voteType,uint256 votingAmt,address user)
+
+// 사용자 배치 (recordsHash = keccak256(abi.encodePacked(recordDigests)))
+UserBatch(address user,uint256 userNonce,bytes32 recordsHash)
+
+// Executor 배치
+Batch(uint256 batchNonce)
+```
+
+### 서명 생성 순서 (Off-chain)
+
+```
+1. 각 VoteRecord에 대해 recordDigest = hash(VOTE_RECORD_TYPEHASH, record, user)
+2. recordsHash = keccak256(abi.encodePacked(recordDigests))
+3. userBatchDigest = EIP712Hash(USER_BATCH_TYPEHASH, user, userNonce, recordsHash)
+4. User가 userBatchDigest에 서명
+5. Executor가 batchDigest = EIP712Hash(BATCH_TYPEHASH, batchNonce)에 서명
+```
+
+### 서명 검증 순서 (On-chain)
+
+```
+submitMultiUserBatch() 호출
+    |
+    v
+[1] Executor 서명 검증 (batchDigest)
+    |
+    v
+[2] batchNonce 소비 (순차 증가)
+    |
+    v
+[3] 각 사용자별 루프
+    |-- recordDigests 재계산
+    |-- recordsHash 계산
+    |-- userBatchDigest 계산
+    |-- User 서명 검증
+    |-- userNonce 검증 및 소비
+    |
+    v
+[4] 검증 통과한 레코드 저장
+```
+
+---
+
+## 배치 투표 구조
+
+### 데이터 구조
+
+```
+submitMultiUserBatch(
+    UserVoteBatch[] batches,      // 사용자별 배치 배열
+    uint256 batchNonce_,          // Executor 배치 순서
+    bytes executorSig             // Executor 서명
+)
+
+UserVoteBatch {
+    VoteRecord[] records,         // 투표 레코드 배열 (최대 20개/사용자)
+    UserBatchSig userBatchSig     // 사용자 서명 정보
+}
+
+UserBatchSig {
+    address user,
+    uint256 userNonce,
+    bytes signature
+}
+```
+
+### 제한값
+
+| 항목 | 값 | 설명 |
+|------|-----|------|
+| MAX_RECORDS_PER_BATCH | 2000 | 배치당 최대 레코드 수 |
+| MAX_RECORDS_PER_USER_BATCH | 20 | 사용자당 최대 레코드 수 |
+| MAX_STRING_LENGTH | 100 | 문자열 필드 최대 길이 |
+| MAX_VOTE_TYPE | 1 | 0=Forget, 1=Remember |
+
+### Soft-fail 처리
+
+한 사용자의 검증이 실패해도 전체 트랜잭션이 revert되지 않는다. 실패 사유별 이벤트 코드:
+
+```
+REASON_USER_BATCH_TOO_LARGE = 1
+REASON_INVALID_USER_SIGNATURE = 2
+REASON_USER_NONCE_INVALID = 3
+REASON_INVALID_VOTE_TYPE = 5
+REASON_ARTIST_NOT_ALLOWED = 6
+```
+
+---
+
+## Gas 최적화 전략
+
+### 배치 처리
+
+개별 트랜잭션 대비 70-80% 가스 절감. 100명의 사용자가 각자 트랜잭션을 보내는 대신 1개의 배치 트랜잭션으로 처리.
+
+```
+개별 방식: 100 tx * 21,000 base gas = 2,100,000 gas
+배치 방식: 1 tx * ~600,000 gas (100명 기준)
+```
+
+### 저장소 최적화
+
+- 문자열(userId)은 서명 검증에 포함되지 않아 검증 시 hash 연산 감소
+- consumed 매핑으로 중복 체크 (bool 1 slot)
+- artistStats에 집계값 누적 (조회 시 재계산 불필요)
+
+### 연산 최적화
+
+```solidity
+// unchecked 블록으로 오버플로우 체크 생략 (안전한 범위 내)
+unchecked { ++i; }
+unchecked { ++storedCount; }
+
+// 조기 종료 조건
+if (record.votingAmt == 0 || consumed[user][recordDigest]) continue;
+```
+
+---
+
+## 백엔드 통신 방식
+
+### 투표 제출 흐름
+
+```
+[Frontend]
+    |-- 사용자가 투표 선택
+    |-- 컨트랙트에서 userNonce 직접 조회
+    |-- EIP-712 서명 요청 (MetaMask 등)
+    |-- 서명 데이터를 백엔드로 전송
+    v
+[Backend]
+    |-- 서명 수집 및 임시 저장
+    |-- 일정 주기 또는 조건 충족 시 배치 구성
+    |-- batchNonce 조회 및 Executor 서명 생성
+    |-- submitMultiUserBatch() 호출
+    v
+[Smart Contract]
+    |-- 검증 및 저장
+    v
+[Event]
+    |-- BatchProcessed (성공 통계)
+    |-- UserBatchProcessed (개별 성공)
+    |-- UserBatchFailed (개별 실패)
+```
+
+### 역할 분담
+
+**Frontend:**
+- 컨트랙트에서 userNonce(address) 직접 조회
+- EIP-712 서명 데이터 구성 및 사용자 서명 요청
+- 서명 결과를 백엔드 API로 전송
+
+**Backend:**
+- 다수 사용자 서명 수집 및 배치 구성
+- batchNonce 순서 관리
+- Executor 키로 배치 서명 생성
+- 트랜잭션 제출 및 실패 이벤트 모니터링
+
+### 주요 View 함수
+
+```solidity
+// 사용자 Nonce 조회 (Frontend에서 직접 호출)
+function userNonce(address user) external view returns (uint256);
+
+// Executor Nonce 조회 (Backend에서 호출)
+function batchNonce(address executor) external view returns (uint256);
+
+// EIP-712 도메인 정보
+function domainSeparator() external view returns (bytes32);
+
+// 투표 결과 조회
+function getArtistAggregates(uint256 missionId, uint256 optionId)
+    external view returns (uint256 remember, uint256 forget, uint256 total);
+```
+
+---
 
 ## 배포 정보
 
 - **네트워크**: opBNB Testnet (Chain ID: 5611)
-- **최신 배포**: [DEPLOYMENT.md](./DEPLOYMENT.md) 참조
-- **Explorer**: <https://testnet.opbnbscan.com/>
+- **Explorer**: https://testnet.opbnbscan.com/
 
 ## 빠른 시작
 

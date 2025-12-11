@@ -535,6 +535,11 @@
             "internalType": "struct MainVoting.VoteRecord[]",
             "components": [
               {
+                "name": "recordId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
                 "name": "timestamp",
                 "type": "uint256",
                 "internalType": "uint256"
@@ -671,6 +676,11 @@
       }
     ],
     "outputs": [
+      {
+        "name": "recordId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
       {
         "name": "timestamp",
         "type": "uint256",
@@ -942,6 +952,37 @@
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UserVoteResult",
+    "inputs": [
+      {
+        "name": "votingId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "success",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      },
+      {
+        "name": "failedRecordIds",
+        "type": "uint256[]",
+        "indexed": false,
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "reasonCode",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
       }
     ],
     "anonymous": false

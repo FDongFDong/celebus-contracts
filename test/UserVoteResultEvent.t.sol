@@ -5,26 +5,16 @@ import {Test, console} from "forge-std/Test.sol";
 import {MainVoting} from "../src/vote/MainVoting.sol";
 
 /**
- * ╔══════════════════════════════════════════════════════════════════════════════╗
- * ║                    UserVoteResult 이벤트 테스트                               ║
- * ╠══════════════════════════════════════════════════════════════════════════════╣
- * ║                                                                              ║
- * ║  이벤트 구조:                                                                 ║
- * ║  event UserVoteResult(                                                       ║
- * ║      uint256 indexed votingId,                                               ║
- * ║      bool success,                                                           ║
- * ║      uint256[] failedOptionIds,                                              ║
- * ║      uint8 reasonCode                                                        ║
- * ║  );                                                                          ║
- * ║                                                                              ║
- * ║  실패 사유 코드:                                                              ║
- * ║  1 = REASON_USER_BATCH_TOO_LARGE                                             ║
- * ║  2 = REASON_INVALID_USER_SIGNATURE                                           ║
- * ║  3 = REASON_USER_NONCE_INVALID                                               ║
- * ║  4 = REASON_INVALID_VOTE_TYPE                                                ║
- * ║  5 = REASON_ARTIST_NOT_ALLOWED                                               ║
- * ║                                                                              ║
- * ╚══════════════════════════════════════════════════════════════════════════════╝
+ * @title UserVoteResult 이벤트 테스트
+ * @notice 컨트랙트의 실제 동작:
+ *         - UserBatchFailed: 검증 단계에서 실패 시 발생 (서명 무효, nonce 무효, voteType 무효, artist 미허용)
+ *         - UserVoteResult: 저장 단계에서 발생 (검증 실패한 유저도 포함)
+ *           - success=true: 검증 통과 및 저장 성공
+ *           - success=false: 검증 실패
+ *
+ *         이벤트 발생 순서:
+ *         1. _validateAndProcess에서 UserBatchProcessed / UserBatchFailed 발생
+ *         2. _storeVotes에서 모든 UserVoteResult 발생 (성공/실패 모두)
  */
 contract UserVoteResultEventTest is Test {
     MainVoting public voting;
@@ -61,7 +51,14 @@ contract UserVoteResultEventTest is Test {
     event UserVoteResult(
         uint256 indexed votingId,
         bool success,
-        uint256[] failedOptionIds,
+        uint256[] failedRecordIds,
+        uint8 reasonCode
+    );
+
+    event UserBatchFailed(
+        bytes32 indexed batchDigest,
+        address indexed user,
+        uint256 userNonce,
         uint8 reasonCode
     );
 
@@ -103,9 +100,9 @@ contract UserVoteResultEventTest is Test {
         console.log("========================================");
     }
 
-    // ╔═══════════════════════════════════════════════════════════════════════════╗
-    // ║                           Helper Functions                                 ║
-    // ╚═══════════════════════════════════════════════════════════════════════════╝
+    // =====================================================================
+    //                           Helper Functions
+    // =====================================================================
 
     function _buildDomainSeparator() internal view returns (bytes32) {
         return keccak256(
@@ -132,6 +129,7 @@ contract UserVoteResultEventTest is Test {
         uint256 votingAmt
     ) internal view returns (MainVoting.VoteRecord memory) {
         return MainVoting.VoteRecord({
+            recordId: uint256(keccak256(abi.encodePacked(userId, missionId, votingId, optionId, block.timestamp))),
             timestamp: block.timestamp,
             missionId: missionId,
             votingId: votingId,
@@ -219,9 +217,9 @@ contract UserVoteResultEventTest is Test {
         });
     }
 
-    // ╔═══════════════════════════════════════════════════════════════════════════╗
-    // ║        테스트 1: 성공 케이스 - UserVoteResult(votingId, true, [], 0)        ║
-    // ╚═══════════════════════════════════════════════════════════════════════════╝
+    // =====================================================================
+    //        테스트 1: 성공 케이스 - UserVoteResult(votingId, true, [], 0)
+    // =====================================================================
 
     function test_UserVoteResult_Success_SingleUser() public {
         console.log("\n========================================");
@@ -305,11 +303,13 @@ contract UserVoteResultEventTest is Test {
         console.log("========================================\n");
     }
 
-    // ╔═══════════════════════════════════════════════════════════════════════════╗
-    // ║   테스트 2: 실패 케이스 - UserVoteResult(votingId, false, optionIds, code) ║
-    // ╚═══════════════════════════════════════════════════════════════════════════╝
+    // =====================================================================
+    //   테스트 2: 실패 케이스 - 이벤트 순서: UserBatchFailed -> UserVoteResult
+    //   검증 단계에서 UserBatchFailed 발생 후, 저장 단계에서 UserVoteResult 발생
+    // =====================================================================
 
-    function test_UserVoteResult_Fail_InvalidSignature() public {
+    /// @notice 서명 무효 시 UserBatchFailed 먼저, 그 다음 UserVoteResult 발생
+    function test_UserBatchFailed_InvalidSignature() public {
         console.log("\n========================================");
         console.log("TEST: Fail Case - Invalid Signature");
         console.log("========================================");
@@ -321,32 +321,31 @@ contract UserVoteResultEventTest is Test {
         records1[0] = _createVoteRecord("user1_uuid", 1, 300, 1, 1, 100);
         batches[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);
 
-        // User2: 잘못된 서명 (votingId=301, optionIds=[2,3])
-        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](2);
-        records2[0] = _createVoteRecord("user2_uuid", 1, 301, 2, 1, 200);  // BLACKPINK
-        records2[1] = _createVoteRecord("user2_uuid", 1, 301, 3, 0, 150);  // TWICE
+        // User2: 잘못된 서명 (votingId=301)
+        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
+        records2[0] = _createVoteRecord("user2_uuid", 1, 301, 2, 1, 200);
         batches[1] = _createUserVoteBatchWithWrongSig(records2, user2, 0, user3PrivateKey);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
         console.log("Submitting votes with invalid signature...");
-        console.log("  User1: votingId=300, optionId=1 -> SUCCESS");
-        console.log("  User2: votingId=301, optionIds=[2,3] -> FAIL (wrong sig)");
-        console.log("Expected events:");
-        console.log("  UserVoteResult(300, true, [], 0)");
-        console.log("  UserVoteResult(301, false, [2,3], 2)  // reasonCode=2 (INVALID_USER_SIGNATURE)");
+        console.log("  User1: votingId=300 -> SUCCESS");
+        console.log("  User2: votingId=301 -> FAIL");
+        console.log("Event order: UserBatchFailed -> UserVoteResult(300, true) -> UserVoteResult(301, false)");
 
-        // User1 성공 이벤트
         uint256[] memory emptyArray = new uint256[](0);
+
+        // 1. User2 실패 - UserBatchFailed 이벤트 (검증 단계에서 먼저 발생)
+        vm.expectEmit(false, true, false, true);
+        emit UserBatchFailed(bytes32(0), user2, 0, REASON_INVALID_USER_SIGNATURE);
+
+        // 2. User1 성공 - UserVoteResult (저장 단계에서 발생)
         vm.expectEmit(true, false, false, true);
         emit UserVoteResult(300, true, emptyArray, 0);
 
-        // User2 실패 이벤트
-        uint256[] memory failedOptions = new uint256[](2);
-        failedOptions[0] = 2;
-        failedOptions[1] = 3;
-        vm.expectEmit(true, false, false, true);
-        emit UserVoteResult(301, false, failedOptions, REASON_INVALID_USER_SIGNATURE);
+        // 3. User2 실패 결과 - UserVoteResult(false) (저장 단계에서 발생)
+        vm.expectEmit(true, false, false, false);
+        emit UserVoteResult(301, false, emptyArray, REASON_INVALID_USER_SIGNATURE);
 
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
@@ -354,7 +353,8 @@ contract UserVoteResultEventTest is Test {
         console.log("========================================\n");
     }
 
-    function test_UserVoteResult_Fail_ArtistNotAllowed() public {
+    /// @notice Artist 미허용 시
+    function test_UserBatchFailed_ArtistNotAllowed() public {
         console.log("\n========================================");
         console.log("TEST: Fail Case - Artist Not Allowed");
         console.log("========================================");
@@ -367,33 +367,29 @@ contract UserVoteResultEventTest is Test {
         batches[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);
 
         // User2: 허용되지 않은 아티스트 (optionId=99)
-        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](3);
+        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
         records2[0] = _createVoteRecord("user2_uuid", 1, 401, 99, 1, 200);  // 허용 안됨!
-        records2[1] = _createVoteRecord("user2_uuid", 1, 401, 1, 0, 100);
-        records2[2] = _createVoteRecord("user2_uuid", 1, 401, 2, 1, 150);
         batches[1] = _createUserVoteBatch(records2, user2, 0, user2PrivateKey);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
         console.log("Submitting votes with not-allowed artist...");
         console.log("  User1: votingId=400 -> SUCCESS");
-        console.log("  User2: votingId=401, optionIds=[99,1,2] -> FAIL (artist 99 not allowed)");
-        console.log("Expected events:");
-        console.log("  UserVoteResult(400, true, [], 0)");
-        console.log("  UserVoteResult(401, false, [99,1,2], 5)  // reasonCode=5 (ARTIST_NOT_ALLOWED)");
+        console.log("  User2: votingId=401, optionId=99 -> FAIL");
 
-        // User1 성공
         uint256[] memory emptyArray = new uint256[](0);
+
+        // 1. User2 실패 - UserBatchFailed 이벤트
+        vm.expectEmit(false, true, false, true);
+        emit UserBatchFailed(bytes32(0), user2, 0, REASON_ARTIST_NOT_ALLOWED);
+
+        // 2. User1 성공
         vm.expectEmit(true, false, false, true);
         emit UserVoteResult(400, true, emptyArray, 0);
 
-        // User2 실패 - 모든 optionId가 failedOptionIds에 포함
-        uint256[] memory failedOptions = new uint256[](3);
-        failedOptions[0] = 99;
-        failedOptions[1] = 1;
-        failedOptions[2] = 2;
-        vm.expectEmit(true, false, false, true);
-        emit UserVoteResult(401, false, failedOptions, REASON_ARTIST_NOT_ALLOWED);
+        // 3. User2 실패 결과
+        vm.expectEmit(true, false, false, false);
+        emit UserVoteResult(401, false, emptyArray, REASON_ARTIST_NOT_ALLOWED);
 
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
@@ -401,7 +397,8 @@ contract UserVoteResultEventTest is Test {
         console.log("========================================\n");
     }
 
-    function test_UserVoteResult_Fail_InvalidVoteType() public {
+    /// @notice voteType 무효 시
+    function test_UserBatchFailed_InvalidVoteType() public {
         console.log("\n========================================");
         console.log("TEST: Fail Case - Invalid Vote Type");
         console.log("========================================");
@@ -413,10 +410,9 @@ contract UserVoteResultEventTest is Test {
         records1[0] = _createVoteRecord("user1_uuid", 1, 500, 1, 1, 100);
         batches[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);
 
-        // User2: 잘못된 voteType (5는 유효하지 않음, 0 또는 1만 가능)
-        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](2);
+        // User2: 잘못된 voteType (5는 유효하지 않음)
+        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
         records2[0] = _createVoteRecord("user2_uuid", 1, 501, 2, 5, 200);  // voteType=5 invalid!
-        records2[1] = _createVoteRecord("user2_uuid", 1, 501, 3, 1, 150);
         batches[1] = _createUserVoteBatch(records2, user2, 0, user2PrivateKey);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
@@ -424,21 +420,20 @@ contract UserVoteResultEventTest is Test {
         console.log("Submitting votes with invalid voteType...");
         console.log("  User1: votingId=500 -> SUCCESS");
         console.log("  User2: votingId=501, voteType=5 -> FAIL");
-        console.log("Expected events:");
-        console.log("  UserVoteResult(500, true, [], 0)");
-        console.log("  UserVoteResult(501, false, [2,3], 4)  // reasonCode=4 (INVALID_VOTE_TYPE)");
 
-        // User1 성공
         uint256[] memory emptyArray = new uint256[](0);
+
+        // 1. User2 실패 - UserBatchFailed 이벤트
+        vm.expectEmit(false, true, false, true);
+        emit UserBatchFailed(bytes32(0), user2, 0, REASON_INVALID_VOTE_TYPE);
+
+        // 2. User1 성공
         vm.expectEmit(true, false, false, true);
         emit UserVoteResult(500, true, emptyArray, 0);
 
-        // User2 실패
-        uint256[] memory failedOptions = new uint256[](2);
-        failedOptions[0] = 2;
-        failedOptions[1] = 3;
-        vm.expectEmit(true, false, false, true);
-        emit UserVoteResult(501, false, failedOptions, REASON_INVALID_VOTE_TYPE);
+        // 3. User2 실패 결과
+        vm.expectEmit(true, false, false, false);
+        emit UserVoteResult(501, false, emptyArray, REASON_INVALID_VOTE_TYPE);
 
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
@@ -446,7 +441,8 @@ contract UserVoteResultEventTest is Test {
         console.log("========================================\n");
     }
 
-    function test_UserVoteResult_Fail_NonceInvalid() public {
+    /// @notice Nonce 무효 시
+    function test_UserBatchFailed_NonceInvalid() public {
         console.log("\n========================================");
         console.log("TEST: Fail Case - Nonce Invalid");
         console.log("========================================");
@@ -457,9 +453,8 @@ contract UserVoteResultEventTest is Test {
         MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](2);
 
         // User1: 잘못된 nonce (expected=5인데 0 사용)
-        MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](2);
+        MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](1);
         records1[0] = _createVoteRecord("user1_uuid", 1, 600, 1, 1, 100);
-        records1[1] = _createVoteRecord("user1_uuid", 1, 600, 4, 0, 200);  // SEVENTEEN
         batches[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);  // nonce=0 (wrong!)
 
         // User2: 성공
@@ -472,19 +467,18 @@ contract UserVoteResultEventTest is Test {
         console.log("Submitting votes with invalid nonce...");
         console.log("  User1: votingId=600, nonce=0 (expected=5) -> FAIL");
         console.log("  User2: votingId=601 -> SUCCESS");
-        console.log("Expected events:");
-        console.log("  UserVoteResult(600, false, [1,4], 3)  // reasonCode=3 (USER_NONCE_INVALID)");
-        console.log("  UserVoteResult(601, true, [], 0)");
 
-        // User1 실패
-        uint256[] memory failedOptions = new uint256[](2);
-        failedOptions[0] = 1;
-        failedOptions[1] = 4;
-        vm.expectEmit(true, false, false, true);
-        emit UserVoteResult(600, false, failedOptions, REASON_USER_NONCE_INVALID);
-
-        // User2 성공
         uint256[] memory emptyArray = new uint256[](0);
+
+        // 1. User1 실패 - UserBatchFailed 이벤트
+        vm.expectEmit(false, true, false, true);
+        emit UserBatchFailed(bytes32(0), user1, 0, REASON_USER_NONCE_INVALID);
+
+        // 2. User1 실패 결과 - UserVoteResult(false)
+        vm.expectEmit(true, false, false, false);
+        emit UserVoteResult(600, false, emptyArray, REASON_USER_NONCE_INVALID);
+
+        // 3. User2 성공
         vm.expectEmit(true, false, false, true);
         emit UserVoteResult(601, true, emptyArray, 0);
 
@@ -494,9 +488,9 @@ contract UserVoteResultEventTest is Test {
         console.log("========================================\n");
     }
 
-    // ╔═══════════════════════════════════════════════════════════════════════════╗
-    // ║                 테스트 3: 복합 케이스 - 성공/실패 혼합                       ║
-    // ╚═══════════════════════════════════════════════════════════════════════════╝
+    // =====================================================================
+    //                 테스트 3: 복합 케이스 - 성공/실패 혼합
+    // =====================================================================
 
     function test_UserVoteResult_Mixed_MultipleUsersPartialFail() public {
         console.log("\n========================================");
@@ -512,10 +506,8 @@ contract UserVoteResultEventTest is Test {
         batches[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);
 
         // User2: 실패 - 잘못된 서명 (votingId=701)
-        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](3);
+        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
         records2[0] = _createVoteRecord("user2_uuid", 1, 701, 3, 1, 200);  // TWICE
-        records2[1] = _createVoteRecord("user2_uuid", 1, 701, 4, 0, 100);  // SEVENTEEN
-        records2[2] = _createVoteRecord("user2_uuid", 1, 701, 5, 1, 150);  // STRAY KIDS
         batches[1] = _createUserVoteBatchWithWrongSig(records2, user2, 0, user1PrivateKey);
 
         // User3: 성공 (votingId=702)
@@ -527,28 +519,24 @@ contract UserVoteResultEventTest is Test {
 
         console.log("Submitting mixed success/fail batch...");
         console.log("  User1 (votingId=700): 2 records -> SUCCESS");
-        console.log("  User2 (votingId=701): 3 records, wrong sig -> FAIL");
+        console.log("  User2 (votingId=701): wrong sig -> FAIL");
         console.log("  User3 (votingId=702): 1 record -> SUCCESS");
-        console.log("");
-        console.log("Expected events:");
-        console.log("  UserVoteResult(700, true, [], 0)");
-        console.log("  UserVoteResult(701, false, [3,4,5], 2)");
-        console.log("  UserVoteResult(702, true, [], 0)");
 
-        // User1 성공
         uint256[] memory emptyArray = new uint256[](0);
+
+        // 1. User2 실패 - UserBatchFailed (검증 단계)
+        vm.expectEmit(false, true, false, true);
+        emit UserBatchFailed(bytes32(0), user2, 0, REASON_INVALID_USER_SIGNATURE);
+
+        // 2. User1 성공 (저장 단계)
         vm.expectEmit(true, false, false, true);
         emit UserVoteResult(700, true, emptyArray, 0);
 
-        // User2 실패
-        uint256[] memory failedOptions = new uint256[](3);
-        failedOptions[0] = 3;
-        failedOptions[1] = 4;
-        failedOptions[2] = 5;
-        vm.expectEmit(true, false, false, true);
-        emit UserVoteResult(701, false, failedOptions, REASON_INVALID_USER_SIGNATURE);
+        // 3. User2 실패 결과 (저장 단계)
+        vm.expectEmit(true, false, false, false);
+        emit UserVoteResult(701, false, emptyArray, REASON_INVALID_USER_SIGNATURE);
 
-        // User3 성공
+        // 4. User3 성공 (저장 단계)
         vm.expectEmit(true, false, false, true);
         emit UserVoteResult(702, true, emptyArray, 0);
 
@@ -567,39 +555,37 @@ contract UserVoteResultEventTest is Test {
         console.log("========================================\n");
     }
 
-    // ╔═══════════════════════════════════════════════════════════════════════════╗
-    // ║                      실제 로그 출력 테스트 (verbose)                        ║
-    // ╚═══════════════════════════════════════════════════════════════════════════╝
+    // =====================================================================
+    //                      실제 로그 출력 테스트 (verbose)
+    // =====================================================================
 
-    function test_UserVoteResult_PrintEventFormat() public {
+    function test_UserVoteResult_PrintEventFormat() public pure {
         console.log("\n");
         console.log("================================================================");
-        console.log("            UserVoteResult Event Format Examples");
+        console.log("            Event Format Examples");
         console.log("================================================================");
         console.log("");
-        console.log("SUCCESS case:");
+        console.log("SUCCESS case - UserVoteResult only:");
         console.log("  event UserVoteResult(");
         console.log("    votingId: 100,");
         console.log("    success: true,");
-        console.log("    failedOptionIds: [],");
+        console.log("    failedRecordIds: [],");
         console.log("    reasonCode: 0");
         console.log("  )");
         console.log("");
-        console.log("FAIL case (Invalid Signature):");
-        console.log("  event UserVoteResult(");
-        console.log("    votingId: 101,");
-        console.log("    success: false,");
-        console.log("    failedOptionIds: [1, 2, 3],  // all optionIds in the batch");
-        console.log("    reasonCode: 2  // REASON_INVALID_USER_SIGNATURE");
-        console.log("  )");
-        console.log("");
-        console.log("FAIL case (Artist Not Allowed):");
-        console.log("  event UserVoteResult(");
-        console.log("    votingId: 102,");
-        console.log("    success: false,");
-        console.log("    failedOptionIds: [99, 1, 2],  // includes the invalid optionId");
-        console.log("    reasonCode: 5  // REASON_ARTIST_NOT_ALLOWED");
-        console.log("  )");
+        console.log("FAIL case - UserBatchFailed THEN UserVoteResult(false):");
+        console.log("  1. event UserBatchFailed(  // validation phase");
+        console.log("       batchDigest: 0x...,");
+        console.log("       user: 0x...,");
+        console.log("       userNonce: 0,");
+        console.log("       reasonCode: 2");
+        console.log("     )");
+        console.log("  2. event UserVoteResult(   // store phase");
+        console.log("       votingId: 101,");
+        console.log("       success: false,");
+        console.log("       failedRecordIds: [recordId1, ...],");
+        console.log("       reasonCode: 2");
+        console.log("     )");
         console.log("");
         console.log("Reason Codes:");
         console.log("  1 = REASON_USER_BATCH_TOO_LARGE");

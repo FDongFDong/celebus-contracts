@@ -12,6 +12,7 @@ import { Step5Struct } from './components/step5-struct.js';
 import { Step6Digest } from './components/step6-digest.js';
 import { Step7Submit } from './components/step7-submit.js';
 import { Step8Query } from './components/step8-query.js';
+import { Step9Events } from './components/step9-events.js';
 
 class MainVotingApp {
   constructor() {
@@ -39,7 +40,7 @@ class MainVotingApp {
       executorSig: null,
 
       // Contract
-      contractAddress: '0x509c27A029620Ac71F42653440892dcb73E13BEf',
+      contractAddress: 'NEW_CONTRACT_ADDRESS',
 
       // Provider
       provider: new ethers.JsonRpcProvider('https://opbnb-testnet-rpc.bnbchain.org')
@@ -55,8 +56,14 @@ class MainVotingApp {
       step5: new Step5Struct(this.state),
       step6: new Step6Digest(this.state),
       step7: new Step7Submit(this.state),
-      step8: new Step8Query(this.state)
+      step8: new Step8Query(this.state),
+      step9: new Step9Events(this.state)
     };
+
+    // Step 7 → Step 9 연동 (자동 이벤트 파싱)
+    this.steps.step7.setEventCallback((receipt, txHash) => {
+      this.steps.step9.addEventsFromReceipt(receipt, txHash);
+    });
 
     this.init();
   }
@@ -140,8 +147,13 @@ class MainVotingApp {
         ${this.steps.step6.render()}
         ${this.steps.step7.render()}
         ${this.steps.step8.render()}
+        ${this.renderStep9()}
       </div>
     `;
+    // Step 9 초기화
+    if (this.steps.step9) {
+      this.steps.step9.init();
+    }
     // 동적으로 생성된 아이콘 초기화
     if (typeof lucide !== 'undefined') {
       lucide.createIcons();
@@ -159,6 +171,7 @@ class MainVotingApp {
     window.step6 = this.steps.step6;
     window.step7 = this.steps.step7;
     window.step8 = this.steps.step8;
+    window.step9 = this.steps.step9;
 
     // State 변경 감지 (디버깅용)
     console.log('[EVENT] Event Listeners Attached');
@@ -259,6 +272,143 @@ class MainVotingApp {
     if (confirm('모든 데이터를 초기화하시겠습니까?')) {
       location.reload();
     }
+  }
+
+  /**
+   * Step 9: UserVoteResult 이벤트 조회 UI 렌더링
+   */
+  renderStep9() {
+    return `
+      <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-purple-500">
+        <h2 class="text-xl font-semibold mb-4">
+          <span class="step-badge bg-purple-500">STEP 9</span>
+          <i data-lucide="bell" class="w-5 h-5 inline"></i> UserVoteResult 이벤트 조회
+        </h2>
+        <p class="text-sm text-gray-600 mb-4">
+          트랜잭션의 UserVoteResult 이벤트를 조회하고 실패 알림을 확인합니다
+        </p>
+
+        <!-- 트랜잭션 해시로 조회 -->
+        <div class="mb-6 p-4 bg-purple-50 rounded-lg">
+          <h3 class="font-semibold text-purple-900 mb-3">
+            <i data-lucide="search" class="w-4 h-4 inline"></i> 트랜잭션 해시로 조회
+          </h3>
+          <div class="flex gap-2">
+            <input
+              type="text"
+              id="txHashInput"
+              class="flex-1 px-3 py-2 border rounded-md font-mono text-sm"
+              placeholder="0x..."
+            >
+            <button
+              id="queryByTxBtn"
+              class="px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition"
+            >
+              <i data-lucide="search" class="w-4 h-4 inline"></i> 조회
+            </button>
+          </div>
+        </div>
+
+        <!-- 블록 범위로 조회 -->
+        <div class="mb-6 p-4 bg-gray-50 rounded-lg">
+          <h3 class="font-semibold text-gray-700 mb-3">
+            <i data-lucide="layers" class="w-4 h-4 inline"></i> 블록 범위로 조회
+          </h3>
+          <div class="grid grid-cols-3 gap-3 mb-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">From Block</label>
+              <input
+                type="number"
+                id="fromBlock"
+                class="w-full px-3 py-2 border rounded-md"
+                placeholder="시작 블록"
+              >
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">To Block</label>
+              <input
+                type="number"
+                id="toBlock"
+                class="w-full px-3 py-2 border rounded-md"
+                placeholder="latest"
+              >
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Voting ID (선택)</label>
+              <input
+                type="number"
+                id="votingIdFilter"
+                class="w-full px-3 py-2 border rounded-md"
+                placeholder="필터링"
+              >
+            </div>
+          </div>
+          <button
+            id="queryByBlockBtn"
+            class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition"
+          >
+            <i data-lucide="search" class="w-4 h-4 inline"></i> 블록 범위 조회
+          </button>
+        </div>
+
+        <!-- 조회 결과 테이블 -->
+        <div class="mb-6">
+          <h3 class="font-semibold text-gray-800 mb-3">
+            <i data-lucide="list" class="w-4 h-4 inline"></i> 조회 결과
+            <span id="eventSourceLabel" class="text-sm font-normal text-gray-500"></span>
+          </h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm border-collapse">
+              <thead>
+                <tr class="bg-gray-100">
+                  <th class="border px-3 py-2 text-left">#</th>
+                  <th class="border px-3 py-2 text-left">Voting ID</th>
+                  <th class="border px-3 py-2 text-left">성공여부</th>
+                  <th class="border px-3 py-2 text-left">실패 레코드 수</th>
+                  <th class="border px-3 py-2 text-left">실패 사유</th>
+                  <th class="border px-3 py-2 text-left">상세</th>
+                </tr>
+              </thead>
+              <tbody id="eventResultsBody">
+                <tr><td colspan="6" class="border px-3 py-4 text-center text-gray-500">조회된 이벤트가 없습니다</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 실패 알림 영역 -->
+        <div class="mb-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-semibold text-red-800">
+              <i data-lucide="alert-triangle" class="w-4 h-4 inline"></i> 실패 알림
+            </h3>
+            <button
+              id="clearAlertsBtn"
+              class="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200 transition"
+            >
+              <i data-lucide="trash-2" class="w-3 h-3 inline"></i> 알림 클리어
+            </button>
+          </div>
+          <div id="failureAlerts" class="space-y-3">
+            <!-- 알림 카드가 동적으로 추가됩니다 -->
+          </div>
+        </div>
+
+        <!-- 에러 메시지 -->
+        <div id="step9Error" class="hidden bg-red-50 border border-red-200 rounded p-3 mb-4">
+          <p class="text-red-700 text-sm"></p>
+        </div>
+
+        <!-- 로그 출력 -->
+        <details class="mt-4">
+          <summary class="cursor-pointer text-gray-600 text-sm hover:text-gray-800">
+            <i data-lucide="terminal" class="w-4 h-4 inline"></i> 로그 보기
+          </summary>
+          <div id="step9Log" class="mt-2 p-3 bg-gray-900 text-green-400 rounded font-mono text-xs h-32 overflow-y-auto">
+          </div>
+        </details>
+      </div>
+    `;
   }
 }
 

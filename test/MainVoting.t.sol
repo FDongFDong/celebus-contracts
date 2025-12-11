@@ -120,6 +120,7 @@ contract MainVotingTest is Test {
         uint256 votingAmt
     ) internal view returns (MainVoting.VoteRecord memory) {
         return MainVoting.VoteRecord({
+            recordId: uint256(keccak256(abi.encodePacked(userId, missionId, votingId, block.timestamp))),
             timestamp: block.timestamp,
             missionId: missionId,
             votingId: votingId,
@@ -439,6 +440,7 @@ contract MainVotingTest is Test {
 
         MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](1);
         records[0] = MainVoting.VoteRecord({
+            recordId: uint256(keccak256(abi.encodePacked(longUserId, uint256(1), uint256(1), block.timestamp))),
             timestamp: block.timestamp,
             missionId: 1,
             votingId: 1,

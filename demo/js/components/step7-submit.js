@@ -5,9 +5,30 @@
 
 import { CONFIG, getContractInstance } from '../config.js';
 
+/**
+ * recordId 생성 유틸리티
+ * 백엔드에서 생성하는 단순 유니크 ID를 시뮬레이션
+ * @param {number} index - 레코드 인덱스
+ * @returns {bigint} uint256 형식의 recordId
+ */
+function generateRecordId(index) {
+  // 단순히 타임스탬프 + 인덱스를 사용
+  // 실제 백엔드에서는 UUID나 DB auto-increment ID 사용
+  // String으로 반환해야 JSON.stringify()에서 정상 동작
+  return String(Date.now() * 1000 + index);
+}
+
 export class Step7Submit {
   constructor(state) {
     this.state = state;
+    this.onEventsReceived = null; // Step 9 연동 콜백
+  }
+
+  /**
+   * Step 9 연동을 위한 콜백 설정
+   */
+  setEventCallback(callback) {
+    this.onEventsReceived = callback;
   }
 
   render() {
@@ -204,25 +225,30 @@ export class Step7Submit {
   }
 
   /**
-   * UserVoteBatch[] 구조로 데이터 생성
+   * UserVoteBatch[] 구조로 데이터 생성 (Remix 표시용)
    */
   buildUserVoteBatches() {
     const batches = [];
+    let globalIndex = 0;
 
     // 각 userBatchSig에 대해 UserVoteBatch 생성
     this.state.userBatchSigs.forEach(sig => {
       // 해당 사용자의 레코드 필터링
       const userRecords = this.state.records
         .filter(r => r.userAddress === sig.user)
-        .map(r => ({
-          timestamp: r.timestamp,
-          missionId: r.missionId,
-          votingId: r.votingId,
-          optionId: r.optionId,
-          voteType: r.voteType,
-          userId: r.userId,
-          votingAmt: r.votingAmt
-        }));
+        .map(r => {
+          const recordId = generateRecordId(globalIndex++);
+          return {
+            recordId: recordId,
+            timestamp: r.timestamp,
+            missionId: r.missionId,
+            votingId: r.votingId,
+            optionId: r.optionId,
+            voteType: r.voteType,
+            userId: r.userId,
+            votingAmt: r.votingAmt
+          };
+        });
 
       if (userRecords.length > 0) {
         batches.push({
@@ -329,20 +355,25 @@ export class Step7Submit {
       document.getElementById('submitResult').classList.add('hidden');
       document.getElementById('submitError').classList.add('hidden');
 
-      // UserVoteBatch[] 구조로 변환
+      // UserVoteBatch[] 구조로 변환 (recordId 포함)
+      let globalIndex = 0;
       const batches = this.state.userBatchSigs.map(sig => {
         // 해당 사용자의 레코드 필터링
         const userRecords = this.state.records
           .filter(r => r.userAddress === sig.user)
-          .map(r => [
-            r.timestamp,
-            r.missionId,
-            r.votingId,
-            r.optionId,
-            r.voteType,
-            r.userId,
-            r.votingAmt
-          ]);
+          .map(r => {
+            const recordId = generateRecordId(globalIndex++);
+            return [
+              recordId,       // recordId: bytes32 (첫 번째 필드)
+              r.timestamp,
+              r.missionId,
+              r.votingId,
+              r.optionId,
+              r.voteType,
+              r.userId,
+              r.votingAmt
+            ];
+          });
 
         return [
           userRecords,  // records: VoteRecord[]
@@ -393,6 +424,18 @@ export class Step7Submit {
       document.getElementById('txLink').href = explorerUrl;
       document.getElementById('submitResult').classList.remove('hidden');
       document.getElementById('submitError').classList.add('hidden');
+
+      // Step 9로 이벤트 전달 (자동 파싱)
+      if (this.onEventsReceived && receipt) {
+        this.setLoadingState(true, 'UserVoteResult 이벤트 파싱 중...');
+        try {
+          this.onEventsReceived(receipt, tx.hash);
+          console.log('[EVENT] UserVoteResult events sent to Step 9');
+        } catch (eventError) {
+          console.warn('[EVENT] Event parsing warning:', eventError);
+        }
+        this.setLoadingState(false);
+      }
 
     } catch (error) {
       console.error('[ERROR] Submit failed:', error);

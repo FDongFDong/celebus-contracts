@@ -38,7 +38,13 @@
       "mcp__playwright__browser_wait_for",
       "Bash(cast call:*)",
       "Bash(cast receipt:*)",
-      "mcp__playwright__browser_run_code"
+      "mcp__playwright__browser_run_code",
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__read_file",
+      "mcp__serena__activate_project",
+      "Bash(forge test:*)",
+      "Bash(git commit:*)",
+      "mcp__serena__list_dir"
     ],
     "deny": [],
     "ask": []
