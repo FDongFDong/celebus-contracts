@@ -23,7 +23,7 @@ interface IERC1271 {
  *
  *      Nonce 시스템으로 리플레이 공격 방지:
  *      - batchNonce: Executor별 배치 순서 보장
- *      - userNonce: 사용자별 투표 순서 보장
+ *      - userNonce: 사용자별 투표 중복 방지
  */
 contract MainVoting is Ownable2Step, EIP712 {
     // ============================================================
@@ -45,11 +45,12 @@ contract MainVoting is Ownable2Step, EIP712 {
     uint8 public constant VOTE_TYPE_REMEMBER = 1;
 
     // UserBatchFailed / UserVoteResult 이벤트용 실패 사유 코드
-    uint8 private constant REASON_USER_BATCH_TOO_LARGE = 1;
-    uint8 private constant REASON_INVALID_USER_SIGNATURE = 2;
-    uint8 private constant REASON_USER_NONCE_INVALID = 3;
-    uint8 private constant REASON_INVALID_VOTE_TYPE = 4;
-    uint8 private constant REASON_ARTIST_NOT_ALLOWED = 5;
+    uint8 private constant REASON_USER_BATCH_TOO_LARGE = 1;      // 유저 배치 크기 초과 (레코드 0개 또는 MAX_RECORDS_PER_USER_BATCH 초과)
+    uint8 private constant REASON_INVALID_USER_SIGNATURE = 2;    // 유저 서명 검증 실패 (EIP-712 서명 불일치)
+    uint8 private constant REASON_USER_NONCE_INVALID = 3;        // 유저 nonce 중복 사용 (이미 사용된 nonce)
+    uint8 private constant REASON_INVALID_VOTE_TYPE = 4;         // 잘못된 투표 타입 (0 또는 MAX_VOTE_TYPE 초과)
+    uint8 private constant REASON_ARTIST_NOT_ALLOWED = 5;        // 허용되지 않은 아티스트 (비활성화된 아티스트에 투표 시도)
+    uint8 private constant REASON_STRING_TOO_LONG = 6;           // 문자열 길이 초과 (userId > 100자)
 
     // EIP-712 TypeHash: 서명 검증용 구조체 해시
     // recordId는 서명 데이터에 포함되지 않음 (백엔드 생성, 온체인 식별용)
@@ -71,9 +72,8 @@ contract MainVoting is Ownable2Step, EIP712 {
     error ZeroAddress();
     error InvalidSignature();
     error BadChain();
-    error BatchNonceInvalid();
-    error UserNonceTooLow();
-    error BatchNonceTooLow();
+    error BatchNonceAlreadyUsed();
+    error UserNonceAlreadyUsed();
     error InvalidRecordIndices();
     error BatchTooLarge();
     error UserBatchTooLarge();
@@ -102,7 +102,7 @@ contract MainVoting is Ownable2Step, EIP712 {
     /// @notice 사용자의 배치 서명 정보
     struct UserBatchSig {
         address user; // 서명자 주소
-        uint256 userNonce; // 리플레이 방지용 순차 번호
+        uint256 userNonce; // 리플레이 방지용 고유 번호
         bytes signature; // EIP-712 서명
     }
 
@@ -141,11 +141,11 @@ contract MainVoting is Ownable2Step, EIP712 {
     mapping(uint256 => mapping(uint256 => bytes32[]))
         private voteHashesByMissionVotingId;
 
-    /// @notice 사용자별 다음 예상 Nonce (순차 카운터, 0부터 시작)
-    mapping(address => uint256) public userNonce;
+    /// @notice 사용자별 사용된 Nonce 추적 (중복 방지)
+    mapping(address => mapping(uint256 => bool)) public usedUserNonces;
 
-    /// @notice Executor별 다음 예상 배치 Nonce (순차 카운터)
-    mapping(address => uint256) public batchNonce;
+    /// @notice Executor별 사용된 배치 Nonce 추적 (중복 방지)
+    mapping(address => mapping(uint256 => bool)) public usedBatchNonces;
 
     /// @notice 중복 투표 방지 (user => recordDigest => consumed)
     mapping(address => mapping(bytes32 => bool)) public consumed;
@@ -213,8 +213,6 @@ contract MainVoting is Ownable2Step, EIP712 {
         uint8 reasonCode
     );
 
-    event SetUserNonce(address indexed user, uint256 newNonce);
-    event SetBatchNonce(address indexed executorSigner, uint256 newNonce);
     event ArtistSet(
         uint256 indexed missionId,
         uint256 indexed optionId,
@@ -238,7 +236,6 @@ contract MainVoting is Ownable2Step, EIP712 {
     function setExecutorSigner(address s) external onlyOwner {
         if (s == address(0)) revert ZeroAddress();
         address oldSigner = executorSigner;
-        batchNonce[s] = 0;
         executorSigner = s;
         emit ExecutorSignerChanged(oldSigner, s);
     }
@@ -263,22 +260,6 @@ contract MainVoting is Ownable2Step, EIP712 {
         if (voteType > MAX_VOTE_TYPE) revert InvalidVoteType(voteType);
         voteTypeName[voteType] = name;
         emit VoteTypeSet(voteType, name);
-    }
-
-    /// @notice 사용자 Nonce 강제 설정 (증가 방향만 허용, 리플레이 방지)
-    function setUserNonce(address user, uint256 newNonce) external onlyOwner {
-        if (newNonce < userNonce[user]) revert UserNonceTooLow();
-        userNonce[user] = newNonce;
-        emit SetUserNonce(user, newNonce);
-    }
-
-    /// @notice 배치 Nonce 강제 설정 (Owner 또는 Executor만 가능)
-    function setBatchNonce(uint256 newNonce) external {
-        if (msg.sender != owner() && msg.sender != executorSigner)
-            revert NotOwnerOrExecutor();
-        if (newNonce < batchNonce[executorSigner]) revert BatchNonceTooLow();
-        batchNonce[executorSigner] = newNonce;
-        emit SetBatchNonce(executorSigner, newNonce);
     }
 
     // ============================================================
@@ -343,9 +324,18 @@ contract MainVoting is Ownable2Step, EIP712 {
         return ok && ret.length == 4 && bytes4(ret) == ERC1271_MAGICVALUE;
     }
 
-    function _validateStrings(VoteRecord calldata record) internal pure {
-        if (bytes(record.userId).length > MAX_STRING_LENGTH)
-            revert StringTooLong();
+    /// @dev 문자열 검증 (soft-fail 버전) - 모든 레코드의 userId 길이 검증
+    function _validateStringsSoft(VoteRecord[] calldata records) internal pure returns (bool) {
+        uint256 len = records.length;
+        for (uint256 j; j < len; ) {
+            if (bytes(records[j].userId).length > MAX_STRING_LENGTH) {
+                return false;
+            }
+            unchecked {
+                ++j;
+            }
+        }
+        return true;
     }
 
     /// @dev 사용자의 모든 레코드에 대해 해시 배열 생성
@@ -356,7 +346,6 @@ contract MainVoting is Ownable2Step, EIP712 {
         uint256 len = records.length;
         recordDigests = new bytes32[](len);
         for (uint256 j; j < len; ) {
-            _validateStrings(records[j]);
             recordDigests[j] = _hashVoteRecord(records[j], user);
             unchecked {
                 ++j;
@@ -364,14 +353,10 @@ contract MainVoting is Ownable2Step, EIP712 {
         }
     }
 
-    /// @dev 배치 Nonce 검증 및 증가 (순차 처리 보장)
+    /// @dev 배치 Nonce 검증 및 사용 처리 (중복 방지)
     function _consumeBatchNonce(address signer, uint256 nonce_) internal {
-        uint256 expected = batchNonce[signer];
-        if (nonce_ != expected) revert BatchNonceInvalid();
-
-        unchecked {
-            batchNonce[signer] = expected + 1;
-        }
+        if (usedBatchNonces[signer][nonce_]) revert BatchNonceAlreadyUsed();
+        usedBatchNonces[signer][nonce_] = true;
     }
 
     /**
@@ -382,7 +367,7 @@ contract MainVoting is Ownable2Step, EIP712 {
      * 여기서는 "배치 수준" 검증만 수행:
      * 1) 레코드 개수
      * 2) 서명 검증
-     * 3) userNonce 순차 검증
+     * 3) userNonce 중복 검증
      *
      * per-record 검증(allowedArtist, voteType)은 _storeVoteRecords에서 처리
      */
@@ -413,17 +398,14 @@ contract MainVoting is Ownable2Step, EIP712 {
             return (false, reasonCode);
         }
 
-        // 3) Nonce 순차 검증
-        uint256 expected = userNonce[user];
-        if (nonce_ != expected) {
+        // 3) Nonce 중복 검증
+        if (usedUserNonces[user][nonce_]) {
             reasonCode = REASON_USER_NONCE_INVALID;
             emit UserBatchFailed(batchDigest, user, nonce_, reasonCode);
             return (false, reasonCode);
         }
 
-        unchecked {
-            userNonce[user] = expected + 1;
-        }
+        usedUserNonces[user][nonce_] = true;
 
         emit UserBatchProcessed(batchDigest, user, nonce_, count);
         return (true, 0);
@@ -646,6 +628,20 @@ contract MainVoting is Ownable2Step, EIP712 {
 
         for (uint256 i; i < userCount; ) {
             address user = batches[i].userBatchSig.user;
+            uint256 nonce_ = batches[i].userBatchSig.userNonce;
+
+            // 문자열 검증 (soft-fail) - userId 길이 초과 시 해당 유저만 실패
+            if (!_validateStringsSoft(batches[i].records)) {
+                userOk[i] = false;
+                userReason[i] = REASON_STRING_TOO_LONG;
+                emit UserBatchFailed(batchDigest, user, nonce_, REASON_STRING_TOO_LONG);
+                recordDigests[i] = new bytes32[](0);
+                unchecked {
+                    ++i;
+                }
+                continue;
+            }
+
             recordDigests[i] = _buildRecordDigestsForUser(
                 batches[i].records,
                 user

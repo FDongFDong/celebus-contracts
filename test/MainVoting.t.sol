@@ -282,9 +282,9 @@ contract MainVotingTest is Test {
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
-        // 순차 nonce 확인: 0 사용 후 다음은 1
-        assertEq(voting.userNonce(user1), 1);
-        assertEq(voting.batchNonce(executorSigner), 1);
+        // 중복 체크 확인: nonce 0이 사용됨
+        assertTrue(voting.usedUserNonces(user1, 0));
+        assertTrue(voting.usedBatchNonces(executorSigner, 0));
 
         (uint256 remember, uint256 forget, uint256 total) = voting.getArtistAggregates(1, 1);
         assertEq(remember, 100);
@@ -310,10 +310,10 @@ contract MainVotingTest is Test {
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
-        // 순차 nonce 확인
-        assertEq(voting.userNonce(user1), 1);
-        assertEq(voting.userNonce(user2), 1);
-        assertEq(voting.userNonce(user3), 1);
+        // 중복 체크 확인
+        assertTrue(voting.usedUserNonces(user1, 0));
+        assertTrue(voting.usedUserNonces(user2, 0));
+        assertTrue(voting.usedUserNonces(user3, 0));
     }
 
     function test_SubmitUserWithMultipleRecords() public {
@@ -409,7 +409,7 @@ contract MainVotingTest is Test {
         voting.submitMultiUserBatch(batches, 0, executorSig);
     }
 
-    function test_RevertWhen_BatchNonceInvalid() public {
+    function test_RevertWhen_BatchNonceAlreadyUsed() public {
         MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](1);
         records[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
 
@@ -419,7 +419,7 @@ contract MainVotingTest is Test {
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
-        // 두 번째 제출 (같은 batch nonce → BatchNonceInvalid)
+        // 두 번째 제출 (같은 batch nonce → BatchNonceAlreadyUsed)
         MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
         records2[0] = _createVoteRecord("user1", 1, 2, 1, 1, 100);
 
@@ -428,11 +428,13 @@ contract MainVotingTest is Test {
 
         bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 0); // 같은 nonce
 
-        vm.expectRevert(MainVoting.BatchNonceInvalid.selector);
+        vm.expectRevert(MainVoting.BatchNonceAlreadyUsed.selector);
         voting.submitMultiUserBatch(batches2, 0, executorSig2);
     }
 
-    function test_RevertWhen_StringTooLong() public {
+    /// @notice StringTooLong은 이제 soft-fail로 처리됨
+    ///         단일 유저가 StringTooLong으로 실패하면 NoSuccessfulUser 발생
+    function test_SoftFail_StringTooLong_AllUsersFail() public {
         bytes memory longUserId = new bytes(101);
         for (uint256 i = 0; i < 101; i++) {
             longUserId[i] = "a";
@@ -455,7 +457,8 @@ contract MainVotingTest is Test {
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
-        vm.expectRevert(MainVoting.StringTooLong.selector);
+        // StringTooLong은 soft-fail이므로 유저가 실패하고, 다른 유저가 없으면 NoSuccessfulUser
+        vm.expectRevert(MainVoting.NoSuccessfulUser.selector);
         voting.submitMultiUserBatch(batches, 0, executorSig);
     }
 
@@ -593,12 +596,12 @@ contract MainVotingTest is Test {
 
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
-        // User1, User3는 성공 (nonce가 증가됨)
-        assertEq(voting.userNonce(user1), 1);
-        assertEq(voting.userNonce(user3), 1);
+        // User1, User3는 성공 (nonce 0이 사용됨)
+        assertTrue(voting.usedUserNonces(user1, 0));
+        assertTrue(voting.usedUserNonces(user3, 0));
 
-        // User2는 실패 (nonce 그대로)
-        assertEq(voting.userNonce(user2), 0);
+        // User2는 실패 (nonce 미사용)
+        assertFalse(voting.usedUserNonces(user2, 0));
 
         // 집계 검증: User2의 투표는 제외됨
         (uint256 r1,, uint256 t1) = voting.getArtistAggregates(1, 1);
@@ -635,12 +638,12 @@ contract MainVotingTest is Test {
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
         // User1, User3는 성공
-        assertEq(voting.userNonce(user1), 1);
-        assertEq(voting.userNonce(user3), 1);
+        assertTrue(voting.usedUserNonces(user1, 0));
+        assertTrue(voting.usedUserNonces(user3, 0));
 
-        // User2는 서명/nonce 검증은 통과하므로 nonce가 증가함
+        // User2는 서명/nonce 검증은 통과하므로 nonce가 사용됨
         // voteType 검증은 저장 단계에서 발생하여 레코드만 저장 안됨
-        assertEq(voting.userNonce(user2), 1);
+        assertTrue(voting.usedUserNonces(user2, 0));
     }
 
     function test_ConditionalSkip_ArtistNotAllowed_PartialSuccess() public {
@@ -664,14 +667,14 @@ contract MainVotingTest is Test {
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
-        assertEq(voting.userNonce(user1), 1);
-        // User2는 서명/nonce 검증은 통과하므로 nonce가 증가함
+        assertTrue(voting.usedUserNonces(user1, 0));
+        // User2는 서명/nonce 검증은 통과하므로 nonce가 사용됨
         // artistNotAllowed 검증은 저장 단계에서 발생하여 레코드만 저장 안됨
-        assertEq(voting.userNonce(user2), 1);
-        assertEq(voting.userNonce(user3), 1);
+        assertTrue(voting.usedUserNonces(user2, 0));
+        assertTrue(voting.usedUserNonces(user3, 0));
     }
 
-    function test_ConditionalSkip_UserNonceInvalid_PartialSuccess() public {
+    function test_ConditionalSkip_UserNonceAlreadyUsed_PartialSuccess() public {
         // User1의 nonce 0을 먼저 사용
         MainVoting.VoteRecord[] memory preRecords = new MainVoting.VoteRecord[](1);
         preRecords[0] = _createVoteRecord("user1", 1, 100, 1, 1, 50);
@@ -704,12 +707,12 @@ contract MainVotingTest is Test {
         voting.submitMultiUserBatch(batches, 1, executorSig);
 
         // User2, User3는 성공
-        assertEq(voting.userNonce(user2), 1);
-        assertEq(voting.userNonce(user3), 1);
+        assertTrue(voting.usedUserNonces(user2, 0));
+        assertTrue(voting.usedUserNonces(user3, 0));
 
-        // User1의 새 투표는 실패 (nonce 재사용)
-        // 이전 투표로 user1의 nonce 0은 이미 사용됨 → nonce는 1로 유지
-        assertEq(voting.userNonce(user1), 1);
+        // User1의 새 투표는 실패 (nonce 0 재사용)
+        // nonce 0은 이미 사용됨
+        assertTrue(voting.usedUserNonces(user1, 0));
     }
 
     function test_ConditionalSkip_MultipleRecordsOneInvalid_UserSkipped() public {
@@ -739,11 +742,11 @@ contract MainVotingTest is Test {
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
-        // User1: 서명/nonce 검증 통과 → nonce 증가
-        assertEq(voting.userNonce(user1), 1);
+        // User1: 서명/nonce 검증 통과 → nonce 사용됨
+        assertTrue(voting.usedUserNonces(user1, 0));
 
         // User2 성공
-        assertEq(voting.userNonce(user2), 1);
+        assertTrue(voting.usedUserNonces(user2, 0));
 
         // User1의 유효한 레코드 2개 집계 (100 + 80 = 180)
         (uint256 r1,, uint256 t1) = voting.getArtistAggregates(1, 1);
@@ -861,63 +864,7 @@ contract MainVotingTest is Test {
     }
 
     // ╔═══════════════════════════════════════════════════════════════════════════╗
-    // ║                         7. Nonce 설정 테스트                               ║
-    // ╚═══════════════════════════════════════════════════════════════════════════╝
-
-    function test_SetUserNonce() public {
-        voting.setUserNonce(user1, 10);
-        assertEq(voting.userNonce(user1), 10);
-    }
-
-    function test_RevertWhen_SetUserNonceTooLow() public {
-        voting.setUserNonce(user1, 10);
-        vm.expectRevert(MainVoting.UserNonceTooLow.selector);
-        voting.setUserNonce(user1, 5);
-    }
-
-    function test_SetBatchNonce() public {
-        voting.setBatchNonce(10);
-        assertEq(voting.batchNonce(executorSigner), 10);
-    }
-
-    function test_RevertWhen_SetBatchNonceTooLow() public {
-        voting.setBatchNonce(10);
-        vm.expectRevert(MainVoting.BatchNonceTooLow.selector);
-        voting.setBatchNonce(5);
-    }
-
-    function test_RevertWhen_SetBatchNonceNotAuthorized() public {
-        vm.prank(user1);
-        vm.expectRevert(MainVoting.NotOwnerOrExecutor.selector);
-        voting.setBatchNonce(10);
-    }
-
-    function test_SoftFail_UserNonceTooLow_PartialSuccess() public {
-        // User1의 nonce를 10으로 설정
-        voting.setUserNonce(user1, 10);
-
-        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](2);
-
-        // User1: nonce 5 사용 (expected 10보다 낮음 → 실패)
-        MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](1);
-        records1[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
-        batches[0] = _createUserVoteBatch(records1, user1, 5, user1PrivateKey); // nonce 5 != expected 10
-
-        // User2: 유효
-        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
-        records2[0] = _createVoteRecord("user2", 1, 2, 2, 0, 200);
-        batches[1] = _createUserVoteBatch(records2, user2, 0, user2PrivateKey);
-
-        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
-        voting.submitMultiUserBatch(batches, 0, executorSig);
-
-        // User1 실패, User2 성공
-        assertEq(voting.userNonce(user1), 10); // 변경 없음
-        assertEq(voting.userNonce(user2), 1);
-    }
-
-    // ╔═══════════════════════════════════════════════════════════════════════════╗
-    // ║                      8. 상태 전이 테스트                                    ║
+    // ║                      7. 상태 전이 테스트                                    ║
     // ╚═══════════════════════════════════════════════════════════════════════════╝
 
     function test_ArtistDisabledAfterVoting_SoftFail() public {
@@ -964,7 +911,7 @@ contract MainVotingTest is Test {
         assertEq(r, 100);
     }
 
-    function test_ExecutorSignerChange_ResetsNonce() public {
+    function test_ExecutorSignerChange_IndependentNonces() public {
         address newExecutor = address(0x5555);
 
         MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](1);
@@ -974,13 +921,13 @@ contract MainVotingTest is Test {
         bytes memory executorSig1 = _signBatchSig(executorPrivateKey, 0);
         voting.submitMultiUserBatch(batches1, 0, executorSig1);
 
-        // 기존 executor의 nonce는 1
-        assertEq(voting.batchNonce(executorSigner), 1);
+        // 기존 executor의 nonce 0이 사용됨
+        assertTrue(voting.usedBatchNonces(executorSigner, 0));
 
         voting.setExecutorSigner(newExecutor);
 
-        // 새 executor의 nonce는 0으로 초기화
-        assertEq(voting.batchNonce(newExecutor), 0);
+        // 새 executor의 nonce 0은 사용되지 않은 상태
+        assertFalse(voting.usedBatchNonces(newExecutor, 0));
     }
 
     // ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -1098,12 +1045,6 @@ contract MainVotingTest is Test {
         voting.setArtist(1, 99, "UnauthorizedArtist", true);
     }
 
-    function test_RevertWhen_SetUserNonceNotOwner() public {
-        vm.prank(user1);
-        vm.expectRevert();
-        voting.setUserNonce(user2, 10);
-    }
-
     function test_UpdateArtistName() public {
         voting.setArtist(1, 1, "NewArtistName", true);
         assertEq(voting.artistName(1, 1), "NewArtistName");
@@ -1138,15 +1079,5 @@ contract MainVotingTest is Test {
         assertEq(r2, 0);
         assertEq(f2, 600);
         assertEq(t2, 600);
-    }
-
-    // ╔═══════════════════════════════════════════════════════════════════════════╗
-    // ║                      13. Executor가 BatchNonce 설정                        ║
-    // ╚═══════════════════════════════════════════════════════════════════════════╝
-
-    function test_ExecutorCanSetBatchNonce() public {
-        vm.prank(executorSigner);
-        voting.setBatchNonce(5);
-        assertEq(voting.batchNonce(executorSigner), 5);
     }
 }

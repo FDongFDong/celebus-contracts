@@ -3,7 +3,7 @@
  * SubVoting N:1 구조: 유저당 최대 5개 레코드 = 1개 서명
  */
 
-import { CONFIG } from '../config.js';
+import { CONFIG } from '../config.js?v=2';
 
 export class Step2Records {
   constructor(state) {
@@ -154,23 +154,14 @@ export class Step2Records {
       const contract = new ethers.Contract(
         this.state.contractAddress,
         [
-          'function minUserNonce(address) view returns (uint256)',
-          'function userNonceUsed(address, uint256) view returns (bool)'
+          'function userNonce(address) view returns (uint256)'
         ],
         provider
       );
 
-      const minNonce = await contract.minUserNonce(wallet.address);
-      let nextNonce = parseInt(minNonce.toString());
-
-      // 사용 가능한 다음 nonce 찾기 (최대 10개 체크)
-      for (let i = 0; i < 10; i++) {
-        const isUsed = await contract.userNonceUsed(wallet.address, nextNonce);
-        if (!isUsed) {
-          break;
-        }
-        nextNonce++;
-      }
+      // SubVoting에서는 userNonce가 현재 사용해야 할 nonce 값을 반환
+      const currentNonce = await contract.userNonce(wallet.address);
+      const nextNonce = parseInt(currentNonce.toString());
 
       document.getElementById('userNonce').value = nextNonce;
       console.log('✅ User Nonce fetched:', nextNonce);
@@ -214,6 +205,7 @@ export class Step2Records {
     }
 
     const record = {
+      recordId: userRecordCount + 1,  // 사용자별 1부터 시작하는 recordId
       timestamp: Math.floor(Date.now() / 1000),
       missionId: parseInt(document.getElementById('missionId').value),
       votingId: parseInt(votingIdValue),

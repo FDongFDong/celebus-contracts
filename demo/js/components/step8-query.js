@@ -251,43 +251,60 @@ export class Step8Query {
   renderNonceTab() {
     return `
       <div class="space-y-6">
-        <!-- 순차 카운터 방식 안내 -->
+        <!-- 중복 체크 방식 안내 -->
         <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
           <h3 class="font-semibold text-blue-900 mb-2"><i data-lucide="info" class="w-4 h-4 inline"></i> Nonce 시스템 안내</h3>
           <p class="text-sm text-blue-800">
-            순차 카운터 방식: 각 사용자/Executor는 0부터 시작하여 순서대로 Nonce를 사용합니다.
-            조회되는 값은 <strong>다음에 사용할 Nonce</strong>입니다.
+            <strong>User Nonce:</strong> 중복 체크 방식 - 한 번 사용된 Nonce는 재사용 불가능합니다.
+            조회 결과가 <strong>true</strong>면 이미 사용된 Nonce입니다.
+          </p>
+          <p class="text-sm text-blue-800 mt-1">
+            <strong>Batch Nonce:</strong> 중복 체크 방식 - Executor가 원하는 숫자를 사용 가능하며, 사용된 Nonce는 재사용 불가능합니다.
           </p>
         </div>
 
-        <!-- User Nonce -->
+        <!-- User Nonce (중복 체크 방식) -->
         <div class="bg-orange-50 rounded-lg p-4 border border-orange-200">
-          <h3 class="font-semibold text-orange-900 mb-3"><i data-lucide="hash" class="w-4 h-4 inline"></i> User Nonce</h3>
-          <p class="text-xs text-gray-600 mb-3">userNonce(user) - 다음 사용할 Nonce 반환</p>
-          <div class="mb-3">
-            <label class="block text-xs text-gray-600 mb-1">User Address</label>
-            <input id="q_userNonce_user" type="text" placeholder="0x..."
-                   class="w-full p-2 border rounded text-sm font-mono">
+          <h3 class="font-semibold text-orange-900 mb-3"><i data-lucide="hash" class="w-4 h-4 inline"></i> User Nonce 사용 여부</h3>
+          <p class="text-xs text-gray-600 mb-3">usedUserNonces(user, nonce) - 해당 Nonce가 사용되었는지 확인</p>
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label class="block text-xs text-gray-600 mb-1">User Address</label>
+              <input id="q_userNonce_user" type="text" placeholder="0x..."
+                     class="w-full p-2 border rounded text-sm font-mono">
+            </div>
+            <div>
+              <label class="block text-xs text-gray-600 mb-1">Nonce</label>
+              <input id="q_userNonce_nonce" type="number" placeholder="검사할 Nonce" min="0"
+                     class="w-full p-2 border rounded text-sm">
+            </div>
           </div>
           <button onclick="step8.queryUserNonce()"
                   class="bg-orange-500 text-white px-4 py-2 rounded text-sm hover:bg-orange-600">
-            조회
+            사용 여부 조회
           </button>
           <div id="result_userNonce" class="mt-3"></div>
         </div>
 
         <!-- Batch Nonce -->
         <div class="bg-orange-50 rounded-lg p-4 border border-orange-200">
-          <h3 class="font-semibold text-orange-900 mb-3"><i data-lucide="hash" class="w-4 h-4 inline"></i> Batch Nonce</h3>
-          <p class="text-xs text-gray-600 mb-3">batchNonce(executor) - 다음 사용할 Nonce 반환</p>
-          <div class="mb-3">
-            <label class="block text-xs text-gray-600 mb-1">Executor Address</label>
-            <input id="q_batchNonce_executor" type="text" placeholder="0x..."
-                   class="w-full p-2 border rounded text-sm font-mono">
+          <h3 class="font-semibold text-orange-900 mb-3"><i data-lucide="hash" class="w-4 h-4 inline"></i> Batch Nonce 사용 여부</h3>
+          <p class="text-xs text-gray-600 mb-3">usedBatchNonces(executor, nonce) - 해당 Nonce가 사용되었는지 확인</p>
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label class="block text-xs text-gray-600 mb-1">Executor Address</label>
+              <input id="q_batchNonce_executor" type="text" placeholder="0x..."
+                     class="w-full p-2 border rounded text-sm font-mono">
+            </div>
+            <div>
+              <label class="block text-xs text-gray-600 mb-1">Nonce</label>
+              <input id="q_batchNonce_nonce" type="number" placeholder="검사할 Nonce" min="0"
+                     class="w-full p-2 border rounded text-sm">
+            </div>
           </div>
           <button onclick="step8.queryBatchNonce()"
                   class="bg-orange-500 text-white px-4 py-2 rounded text-sm hover:bg-orange-600">
-            조회
+            사용 여부 조회
           </button>
           <div id="result_batchNonce" class="mt-3"></div>
         </div>
@@ -390,9 +407,10 @@ export class Step8Query {
           <div class="text-sm space-y-1">
             <div class="flex"><span class="w-12 font-mono text-red-600">1</span><span>레코드 수가 0개이거나 20개 초과</span></div>
             <div class="flex"><span class="w-12 font-mono text-red-600">2</span><span>유저 서명이 유효하지 않음</span></div>
-            <div class="flex"><span class="w-12 font-mono text-red-600">3</span><span>Nonce 순서 위반 (순차 카운터 불일치)</span></div>
-            <div class="flex"><span class="w-12 font-mono text-red-600">5</span><span>VoteType이 유효하지 않음 (0,1 외의 값)</span></div>
-            <div class="flex"><span class="w-12 font-mono text-red-600">6</span><span>허용되지 않은 아티스트에게 투표</span></div>
+            <div class="flex"><span class="w-12 font-mono text-red-600">3</span><span>Nonce 중복 사용 (이미 사용된 nonce)</span></div>
+            <div class="flex"><span class="w-12 font-mono text-red-600">4</span><span>VoteType이 유효하지 않음 (0,1 외의 값)</span></div>
+            <div class="flex"><span class="w-12 font-mono text-red-600">5</span><span>허용되지 않은 아티스트에게 투표</span></div>
+            <div class="flex"><span class="w-12 font-mono text-red-600">6</span><span>문자열 길이 초과 (userId > 100자)</span></div>
           </div>
         </div>
       </div>
@@ -694,16 +712,23 @@ export class Step8Query {
       this.showLoading(resultId);
       const contract = this.getContract();
       const user = document.getElementById('q_userNonce_user').value;
+      const nonceInput = document.getElementById('q_userNonce_nonce').value;
 
       if (!ethers.isAddress(user)) {
         throw new Error('올바른 주소를 입력해주세요');
       }
 
-      const nonce = await contract.userNonce(user);
-      this.showResult(resultId, {
-        nextNonce: nonce.toString(),
-        description: `이 사용자의 다음 투표는 nonce ${nonce.toString()}을 사용해야 합니다`
-      });
+      if (!nonceInput || nonceInput === '') {
+        throw new Error('Nonce 값을 입력해주세요');
+      }
+
+      const nonce = parseInt(nonceInput);
+      if (isNaN(nonce) || nonce < 0) {
+        throw new Error('0 이상의 정수를 입력해주세요');
+      }
+
+      const isUsed = await contract.usedUserNonces(user, nonce);
+      this.showResult(resultId, isUsed, 'bool');
     } catch (err) {
       console.error('queryUserNonce error:', err);
       this.showError(resultId, err.message);
@@ -716,16 +741,23 @@ export class Step8Query {
       this.showLoading(resultId);
       const contract = this.getContract();
       const executor = document.getElementById('q_batchNonce_executor').value;
+      const nonceInput = document.getElementById('q_batchNonce_nonce').value;
 
       if (!ethers.isAddress(executor)) {
         throw new Error('올바른 주소를 입력해주세요');
       }
 
-      const nonce = await contract.batchNonce(executor);
-      this.showResult(resultId, {
-        nextNonce: nonce.toString(),
-        description: `이 Executor의 다음 배치는 nonce ${nonce.toString()}을 사용해야 합니다`
-      });
+      if (!nonceInput || nonceInput === '') {
+        throw new Error('Nonce 값을 입력해주세요');
+      }
+
+      const nonce = parseInt(nonceInput);
+      if (isNaN(nonce) || nonce < 0) {
+        throw new Error('0 이상의 정수를 입력해주세요');
+      }
+
+      const isUsed = await contract.usedBatchNonces(executor, nonce);
+      this.showResult(resultId, isUsed, 'bool');
     } catch (err) {
       console.error('queryBatchNonce error:', err);
       this.showError(resultId, err.message);
@@ -797,9 +829,10 @@ export class Step8Query {
     const reasons = {
       1: '레코드 수가 0개이거나 20개 초과',
       2: '유저 서명이 유효하지 않음',
-      3: 'Nonce 순서 위반 (순차 카운터 불일치)',
-      5: 'VoteType이 유효하지 않음',
-      6: '허용되지 않은 아티스트'
+      3: 'Nonce 중복 사용 (이미 사용된 nonce)',
+      4: 'VoteType이 유효하지 않음',
+      5: '허용되지 않은 아티스트',
+      6: '문자열 길이 초과 (userId > 100자)'
     };
     return reasons[reasonCode] || `알 수 없는 사유 (${reasonCode})`;
   }

@@ -51,13 +51,13 @@
   },
   {
     "type": "function",
-    "name": "MAX_RECORDS_PER_USER",
+    "name": "MAX_RECORDS_PER_USER_BATCH",
     "inputs": [],
     "outputs": [
       {
         "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "stateMutability": "view"
@@ -69,8 +69,8 @@
     "outputs": [
       {
         "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "stateMutability": "view"
@@ -137,58 +137,22 @@
   },
   {
     "type": "function",
-    "name": "batchNonceUsed",
+    "name": "batchNonce",
     "inputs": [
       {
         "name": "",
         "type": "address",
         "internalType": "address"
-      },
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "outputs": [
       {
         "name": "",
-        "type": "bool",
-        "internalType": "bool"
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "cancelAllBatchNonceUpTo",
-    "inputs": [
-      {
-        "name": "newMinBatchNonce",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "cancelAllUserNonceUpTo",
-    "inputs": [
-      {
-        "name": "user",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "newMinUserNonce",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -331,6 +295,35 @@
   },
   {
     "type": "function",
+    "name": "getOptionVotes",
+    "inputs": [
+      {
+        "name": "missionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "questionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "optionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getQuestionAggregates",
     "inputs": [
       {
@@ -428,6 +421,67 @@
   },
   {
     "type": "function",
+    "name": "getVoteByHash",
+    "inputs": [
+      {
+        "name": "voteHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct SubVoting.VoteRecord",
+        "components": [
+          {
+            "name": "recordId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "timestamp",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "missionId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "votingId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "userId",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "questionId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "optionId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "votingAmt",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getVoteSummariesByMissionVotingId",
     "inputs": [
       {
@@ -489,38 +543,66 @@
   },
   {
     "type": "function",
-    "name": "minBatchNonce",
+    "name": "getVotesByMissionVotingId",
     "inputs": [
       {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
+        "name": "missionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "votingId",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
       {
         "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "minUserNonce",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "tuple[]",
+        "internalType": "struct SubVoting.VoteRecord[]",
+        "components": [
+          {
+            "name": "recordId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "timestamp",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "missionId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "votingId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "userId",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "questionId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "optionId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "votingAmt",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
       }
     ],
     "stateMutability": "view"
@@ -637,6 +719,19 @@
   },
   {
     "type": "function",
+    "name": "setBatchNonce",
+    "inputs": [
+      {
+        "name": "newNonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setExecutorSigner",
     "inputs": [
       {
@@ -711,6 +806,24 @@
   },
   {
     "type": "function",
+    "name": "setUserNonce",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "newNonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "submitMultiUserBatch",
     "inputs": [
       {
@@ -723,6 +836,11 @@
             "type": "tuple[]",
             "internalType": "struct SubVoting.VoteRecord[]",
             "components": [
+              {
+                "name": "recordId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
               {
                 "name": "timestamp",
                 "type": "uint256",
@@ -785,7 +903,7 @@
         ]
       },
       {
-        "name": "batchNonce",
+        "name": "batchNonce_",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -813,24 +931,19 @@
   },
   {
     "type": "function",
-    "name": "userNonceUsed",
+    "name": "userNonce",
     "inputs": [
       {
         "name": "",
         "type": "address",
         "internalType": "address"
-      },
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "outputs": [
       {
         "name": "",
-        "type": "bool",
-        "internalType": "bool"
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -846,6 +959,11 @@
       }
     ],
     "outputs": [
+      {
+        "name": "recordId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
       {
         "name": "timestamp",
         "type": "uint256",
@@ -917,41 +1035,9 @@
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "CancelBatchNonceUpTo",
-    "inputs": [
-      {
-        "name": "executorSigner",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
       },
       {
-        "name": "newMinBatchNonce",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "CancelUserNonceUpTo",
-    "inputs": [
-      {
-        "name": "user",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "newMinUserNonce",
+        "name": "failedUserCount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -980,12 +1066,6 @@
         "type": "address",
         "indexed": true,
         "internalType": "address"
-      },
-      {
-        "name": "oldMinNonce",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1098,6 +1178,75 @@
   },
   {
     "type": "event",
+    "name": "SetBatchNonce",
+    "inputs": [
+      {
+        "name": "executorSigner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newNonce",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SetUserNonce",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newNonce",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UserBatchFailed",
+    "inputs": [
+      {
+        "name": "batchDigest",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "userNonce",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "reasonCode",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "UserBatchProcessed",
     "inputs": [
       {
@@ -1128,13 +1277,44 @@
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "UserVoteResult",
+    "inputs": [
+      {
+        "name": "votingId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "success",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      },
+      {
+        "name": "failedRecordIds",
+        "type": "uint256[]",
+        "indexed": false,
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "reasonCode",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "BadChain",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "BatchNonceAlreadyUsed",
+    "name": "BatchNonceInvalid",
     "inputs": []
   },
   {
@@ -1176,11 +1356,6 @@
   },
   {
     "type": "error",
-    "name": "EmptyRecords",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "InvalidOptionId",
     "inputs": [
       {
@@ -1192,12 +1367,22 @@
   },
   {
     "type": "error",
+    "name": "InvalidRecordIndices",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidShortString",
     "inputs": []
   },
   {
     "type": "error",
     "name": "InvalidSignature",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NoSuccessfulUser",
     "inputs": []
   },
   {
@@ -1277,12 +1462,7 @@
   },
   {
     "type": "error",
-    "name": "TooManyRecords",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "UserNonceAlreadyUsed",
+    "name": "UserBatchTooLarge",
     "inputs": []
   },
   {

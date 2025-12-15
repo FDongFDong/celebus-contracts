@@ -3,7 +3,7 @@
  * 컨트랙트 배포, Executor 등록, 질문/답변 등록
  */
 
-import { CONFIG, getContractInstance, SUBVOTING_BYTECODE } from '../config.js';
+import { CONFIG, getContractInstance, SUBVOTING_BYTECODE } from '../config.js?v=2';
 
 export class Step0Setup {
   constructor(state) {

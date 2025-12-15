@@ -439,31 +439,36 @@ contract UserVoteResultEventTest is Test {
         console.log("========================================\n");
     }
 
-    /// @notice Nonce 무효 시
-    function test_UserBatchFailed_NonceInvalid() public {
+    /// @notice Nonce 중복 사용 시
+    function test_UserBatchFailed_NonceAlreadyUsed() public {
         console.log("\n========================================");
-        console.log("TEST: Fail Case - Nonce Invalid");
+        console.log("TEST: Fail Case - Nonce Already Used");
         console.log("========================================");
 
-        // 먼저 User1의 nonce를 5로 설정
-        voting.setUserNonce(user1, 5);
+        // 먼저 User1이 nonce 0으로 성공적으로 제출
+        MainVoting.UserVoteBatch[] memory firstBatches = new MainVoting.UserVoteBatch[](1);
+        MainVoting.VoteRecord[] memory firstRecords = new MainVoting.VoteRecord[](1);
+        firstRecords[0] = _createVoteRecord("user1_uuid", 1, 599, 1, 1, 50);
+        firstBatches[0] = _createUserVoteBatch(firstRecords, user1, 0, user1PrivateKey);
+        bytes memory firstExecutorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(firstBatches, 0, firstExecutorSig);
 
         MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](2);
 
-        // User1: 잘못된 nonce (expected=5인데 0 사용)
+        // User1: 이미 사용된 nonce 0으로 다시 시도
         MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](1);
         records1[0] = _createVoteRecord("user1_uuid", 1, 600, 1, 1, 100);
-        batches[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);  // nonce=0 (wrong!)
+        batches[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);  // nonce=0 (already used!)
 
         // User2: 성공
         MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
         records2[0] = _createVoteRecord("user2_uuid", 1, 601, 2, 1, 200);
         batches[1] = _createUserVoteBatch(records2, user2, 0, user2PrivateKey);
 
-        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 1);
 
-        console.log("Submitting votes with invalid nonce...");
-        console.log("  User1: votingId=600, nonce=0 (expected=5) -> FAIL");
+        console.log("Submitting votes with already used nonce...");
+        console.log("  User1: votingId=600, nonce=0 (already used) -> FAIL");
         console.log("  User2: votingId=601 -> SUCCESS");
 
         uint256[] memory emptyArray = new uint256[](0);
@@ -480,7 +485,7 @@ contract UserVoteResultEventTest is Test {
         vm.expectEmit(true, false, false, true);
         emit UserVoteResult(601, true, emptyArray, 0);
 
-        voting.submitMultiUserBatch(batches, 0, executorSig);
+        voting.submitMultiUserBatch(batches, 1, executorSig);
 
         console.log("SUCCESS: Events emitted correctly!");
         console.log("========================================\n");

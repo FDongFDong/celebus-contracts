@@ -88,29 +88,19 @@ export class Step5Struct {
       const provider = this.state.provider;
       const contract = new ethers.Contract(
         this.state.contractAddress,
-        ['function batchNonceUsed(address,uint256) view returns (bool)'],
+        ['function batchNonce(address) view returns (uint256)'],
         provider
       );
 
       const executorAddress = this.state.executorWallet.address;
-      
-      // 0부터 20까지 확인
-      let nextNonce = null;
-      for (let i = 0; i < 20; i++) {
-        const used = await contract.batchNonceUsed(executorAddress, i);
-        if (!used) {
-          nextNonce = i;
-          break;
-        }
-      }
 
-      if (nextNonce !== null) {
-        document.getElementById('batchNonce').value = nextNonce;
-        resultDiv.innerHTML = `<p class="text-sm text-green-600">✅ 사용 가능한 nonce: ${nextNonce}</p>`;
-        console.log('✅ Next available batch nonce:', nextNonce);
-      } else {
-        resultDiv.innerHTML = '<p class="text-sm text-red-600">❌ 0-19 범위에서 사용 가능한 nonce를 찾을 수 없습니다</p>';
-      }
+      // SubVoting에서는 batchNonce가 다음에 사용할 nonce 값을 반환
+      const currentNonce = await contract.batchNonce(executorAddress);
+      const nextNonce = parseInt(currentNonce.toString());
+
+      document.getElementById('batchNonce').value = nextNonce;
+      resultDiv.innerHTML = `<p class="text-sm text-green-600">✅ 사용 가능한 nonce: ${nextNonce}</p>`;
+      console.log('✅ Next available batch nonce:', nextNonce);
 
     } catch (error) {
       console.error('❌ Nonce check failed:', error);

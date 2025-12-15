@@ -44,7 +44,21 @@
       "mcp__serena__activate_project",
       "Bash(forge test:*)",
       "Bash(git commit:*)",
-      "mcp__serena__list_dir"
+      "mcp__serena__list_dir",
+      "Bash(cast logs:*)",
+      "Bash(forge build:*)",
+      "mcp__serena__replace_content",
+      "Bash(cast balance:*)",
+      "mcp__playwright__browser_console_messages",
+      "mcp__playwright__browser_network_requests",
+      "mcp__playwright__browser_close",
+      "Bash(md5:*)",
+      "Bash(cat:*)",
+      "Bash(cast sig-event:*)",
+      "Bash(cast 4byte:*)",
+      "Bash(cast sig:*)",
+      "Bash(forge inspect:*)",
+      "Bash(jq:*)"
     ],
     "deny": [],
     "ask": []

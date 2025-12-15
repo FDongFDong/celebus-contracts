@@ -68,6 +68,13 @@ contract Boosting is Ownable2Step, EIP712 {
      */
     uint8 public constant MAX_BOOST_TYPE = 1;
 
+    // UserBoostFailed 이벤트용 실패 사유 코드
+    uint8 private constant REASON_INVALID_USER_SIGNATURE = 1;    // 유저 서명 검증 실패 (EIP-712 서명 불일치)
+    uint8 private constant REASON_USER_NONCE_INVALID = 2;        // 유저 nonce 중복 사용 (이미 사용된 nonce)
+    uint8 private constant REASON_INVALID_BOOST_TYPE = 3;        // 잘못된 부스팅 타입 (0 또는 MAX_BOOST_TYPE 초과)
+    uint8 private constant REASON_ARTIST_NOT_ALLOWED = 4;        // 허용되지 않은 아티스트 (비활성화된 아티스트에 부스팅 시도)
+    uint8 private constant REASON_STRING_TOO_LONG = 5;           // 문자열 길이 초과 (userId > 100자)
+
     // ========================================
     // EIP-712 타입 해시 (Type Hashes)
     // ========================================
@@ -118,17 +125,11 @@ contract Boosting is Ownable2Step, EIP712 {
     /// @dev 부스팅 수량이 0일 때
     error ZeroAmt();
 
-    /// @dev 유저 nonce가 이미 사용됨
+    /// @dev 유저 nonce가 이미 사용됨 (중복 검증 실패)
     error UserNonceAlreadyUsed();
-
-    /// @dev 유저 nonce가 최소값보다 낮음 (취소된 nonce 범위)
-    error UserNonceTooLow();
 
     /// @dev 배치 nonce가 이미 사용됨
     error BatchNonceAlreadyUsed();
-
-    /// @dev 배치 nonce가 최소값보다 낮음
-    error BatchNonceTooLow();
 
     /// @dev 전체 배치가 MAX_RECORDS_PER_BATCH 초과
     error BatchTooLarge();
@@ -147,6 +148,9 @@ contract Boosting is Ownable2Step, EIP712 {
 
     /// @dev 부스팅 타입이 유효하지 않음 (MAX_BOOST_TYPE 초과)
     error InvalidBoostType(uint8 boostType);
+
+    /// @dev 배치 내 모든 유저가 실패함
+    error NoSuccessfulUser();
 
     // ========================================
     // 구조체 (Structs)
@@ -175,7 +179,7 @@ contract Boosting is Ownable2Step, EIP712 {
     /**
      * @dev 유저의 서명 정보
      * @param user 유저의 지갑 주소
-     * @param userNonce 유저의 nonce (리플레이 방지)
+     * @param userNonce 유저의 고유 nonce (리플레이 방지)
      * @param signature 유저의 EIP-712 서명
      */
     struct UserSig {
@@ -219,31 +223,17 @@ contract Boosting is Ownable2Step, EIP712 {
         private boostHashesByBoostingId;
 
     /**
-     * @dev 유저별 nonce 사용 여부
+     * @dev 유저별 사용된 Nonce 추적 (중복 방지)
      *      리플레이 공격 방지용
-     *
-     * 구조: user => nonce => used
      */
-    mapping(address => mapping(uint256 => bool)) public userNonceUsed;
+    mapping(address => mapping(uint256 => bool)) public usedUserNonces;
 
     /**
-     * @dev 유저별 최소 유효 nonce
-     *      이 값 미만의 nonce는 모두 무효 처리됨
-     *      cancelAllUserNonceUpTo로 일괄 취소 시 사용
-     */
-    mapping(address => uint256) public minUserNonce;
-
-    /**
-     * @dev executorSigner별 배치 nonce 사용 여부
+     * @dev executorSigner별 배치 nonce 사용 여부 (중복 방지)
      *
      * 구조: signer => nonce => used
      */
-    mapping(address => mapping(uint256 => bool)) public batchNonceUsed;
-
-    /**
-     * @dev executorSigner별 최소 유효 배치 nonce
-     */
-    mapping(address => uint256) public minBatchNonce;
+    mapping(address => mapping(uint256 => bool)) public usedBatchNonces;
 
     /**
      * @dev 레코드 소비 여부
@@ -315,12 +305,10 @@ contract Boosting is Ownable2Step, EIP712 {
      * @dev executorSigner가 변경되었을 때 발생
      * @param oldSigner 이전 서명자 주소
      * @param newSigner 새로운 서명자 주소
-     * @param oldMinNonce 이전 서명자의 minBatchNonce (참고용)
      */
     event ExecutorSignerChanged(
         address indexed oldSigner,
-        address indexed newSigner,
-        uint256 oldMinNonce
+        address indexed newSigner
     );
 
     /**
@@ -336,36 +324,35 @@ contract Boosting is Ownable2Step, EIP712 {
     );
 
     /**
+     * @dev 유저 부스팅 처리 실패 (Soft-fail)
+     * @param batchDigest 전체 배치의 해시
+     * @param user 유저 주소
+     * @param userNonce 시도된 유저 nonce
+     * @param reasonCode 실패 사유 코드
+     */
+    event UserBoostFailed(
+        bytes32 indexed batchDigest,
+        address indexed user,
+        uint256 userNonce,
+        uint8 reasonCode
+    );
+
+    /**
      * @dev 전체 배치가 처리 완료되었을 때 발생
      * @param batchDigest 배치 해시
      * @param executorSigner 실행한 서명자
      * @param batchNonce 사용된 배치 nonce
      * @param recordCount 실제 저장된 레코드 수 (중복 제외)
      * @param userCount 참여한 유저 수
+     * @param failedUserCount 검증 실패한 유저 수
      */
     event BatchProcessed(
         bytes32 indexed batchDigest,
         address indexed executorSigner,
         uint256 batchNonce,
         uint256 recordCount,
-        uint256 userCount
-    );
-
-    /**
-     * @dev 유저의 nonce가 일괄 취소되었을 때 발생
-     * @param user 유저 주소
-     * @param newMinUserNonce 새로운 최소 nonce (이 값 미만은 모두 무효)
-     */
-    event CancelUserNonceUpTo(address indexed user, uint256 newMinUserNonce);
-
-    /**
-     * @dev 배치 nonce가 일괄 취소되었을 때 발생
-     * @param executorSigner 서명자 주소
-     * @param newMinBatchNonce 새로운 최소 nonce
-     */
-    event CancelBatchNonceUpTo(
-        address indexed executorSigner,
-        uint256 newMinBatchNonce
+        uint256 userCount,
+        uint256 failedUserCount
     );
 
     /**
@@ -413,25 +400,12 @@ contract Boosting is Ownable2Step, EIP712 {
     /**
      * @dev 배치 실행 서명자 설정
      * @param s 새로운 서명자 주소
-     *
-     * 기존 서명자가 있으면 모든 nonce를 무효화하고,
-     * 새 서명자의 minBatchNonce를 0으로 초기화합니다.
      */
     function setExecutorSigner(address s) external onlyOwner {
         if (s == address(0)) revert ZeroAddress();
-
         address oldSigner = executorSigner;
-        uint256 oldMinNonce = minBatchNonce[oldSigner];
-
-        // 기존 서명자가 있으면 모든 nonce 무효화
-        if (oldSigner != address(0)) {
-            minBatchNonce[oldSigner] = type(uint256).max;
-        }
-
         executorSigner = s;
-        // 새 서명자의 minBatchNonce를 0으로 초기화 (재등록 시 DoS 방지)
-        minBatchNonce[s] = 0;
-        emit ExecutorSignerChanged(oldSigner, s, oldMinNonce);
+        emit ExecutorSignerChanged(oldSigner, s);
     }
 
     /**
@@ -474,47 +448,6 @@ contract Boosting is Ownable2Step, EIP712 {
         emit BoostingTypeSet(typeId, name);
     }
 
-    /**
-     * @dev 특정 유저의 nonce를 일괄 취소
-     * @param user 대상 유저 주소
-     * @param newMinUserNonce 새로운 최소 nonce
-     *
-     * 사용 시나리오:
-     *   - 유저가 서명한 배치를 취소하고 싶을 때
-     *   - 유저의 개인키가 유출되었을 때 긴급 조치
-     *
-     * 예: newMinUserNonce=100이면 nonce 0~99는 모두 무효
-     */
-    function cancelAllUserNonceUpTo(
-        address user,
-        uint256 newMinUserNonce
-    ) external onlyOwner {
-        if (newMinUserNonce <= minUserNonce[user]) revert UserNonceTooLow();
-        minUserNonce[user] = newMinUserNonce;
-        emit CancelUserNonceUpTo(user, newMinUserNonce);
-    }
-
-    /**
-     * @dev 배치 nonce를 일괄 취소
-     * @param newMinBatchNonce 새로운 최소 nonce
-     *
-     * 호출 권한: owner 또는 executorSigner
-     *
-     * 사용 시나리오:
-     *   - 백엔드에서 생성한 배치를 취소하고 싶을 때
-     *   - executorSigner의 핫월렛이 위험에 노출되었을 때
-     */
-    function cancelAllBatchNonceUpTo(uint256 newMinBatchNonce) external {
-        if (msg.sender != owner() && msg.sender != executorSigner) {
-            revert NotOwnerOrExecutor();
-        }
-        if (newMinBatchNonce <= minBatchNonce[executorSigner]) {
-            revert BatchNonceTooLow();
-        }
-        minBatchNonce[executorSigner] = newMinBatchNonce;
-        emit CancelBatchNonceUpTo(executorSigner, newMinBatchNonce);
-    }
-
     // ========================================
     // 내부 함수: 해시 로직 (Internal: Hash Logic)
     // ========================================
@@ -548,7 +481,7 @@ contract Boosting is Ownable2Step, EIP712 {
     /**
      * @dev 유저 서명의 EIP-712 다이제스트 생성
      * @param user 유저 주소
-     * @param userNonce 유저 nonce
+     * @param nonce_ 유저 nonce
      * @param recordHash 레코드 해시
      * @return EIP-712 서명용 다이제스트
      *
@@ -556,13 +489,13 @@ contract Boosting is Ownable2Step, EIP712 {
      */
     function _hashUserSig(
         address user,
-        uint256 userNonce,
+        uint256 nonce_,
         bytes32 recordHash
     ) internal view returns (bytes32) {
         return
             _hashTypedDataV4(
                 keccak256(
-                    abi.encode(USER_SIG_TYPEHASH, user, userNonce, recordHash)
+                    abi.encode(USER_SIG_TYPEHASH, user, nonce_, recordHash)
                 )
             );
     }
@@ -618,29 +551,23 @@ contract Boosting is Ownable2Step, EIP712 {
     // ========================================
 
     /**
-     * @dev 유저 nonce 소비 (사용 처리)
+     * @dev 유저 nonce 중복 검증
      * @param user 유저 주소
-     * @param nonce_ 사용할 nonce
-     *
-     * 검증:
-     *   1. nonce가 minUserNonce 이상인지 확인
-     *   2. nonce가 이미 사용되지 않았는지 확인
+     * @param nonce_ 제출된 nonce
+     * @return 검증 성공 여부 (사용되지 않은 nonce면 true)
      */
-    function _consumeUserNonce(address user, uint256 nonce_) internal {
-        if (nonce_ < minUserNonce[user]) revert UserNonceTooLow();
-        if (userNonceUsed[user][nonce_]) revert UserNonceAlreadyUsed();
-        userNonceUsed[user][nonce_] = true;
+    function _checkUserNonce(address user, uint256 nonce_) internal view returns (bool) {
+        return !usedUserNonces[user][nonce_];
     }
 
     /**
-     * @dev 배치 nonce 소비 (사용 처리)
+     * @dev 배치 nonce 검증 및 사용 처리 (중복 방지)
      * @param signer 서명자 주소
      * @param nonce_ 사용할 nonce
      */
     function _consumeBatchNonce(address signer, uint256 nonce_) internal {
-        if (nonce_ < minBatchNonce[signer]) revert BatchNonceTooLow();
-        if (batchNonceUsed[signer][nonce_]) revert BatchNonceAlreadyUsed();
-        batchNonceUsed[signer][nonce_] = true;
+        if (usedBatchNonces[signer][nonce_]) revert BatchNonceAlreadyUsed();
+        usedBatchNonces[signer][nonce_] = true;
     }
 
     // ========================================
@@ -648,52 +575,23 @@ contract Boosting is Ownable2Step, EIP712 {
     // ========================================
 
     /**
-     * @dev 문자열 필드 길이 검증
+     * @dev 문자열 필드 길이 검증 (soft-fail 버전)
      * @param record 검증할 레코드
-     *
-     * 과도한 스토리지 사용 방지
+     * @return true if valid, false if any string exceeds MAX_STRING_LENGTH
      */
-    function _validateStrings(BoostRecord calldata record) internal pure {
-        if (bytes(record.userId).length > MAX_STRING_LENGTH) {
-            revert StringTooLong();
-        }
+    function _validateStringsSoft(BoostRecord calldata record) internal pure returns (bool) {
+        return bytes(record.userId).length <= MAX_STRING_LENGTH;
     }
 
     /**
-     * @dev 레코드 공통 검증 (저장 직전에 호출)
-     * @param record 검증할 레코드
-     *
-     * 검증 항목:
-     *   1. boostingWith가 유효한 범위인지
-     *   2. 해당 아티스트가 부스팅 허용되어 있는지
+     * @dev 단일 레코드의 해시 생성
+     * @param record 부스팅 레코드
+     * @return recordDigest 레코드의 해시
      */
-    function _validateRecordCommon(BoostRecord calldata record) internal view {
-        if (record.boostingWith > MAX_BOOST_TYPE) {
-            revert InvalidBoostType(record.boostingWith);
-        }
-        if (!allowedArtist[record.missionId][record.optionId]) {
-            revert ArtistNotAllowed(record.missionId, record.optionId);
-        }
-    }
-
-    /**
-     * @dev 모든 레코드의 해시 배열 생성
-     * @param batches 배치 배열
-     * @return recordDigests 각 레코드의 해시 배열
-     */
-    function _buildRecordDigests(
-        UserBoostBatch[] calldata batches
-    ) internal pure returns (bytes32[] memory recordDigests) {
-        uint256 len = batches.length;
-        recordDigests = new bytes32[](len);
-
-        for (uint256 i; i < len; ) {
-            _validateStrings(batches[i].record);
-            recordDigests[i] = _hashBoostRecord(batches[i].record);
-            unchecked {
-                ++i;
-            }
-        }
+    function _buildRecordDigest(
+        BoostRecord calldata record
+    ) internal pure returns (bytes32 recordDigest) {
+        recordDigest = _hashBoostRecord(record);
     }
 
     // ========================================
@@ -701,37 +599,45 @@ contract Boosting is Ownable2Step, EIP712 {
     // ========================================
 
     /**
-     * @dev 유저 서명 검증 (1:1 방식)
+     * @dev 유저 서명 검증 (Soft-fail 방식)
+     *      실패 시 revert 대신 (false, reasonCode) 반환 + 이벤트 발생
+     *      → 다른 유저의 부스팅은 계속 처리 가능
+     *
      * @param userSig 유저 서명 정보
      * @param recordHash 레코드 해시
      * @param batchDigest 배치 다이제스트 (이벤트용)
-     *
-     * 검증 과정:
-     *   1. 유저 주소가 zero가 아닌지 확인
-     *   2. EIP-712 다이제스트 생성
-     *   3. 서명 검증
-     *   4. nonce 소비
+     * @return ok 검증 성공 여부
+     * @return reasonCode 실패 사유 코드 (성공 시 0)
      */
-    function _verifyUserSignature(
+    function _verifyUserSignatureSoft(
         UserSig calldata userSig,
         bytes32 recordHash,
         bytes32 batchDigest
-    ) internal {
-        if (userSig.user == address(0)) revert ZeroAddress();
+    ) internal returns (bool ok, uint8 reasonCode) {
+        address user = userSig.user;
+        uint256 nonce_ = userSig.userNonce;
 
-        bytes32 userSigDigest = _hashUserSig(
-            userSig.user,
-            userSig.userNonce,
-            recordHash
-        );
+        // 1) 서명 검증
+        bytes32 userSigDigest = _hashUserSig(user, nonce_, recordHash);
 
-        if (!_isValidSig(userSig.user, userSigDigest, userSig.signature)) {
-            revert InvalidSignature();
+        if (!_isValidSig(user, userSigDigest, userSig.signature)) {
+            reasonCode = REASON_INVALID_USER_SIGNATURE;
+            emit UserBoostFailed(batchDigest, user, nonce_, reasonCode);
+            return (false, reasonCode);
         }
 
-        _consumeUserNonce(userSig.user, userSig.userNonce);
+        // 2) Nonce 중복 검증
+        if (!_checkUserNonce(user, nonce_)) {
+            reasonCode = REASON_USER_NONCE_INVALID;
+            emit UserBoostFailed(batchDigest, user, nonce_, reasonCode);
+            return (false, reasonCode);
+        }
 
-        emit UserBoostProcessed(batchDigest, userSig.user, userSig.userNonce);
+        // Nonce 사용 처리
+        usedUserNonces[user][nonce_] = true;
+
+        emit UserBoostProcessed(batchDigest, user, nonce_);
+        return (true, 0);
     }
 
     /**
@@ -752,58 +658,50 @@ contract Boosting is Ownable2Step, EIP712 {
         _consumeBatchNonce(executorSigner, batchNonce);
     }
 
-    /**
-     * @dev 모든 유저의 서명 검증
-     * @param batches 배치 배열
-     * @param recordDigests 레코드 해시 배열
-     * @param batchDigest 배치 다이제스트
-     */
-    function _verifyAllUserCoverage(
-        UserBoostBatch[] calldata batches,
-        bytes32[] memory recordDigests,
-        bytes32 batchDigest
-    ) internal {
-        uint256 len = batches.length;
 
-        for (uint256 i; i < len; ) {
-            _verifyUserSignature(
-                batches[i].userSig,
-                recordDigests[i],
-                batchDigest
-            );
-            unchecked {
-                ++i;
-            }
-        }
-    }
 
     // ========================================
     // 내부 함수: 저장 로직 (Internal: Storage)
     // ========================================
 
     /**
-     * @dev 부스팅 레코드들을 스토리지에 저장
+     * @dev 검증 통과한 부스팅 레코드들을 스토리지에 저장
      * @param batches 배치 배열
      * @param recordDigests 레코드 해시 배열
+     * @param userOk 유저별 검증 통과 여부
+     * @param userReason 유저별 실패 사유 코드 (검증 통과 시 추가 검증에서 사용)
+     * @param batchDigest 배치 다이제스트 (이벤트용)
      * @return storedCount 실제 저장된 레코드 수
      *
      * 저장 로직:
-     *   1. amt가 0이면 스킵 (무효 부스팅)
-     *   2. 아티스트 허용 여부 검증
-     *   3. 이미 consumed된 레코드면 스킵 (중복 방지)
-     *   4. consumed 표시
-     *   5. boosts 매핑에 저장
-     *   6. boostHashesByBoostingId에 해시 추가
-     *   7. boostCount, boostCountByMission, artistTotalAmt 집계 업데이트
+     *   1. userOk[i] == false면 스킵 (이미 검증 단계에서 실패)
+     *   2. amt가 0이면 스킵 (무효 부스팅)
+     *   3. boostingWith 타입 검증
+     *   4. 아티스트 허용 여부 검증
+     *   5. 중복 레코드면 스킵
+     *   6. 저장 및 집계 업데이트
      */
     function _storeBoostRecords(
         UserBoostBatch[] calldata batches,
-        bytes32[] memory recordDigests
+        bytes32[] memory recordDigests,
+        bool[] memory userOk,
+        uint8[] memory userReason,
+        bytes32 batchDigest
     ) internal returns (uint256 storedCount) {
         uint256 len = batches.length;
 
         for (uint256 i; i < len; ) {
+            // 검증 단계에서 실패한 유저는 스킵
+            if (!userOk[i]) {
+                unchecked {
+                    ++i;
+                }
+                continue;
+            }
+
             BoostRecord calldata record = batches[i].record;
+            address user = batches[i].userSig.user;
+            uint256 nonce_ = batches[i].userSig.userNonce;
 
             // 0포인트 부스팅 스킵
             if (record.amt == 0) {
@@ -813,8 +711,23 @@ contract Boosting is Ownable2Step, EIP712 {
                 continue;
             }
 
-            // 공통 검증 (아티스트 허용 여부)
-            _validateRecordCommon(record);
+            // per-record 검증: boostingWith 타입
+            if (record.boostingWith > MAX_BOOST_TYPE) {
+                emit UserBoostFailed(batchDigest, user, nonce_, REASON_INVALID_BOOST_TYPE);
+                unchecked {
+                    ++i;
+                }
+                continue;
+            }
+
+            // per-record 검증: 아티스트 허용 여부
+            if (!allowedArtist[record.missionId][record.optionId]) {
+                emit UserBoostFailed(batchDigest, user, nonce_, REASON_ARTIST_NOT_ALLOWED);
+                unchecked {
+                    ++i;
+                }
+                continue;
+            }
 
             bytes32 recordDigest = recordDigests[i];
 
@@ -856,49 +769,103 @@ contract Boosting is Ownable2Step, EIP712 {
     /**
      * @notice 여러 유저의 부스팅 배치를 한 번에 제출
      * @param batches 유저별 부스팅 배치 배열
-     * @param batchNonce 이 배치의 고유 nonce (리플레이 방지)
+     * @param batchNonce_ 이 배치의 고유 nonce (리플레이 방지)
      * @param executorSig executorSigner의 서명
      *
      * @dev 이 함수는 누구나 호출할 수 있습니다.
      *      유효한 서명이 있다면 제3자도 제출 가능합니다.
      *      (가스비를 대신 내주는 메타트랜잭션 패턴)
      *
+     *      Soft-fail 방식:
+     *      - 한 유저의 검증이 실패해도 다른 유저는 계속 처리
+     *      - 모든 유저가 실패한 경우에만 revert
+     *
      * 처리 순서:
      *   1. 기본 검증 (크기 제한, executorSigner 설정, 체인 ID)
      *   2. executorSigner 서명 검증 및 nonce 소비
      *   3. 모든 레코드의 해시 계산
-     *   4. 각 유저의 서명 검증 및 nonce 소비
-     *   5. 부스팅 레코드 저장 및 집계 업데이트
+     *   4. 각 유저의 서명 검증 (Soft-fail: 실패해도 다른 유저 계속)
+     *   5. 검증 통과한 부스팅 레코드 저장 및 집계 업데이트
      *   6. 완료 이벤트 발생
      */
     function submitBoostBatch(
         UserBoostBatch[] calldata batches,
-        uint256 batchNonce,
+        uint256 batchNonce_,
         bytes calldata executorSig
     ) external {
-        uint256 len = batches.length;
-        if (len > MAX_RECORDS_PER_BATCH) revert BatchTooLarge();
+        // === 1. 입력 검증 ===
+        uint256 userCount = batches.length;
+        if (userCount == 0) revert BatchTooLarge();
+        if (userCount > MAX_RECORDS_PER_BATCH) revert BatchTooLarge();
         if (executorSigner == address(0)) revert ZeroAddress();
         if (block.chainid != CHAIN_ID) revert BadChain();
 
-        // executor 서명 검증
-        bytes32 batchDigest = _verifyBatchSignature(batchNonce, executorSig);
+        // === 2. Executor 서명 & Nonce 검증 ===
+        bytes32 batchDigest = _verifyBatchSignature(batchNonce_, executorSig);
 
-        // 레코드 해시 생성
-        bytes32[] memory recordDigests = _buildRecordDigests(batches);
+        // === 3. 각 유저별 Soft-fail 검증 (문자열 검증 포함) ===
+        bytes32[] memory recordDigests = new bytes32[](userCount);
+        bool[] memory userOk = new bool[](userCount);
+        uint8[] memory userReason = new uint8[](userCount);
+        uint256 successUserCount;
 
-        // 모든 유저 서명 검증
-        _verifyAllUserCoverage(batches, recordDigests, batchDigest);
+        for (uint256 i; i < userCount; ) {
+            address user = batches[i].userSig.user;
+            uint256 nonce_ = batches[i].userSig.userNonce;
 
-        // 부스팅 저장
-        uint256 stored = _storeBoostRecords(batches, recordDigests);
+            // 문자열 검증 (soft-fail) - userId 길이 초과 시 해당 유저만 실패
+            if (!_validateStringsSoft(batches[i].record)) {
+                userOk[i] = false;
+                userReason[i] = REASON_STRING_TOO_LONG;
+                emit UserBoostFailed(batchDigest, user, nonce_, REASON_STRING_TOO_LONG);
+                recordDigests[i] = bytes32(0);
+                unchecked {
+                    ++i;
+                }
+                continue;
+            }
+
+            // 레코드 해시 생성
+            recordDigests[i] = _buildRecordDigest(batches[i].record);
+
+            (bool ok, uint8 reason) = _verifyUserSignatureSoft(
+                batches[i].userSig,
+                recordDigests[i],
+                batchDigest
+            );
+
+            if (ok) {
+                userOk[i] = true;
+                unchecked {
+                    ++successUserCount;
+                }
+            }
+            userReason[i] = reason;
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        if (successUserCount == 0) revert NoSuccessfulUser();
+
+        // === 5. 레코드 저장 ===
+        uint256 stored = _storeBoostRecords(
+            batches,
+            recordDigests,
+            userOk,
+            userReason,
+            batchDigest
+        );
+        if (stored == 0) revert NoSuccessfulUser();
 
         emit BatchProcessed(
             batchDigest,
             executorSigner,
-            batchNonce,
+            batchNonce_,
             stored,
-            len
+            userCount,
+            userCount - successUserCount
         );
     }
 
@@ -1058,16 +1025,16 @@ contract Boosting is Ownable2Step, EIP712 {
     /**
      * @notice 유저 서명 다이제스트 미리보기
      * @param user 유저 주소
-     * @param userNonce 유저 nonce
+     * @param nonce_ 유저 nonce
      * @param recordHash 레코드 해시
      * @return 서명할 다이제스트
      */
     function hashUserSigPreview(
         address user,
-        uint256 userNonce,
+        uint256 nonce_,
         bytes32 recordHash
     ) external view returns (bytes32) {
-        return _hashUserSig(user, userNonce, recordHash);
+        return _hashUserSig(user, nonce_, recordHash);
     }
 
     /**

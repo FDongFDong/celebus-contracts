@@ -3,7 +3,7 @@
  * SubVoting 컨트랙트의 모든 view 함수를 UI에서 호출 가능하게 함
  */
 
-import { CONFIG } from '../config.js';
+import { CONFIG } from '../config.js?v=2';
 
 export class Step8Query {
   constructor(state) {

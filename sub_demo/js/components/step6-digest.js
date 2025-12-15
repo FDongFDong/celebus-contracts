@@ -2,7 +2,7 @@
  * STEP 6: Batch Digest 계산 및 Executor 서명
  */
 
-import { CONFIG } from '../config.js';
+import { CONFIG } from '../config.js?v=2';
 
 export class Step6Digest {
   constructor(state) {

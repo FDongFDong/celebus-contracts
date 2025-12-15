@@ -3,11 +3,19 @@
  * SubVoting N:1 구조: 유저당 { records: [...], userBatchSig: {...} }
  */
 
-import { CONFIG, getContractInstance } from '../config.js';
+import { CONFIG, getContractInstance } from '../config.js?v=2';
 
 export class Step7Submit {
   constructor(state) {
     this.state = state;
+    this.onEventsReceived = null;
+  }
+
+  /**
+   * Step 9 연동을 위한 콜백 설정
+   */
+  setEventCallback(callback) {
+    this.onEventsReceived = callback;
   }
 
   render() {
@@ -217,8 +225,9 @@ export class Step7Submit {
 
       if (userRecords.length === 0) continue;
 
-      // VoteRecord 배열 생성 (userId 포함)
-      const records = userRecords.map(r => ({
+      // VoteRecord 배열 생성 (recordId, userId 포함)
+      const records = userRecords.map((r, idx) => ({
+        recordId: r.recordId || (idx + 1),  // recordId가 없으면 인덱스 기반 생성
         timestamp: r.timestamp,
         missionId: r.missionId,
         votingId: r.votingId,
@@ -368,6 +377,18 @@ export class Step7Submit {
         </div>
       `;
       resultDiv.classList.remove('hidden');
+
+      // Step 9로 이벤트 전달 (자동 파싱)
+      if (this.onEventsReceived && receipt) {
+        this.setLoadingState(true, 'UserVoteResult 이벤트 파싱 중...');
+        try {
+          this.onEventsReceived(receipt, tx.hash);
+          console.log('[EVENT] UserVoteResult events sent to Step 9');
+        } catch (eventError) {
+          console.warn('[EVENT] Event parsing warning:', eventError);
+        }
+        this.setLoadingState(false);
+      }
 
       // 투표 결과 확인
       await this.checkVoteResults();

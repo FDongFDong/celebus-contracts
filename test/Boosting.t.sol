@@ -176,8 +176,8 @@ contract BoostingTest is Test {
         // 검증
         assertEq(boosting.boostCount(1, 1), 1);
         assertEq(boosting.boostCountByMission(1), 1);
-        assertTrue(boosting.userNonceUsed(user1, 0));
-        assertTrue(boosting.batchNonceUsed(executorSigner, 0));
+        assertTrue(boosting.usedUserNonces(user1, 0));  // nonce 0이 사용됨
+        assertTrue(boosting.usedBatchNonces(executorSigner, 0));
 
         // 아티스트 집계 검증
         assertEq(boosting.artistTotalAmt(1, 1), 100);
@@ -195,10 +195,10 @@ contract BoostingTest is Test {
 
         // 검증
         assertEq(boosting.boostCountByMission(1), 3);
-        assertTrue(boosting.userNonceUsed(user1, 0));
-        assertTrue(boosting.userNonceUsed(user2, 0));
-        assertTrue(boosting.userNonceUsed(user3, 0));
-        assertTrue(boosting.batchNonceUsed(executorSigner, 0));
+        assertTrue(boosting.usedUserNonces(user1, 0));  // 각 유저 nonce 0이 사용됨
+        assertTrue(boosting.usedUserNonces(user2, 0));
+        assertTrue(boosting.usedUserNonces(user3, 0));
+        assertTrue(boosting.usedBatchNonces(executorSigner, 0));
 
         // 아티스트별 집계 검증
         assertEq(boosting.artistTotalAmt(1, 1), 100);
@@ -221,11 +221,11 @@ contract BoostingTest is Test {
 
         // 검증
         assertEq(boosting.boostCountByMission(1), 5);
-        assertTrue(boosting.userNonceUsed(user1, 0));
-        assertTrue(boosting.userNonceUsed(user1, 1));
-        assertTrue(boosting.userNonceUsed(user2, 0));
-        assertTrue(boosting.userNonceUsed(user2, 1));
-        assertTrue(boosting.userNonceUsed(user3, 0));
+        assertTrue(boosting.usedUserNonces(user1, 0));  // user1은 nonce 0, 1 사용
+        assertTrue(boosting.usedUserNonces(user1, 1));
+        assertTrue(boosting.usedUserNonces(user2, 0));  // user2도 nonce 0, 1 사용
+        assertTrue(boosting.usedUserNonces(user2, 1));
+        assertTrue(boosting.usedUserNonces(user3, 0));  // user3는 nonce 0만 사용
 
         // 아티스트별 집계 (user1: 100+80=180, user2: 200+120=320, user3: 150)
         assertEq(boosting.artistTotalAmt(1, 1), 180); // artist1
@@ -263,7 +263,8 @@ contract BoostingTest is Test {
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
-        vm.expectRevert(Boosting.InvalidSignature.selector);
+        // Soft-fail: 유저 서명 검증 실패 → 해당 유저만 실패 → 모든 유저 실패 시 NoSuccessfulUser
+        vm.expectRevert(Boosting.NoSuccessfulUser.selector);
         boosting.submitBoostBatch(batches, 0, executorSig);
     }
 
@@ -276,11 +277,12 @@ contract BoostingTest is Test {
         // 첫 번째 제출 성공
         boosting.submitBoostBatch(batches, 0, executorSig);
 
-        // 두 번째 제출 실패 (같은 user nonce)
-        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 2, 2, 1, 150, 0); // 같은 nonce
+        // 두 번째 제출 실패 (같은 user nonce - 순차 방식에서는 nonce 0은 이미 사용되어 expected는 1)
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 2, 2, 1, 150, 0); // nonce 0 재사용 시도
         bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 1);
 
-        vm.expectRevert(Boosting.UserNonceAlreadyUsed.selector);
+        // Soft-fail로 인해 해당 유저만 실패, 모든 유저 실패 시 NoSuccessfulUser
+        vm.expectRevert(Boosting.NoSuccessfulUser.selector);
         boosting.submitBoostBatch(batches, 1, executorSig2);
     }
 
@@ -311,7 +313,8 @@ contract BoostingTest is Test {
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(Boosting.ArtistNotAllowed.selector, 1, 99));
+        // Soft-fail: per-record 검증 실패 → 해당 레코드만 실패 → 모든 유저 실패 시 NoSuccessfulUser
+        vm.expectRevert(Boosting.NoSuccessfulUser.selector);
         boosting.submitBoostBatch(batches, 0, executorSig);
     }
 
@@ -321,7 +324,8 @@ contract BoostingTest is Test {
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(Boosting.InvalidBoostType.selector, 5));
+        // Soft-fail: per-record 검증 실패 → 해당 레코드만 실패 → 모든 유저 실패 시 NoSuccessfulUser
+        vm.expectRevert(Boosting.NoSuccessfulUser.selector);
         boosting.submitBoostBatch(batches, 0, executorSig);
     }
 
@@ -402,40 +406,6 @@ contract BoostingTest is Test {
     }
 
     // ========================================
-    // Nonce 취소 테스트
-    // ========================================
-
-    function test_CancelUserNonce() public {
-        boosting.cancelAllUserNonceUpTo(user1, 10);
-        assertEq(boosting.minUserNonce(user1), 10);
-    }
-
-    function test_RevertWhen_CancelUserNonceTooLow() public {
-        boosting.cancelAllUserNonceUpTo(user1, 10);
-
-        vm.expectRevert(Boosting.UserNonceTooLow.selector);
-        boosting.cancelAllUserNonceUpTo(user1, 5);
-    }
-
-    function test_CancelBatchNonce() public {
-        boosting.cancelAllBatchNonceUpTo(10);
-        assertEq(boosting.minBatchNonce(executorSigner), 10);
-    }
-
-    function test_RevertWhen_CancelBatchNonceTooLow() public {
-        boosting.cancelAllBatchNonceUpTo(10);
-
-        vm.expectRevert(Boosting.BatchNonceTooLow.selector);
-        boosting.cancelAllBatchNonceUpTo(5);
-    }
-
-    function test_RevertWhen_CancelBatchNonceNotAuthorized() public {
-        vm.prank(user1);
-        vm.expectRevert(Boosting.NotOwnerOrExecutor.selector);
-        boosting.cancelAllBatchNonceUpTo(10);
-    }
-
-    // ========================================
     // 순차 배치 테스트
     // ========================================
 
@@ -472,12 +442,6 @@ contract BoostingTest is Test {
         boosting.setArtist(1, 1, "Unauthorized", true);
     }
 
-    function test_RevertWhen_CancelUserNonceNotOwner() public {
-        vm.prank(user1);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", user1));
-        boosting.cancelAllUserNonceUpTo(user2, 10);
-    }
-
     function test_RevertWhen_SetBoostingTypeNameNotOwner() public {
         vm.prank(user1);
         vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", user1));
@@ -488,7 +452,9 @@ contract BoostingTest is Test {
     // 경계값 테스트
     // ========================================
 
-    function test_RevertWhen_StringTooLong() public {
+    /// @notice StringTooLong은 이제 soft-fail로 처리됨
+    ///         단일 유저가 StringTooLong으로 실패하면 NoSuccessfulUser 발생
+    function test_SoftFail_StringTooLong_AllUsersFail() public {
         // 101자 문자열 생성 (MAX_STRING_LENGTH = 100 초과)
         bytes memory longString = new bytes(101);
         for (uint256 i = 0; i < 101; i++) {
@@ -522,7 +488,8 @@ contract BoostingTest is Test {
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
-        vm.expectRevert(Boosting.StringTooLong.selector);
+        // StringTooLong은 soft-fail이므로 유저가 실패하고, 다른 유저가 없으면 NoSuccessfulUser
+        vm.expectRevert(Boosting.NoSuccessfulUser.selector);
         boosting.submitBoostBatch(batches, 0, executorSig);
     }
 
@@ -551,7 +518,8 @@ contract BoostingTest is Test {
 
         bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 1);
 
-        vm.expectRevert(abi.encodeWithSelector(Boosting.ArtistNotAllowed.selector, 1, 1));
+        // Soft-fail: 아티스트 비활성화로 per-record 검증 실패 → 모든 유저 실패 시 NoSuccessfulUser
+        vm.expectRevert(Boosting.NoSuccessfulUser.selector);
         boosting.submitBoostBatch(batches2, 1, executorSig2);
     }
 
@@ -571,7 +539,7 @@ contract BoostingTest is Test {
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
         boosting.submitBoostBatch(batches, 0, executorSig);
 
-        assertTrue(boosting.userNonceUsed(user1, 0));
+        assertTrue(boosting.usedUserNonces(user1, 0));  // nonce 0이 사용됨
     }
 
     function test_UpdateArtistName() public {
@@ -610,7 +578,7 @@ contract BoostingTest is Test {
         bytes memory newExecutorSig = abi.encodePacked(r2, s2, v2);
 
         boosting.submitBoostBatch(batches2, 0, newExecutorSig);
-        assertTrue(boosting.userNonceUsed(user2, 0));
+        assertTrue(boosting.usedUserNonces(user2, 0));  // nonce 0이 사용됨
     }
 
     // ========================================
@@ -638,8 +606,8 @@ contract BoostingTest is Test {
 
         bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 1);
 
-        // 이미 사용된 nonce이므로 revert
-        vm.expectRevert(Boosting.UserNonceAlreadyUsed.selector);
+        // 중복 nonce 사용 시 모든 유저 실패 → NoSuccessfulUser
+        vm.expectRevert(Boosting.NoSuccessfulUser.selector);
         boosting.submitBoostBatch(batches2, 1, executorSig2);
     }
 

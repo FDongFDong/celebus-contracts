@@ -25,7 +25,7 @@ export class Step2Records {
             <strong><i data-lucide="lightbulb" class="w-4 h-4 inline"></i> 백엔드 시뮬레이션:</strong>
           </p>
           <ul class="text-xs text-purple-700 mt-1 ml-4 list-disc space-y-1">
-            <li><strong>User Nonce:</strong> 컨트랙트에서 자동 조회 (재사용 방지)</li>
+            <li><strong>User Nonce:</strong> 사용자 입력 또는 자동 생성 후 중복 확인 (재사용 방지)</li>
             <li><strong>Voting ID:</strong> 프론트엔드에서 타임스탬프 기반 자동 생성 (사용자별 유니크)</li>
             <li><strong>userId:</strong> 백엔드가 지갑 주소를 기반으로 DB에서 자동 설정</li>
           </ul>
@@ -43,12 +43,16 @@ export class Step2Records {
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1"><i data-lucide="hash" class="w-4 h-4 inline"></i> User Nonce</label>
             <div class="flex gap-2">
-              <input type="text" id="userNonce" class="flex-1 px-3 py-2 border rounded-md bg-gray-100" readonly placeholder="컨트랙트에서 조회">
-              <button onclick="step2.fetchUserNonce()" class="px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm whitespace-nowrap" title="컨트랙트에서 사용자 Nonce 조회">
-                <i data-lucide="refresh-cw" class="w-4 h-4 inline"></i> 조회
+              <input type="number" id="userNonce" class="flex-1 px-3 py-2 border rounded-md" placeholder="직접 입력 또는 자동 생성" min="0">
+              <button onclick="step2.generateUserNonce()" class="px-3 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 text-sm whitespace-nowrap" title="타임스탬프 기반 유니크 Nonce 생성">
+                <i data-lucide="dice-3" class="w-4 h-4 inline"></i> 생성
+              </button>
+              <button onclick="step2.checkUserNonce()" class="px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm whitespace-nowrap" title="해당 Nonce가 이미 사용되었는지 확인">
+                <i data-lucide="search" class="w-4 h-4 inline"></i> 중복확인
               </button>
             </div>
-            <p class="text-xs text-gray-500 mt-1">사용자별 서명 카운터 (컨트랙트에서 자동 조회)</p>
+            <p class="text-xs text-gray-500 mt-1">이미 사용된 Nonce는 재사용 불가 (중복 체크 방식)</p>
+            <div id="nonceCheckResult" class="hidden mt-1"></div>
           </div>
 
           <!-- userId는 숨김 처리, 백엔드가 자동 설정 -->
@@ -286,10 +290,33 @@ export class Step2Records {
   }
 
   /**
-   * 컨트랙트에서 User Nonce 조회 (백엔드 시뮬레이션)
-   * 순차 카운터 방식: userNonce(address)로 다음 사용할 Nonce를 직접 조회
+   * User Nonce 자동 생성 (타임스탬프 기반)
+   * 중복 체크 방식에서는 유니크한 값만 사용하면 됨
    */
-  async fetchUserNonce() {
+  generateUserNonce() {
+    // 현재 선택된 사용자 인덱스
+    const selectedUserIndex = parseInt(document.getElementById('selectedUser').value);
+
+    // 타임스탬프의 마지막 9자리 + userIndex로 유니크한 값 생성
+    const timestamp = Date.now().toString();
+    const nonce = parseInt(timestamp.slice(-9)) * 10 + selectedUserIndex;
+
+    document.getElementById('userNonce').value = nonce;
+
+    // 중복 확인 결과 초기화
+    const resultDiv = document.getElementById('nonceCheckResult');
+    resultDiv.classList.add('hidden');
+
+    console.log(`[SUCCESS] User Nonce generated for User ${selectedUserIndex + 1}:`, nonce);
+  }
+
+  /**
+   * 컨트랙트에서 User Nonce 중복 확인 (백엔드 시뮬레이션)
+   * 중복 체크 방식: usedUserNonces(address, nonce) → bool로 사용 여부 확인
+   */
+  async checkUserNonce() {
+    const resultDiv = document.getElementById('nonceCheckResult');
+
     try {
       const selectedUserIndex = parseInt(document.getElementById('selectedUser').value);
       const wallet = selectedUserIndex === 0 ? this.state.user1Wallet : this.state.user2Wallet;
@@ -299,34 +326,63 @@ export class Step2Records {
         return;
       }
 
+      const nonceValue = document.getElementById('userNonce').value;
+      if (!nonceValue || nonceValue === '') {
+        alert('먼저 Nonce 값을 입력하거나 생성해주세요!');
+        return;
+      }
+
+      const nonce = parseInt(nonceValue);
+      if (isNaN(nonce) || nonce < 0) {
+        alert('유효하지 않은 Nonce 값입니다. 0 이상의 정수를 입력해주세요.');
+        return;
+      }
+
       // 컨트랙트 인스턴스 생성
       const provider = this.state.provider;
       const contract = new ethers.Contract(
         this.state.contractAddress,
-        ['function userNonce(address) view returns (uint256)'],
+        ['function usedUserNonces(address, uint256) view returns (bool)'],
         provider
       );
 
-      // userNonce 조회 (순차 카운터 - 다음 사용할 Nonce가 바로 반환됨)
-      console.log(`[SEARCH] Fetching next nonce for ${wallet.address}...`);
-      const nextNonce = await contract.userNonce(wallet.address);
-      const nonceValue = parseInt(nextNonce.toString());
+      // usedUserNonces 조회 (중복 체크 - true면 이미 사용됨)
+      console.log(`[SEARCH] Checking if nonce ${nonce} is used for ${wallet.address}...`);
+      const isUsed = await contract.usedUserNonces(wallet.address, nonce);
 
       // UI 업데이트
-      document.getElementById('userNonce').value = nonceValue;
-
-      console.log(`[SUCCESS] Next nonce for User ${selectedUserIndex + 1}: ${nonceValue}`);
-
-      // state에도 저장
-      if (selectedUserIndex === 0) {
-        this.state.user1Nonce = nonceValue;
+      resultDiv.classList.remove('hidden');
+      if (isUsed) {
+        resultDiv.innerHTML = `
+          <span class="text-red-600 text-xs font-semibold">
+            ❌ 이미 사용된 Nonce입니다. 다른 값을 사용해주세요.
+          </span>
+        `;
+        console.log(`[WARNING] Nonce ${nonce} is already used for User ${selectedUserIndex + 1}`);
       } else {
-        this.state.user2Nonce = nonceValue;
+        resultDiv.innerHTML = `
+          <span class="text-green-600 text-xs font-semibold">
+            ✅ 사용 가능한 Nonce입니다.
+          </span>
+        `;
+        console.log(`[SUCCESS] Nonce ${nonce} is available for User ${selectedUserIndex + 1}`);
+
+        // state에도 저장
+        if (selectedUserIndex === 0) {
+          this.state.user1Nonce = nonce;
+        } else {
+          this.state.user2Nonce = nonce;
+        }
       }
 
     } catch (error) {
-      console.error('[ERROR] Failed to fetch user nonce:', error);
-      alert(`User Nonce 조회 실패: ${error.message}`);
+      console.error('[ERROR] Failed to check user nonce:', error);
+      resultDiv.classList.remove('hidden');
+      resultDiv.innerHTML = `
+        <span class="text-red-600 text-xs">
+          ⚠️ 중복 확인 실패: ${error.message}
+        </span>
+      `;
     }
   }
 }
