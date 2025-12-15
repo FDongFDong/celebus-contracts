@@ -45,11 +45,11 @@ export class Step0Setup {
    * Boosting 컨트랙트 배포
    */
   async deployContract() {
-    if (!this.deployerWallet) {
+    if (!this.state.deployerWallet) {
       this.loadDeployerWallet();
     }
 
-    if (!this.deployerWallet) {
+    if (!this.state.deployerWallet) {
       this.showStatus('배포자 비밀키를 먼저 입력하세요', 'error', 'deployStatus');
       return;
     }
@@ -66,11 +66,11 @@ export class Step0Setup {
       const factory = new ethers.ContractFactory(
         abi,
         BOOSTING_BYTECODE,
-        this.deployerWallet
+        this.state.deployerWallet
       );
 
       // Deploy with deployer address as initialOwner
-      const contract = await factory.deploy(this.deployerWallet.address);
+      const contract = await factory.deploy(this.state.deployerWallet.address);
 
       statusDiv.textContent = `⏳ 트랜잭션 전송됨, 컨펌 대기 중...`;
 

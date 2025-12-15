@@ -53,6 +53,7 @@ contract BoostingTest is Test {
         uint256 amt
     ) internal view returns (Boosting.BoostRecord memory) {
         return Boosting.BoostRecord({
+            recordId: 1, // 테스트용 기본값
             timestamp: block.timestamp,
             missionId: missionId,
             boostingId: boostingId,
@@ -464,6 +465,7 @@ contract BoostingTest is Test {
 
         // 레코드 직접 생성 (preview 함수 호출을 피하기 위해)
         Boosting.BoostRecord memory record = Boosting.BoostRecord({
+            recordId: 1,
             timestamp: block.timestamp,
             missionId: 1,
             boostingId: 1,

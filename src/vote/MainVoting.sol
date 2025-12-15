@@ -221,6 +221,15 @@ contract MainVoting is Ownable2Step, EIP712 {
     );
     event VoteTypeSet(uint8 indexed voteType, string name);
 
+    /// @notice 투표 스킵 이벤트 (중복 또는 0 수량)
+    /// @param reason 1=duplicate, 2=zeroAmount
+    event VoteSkipped(
+        address indexed user,
+        uint256 indexed votingId,
+        uint256 recordId,
+        uint8 reason
+    );
+
     // ============================================================
     //                      생성자 & 관리 함수
     // ============================================================
@@ -484,8 +493,18 @@ contract MainVoting is Ownable2Step, EIP712 {
                 VoteRecord calldata record = userRecords[j];
                 bytes32 recordDigest = recordDigests[i][j];
 
-                // 중복 또는 빈 투표 스킵 (이 경우는 "실패"로 보지 않고 그냥 무시)
-                if (record.votingAmt == 0 || consumed[user][recordDigest]) {
+                // 중복 투표 스킵
+                if (consumed[user][recordDigest]) {
+                    emit VoteSkipped(user, record.votingId, record.recordId, 1);
+                    unchecked {
+                        ++j;
+                    }
+                    continue;
+                }
+
+                // 빈 투표 스킵
+                if (record.votingAmt == 0) {
+                    emit VoteSkipped(user, record.votingId, record.recordId, 2);
                     unchecked {
                         ++j;
                     }

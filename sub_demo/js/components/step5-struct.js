@@ -73,6 +73,10 @@ export class Step5Struct {
 
   /**
    * Batch Nonce 조회 (컨트랙트에서)
+   *
+   * ✅ SubVoting은 중복 체크 방식 사용 (Boosting과 동일):
+   * - usedBatchNonces(address, uint256) returns (bool): 사용 여부 확인
+   * - 0부터 순차적으로 확인하여 미사용 nonce 찾기
    */
   async findNextNonce() {
     try {
@@ -88,23 +92,29 @@ export class Step5Struct {
       const provider = this.state.provider;
       const contract = new ethers.Contract(
         this.state.contractAddress,
-        ['function batchNonce(address) view returns (uint256)'],
+        ['function usedBatchNonces(address, uint256) view returns (bool)'],
         provider
       );
 
       const executorAddress = this.state.executorWallet.address;
 
-      // SubVoting에서는 batchNonce가 다음에 사용할 nonce 값을 반환
-      const currentNonce = await contract.batchNonce(executorAddress);
-      const nextNonce = parseInt(currentNonce.toString());
+      // 중복 체크 방식: 0부터 순차적으로 확인하여 미사용 nonce 찾기
+      let nextNonce = 0;
+      for (let i = 0; i <= 100; i++) {
+        const isUsed = await contract.usedBatchNonces(executorAddress, i);
+        if (!isUsed) {
+          nextNonce = i;
+          break;
+        }
+      }
 
-      document.getElementById('batchNonce').value = nextNonce;
-      resultDiv.innerHTML = `<p class="text-sm text-green-600">✅ 사용 가능한 nonce: ${nextNonce}</p>`;
-      console.log('✅ Next available batch nonce:', nextNonce);
+      document.getElementById('batchNonce').value = nextNonce.toString();
+      resultDiv.innerHTML = `<p class="text-sm text-green-600">✅ 사용 가능한 nonce (중복 체크): ${nextNonce}</p>`;
+      console.log('✅ Next available batch nonce (중복 체크):', nextNonce);
 
     } catch (error) {
       console.error('❌ Nonce check failed:', error);
-      document.getElementById('nonceCheckResult').innerHTML = 
+      document.getElementById('nonceCheckResult').innerHTML =
         `<p class="text-sm text-red-600">❌ 확인 실패: ${error.message}</p>`;
     }
   }

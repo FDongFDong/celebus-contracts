@@ -37,7 +37,7 @@ export function calculateDomainSeparator(domain) {
  * @returns {string} Struct hash
  */
 export function calculateStructHash(batchNonce) {
-  // BATCH_TYPEHASH
+  // BATCH_TYPEHASH (Boosting 컨트랙트)
   const typeHash = ethers.keccak256(
     ethers.toUtf8Bytes('Batch(uint256 batchNonce)')
   );
@@ -68,19 +68,19 @@ export function calculateDigest(domainSeparator, structHash) {
 }
 
 /**
- * Boost Record Hash 계산 (userAddress 제거됨 - SubVoting 패턴)
+ * Boost Record Hash 계산 (userId 제거 - 백엔드가 나중에 주입)
  * @param {Object} record - Boost record 객체
  * @returns {string} Record hash
  */
 export function hashBoostRecord(record) {
-  // BOOST_RECORD_TYPEHASH (userAddress 제거 - SubVoting 패턴과 동일)
+  // BOOST_RECORD_TYPEHASH (userId 제거 - 프론트엔드에서 userId를 모르는 상태로 서명)
   const BOOST_RECORD_TYPEHASH = ethers.keccak256(
     ethers.toUtf8Bytes(
       'BoostRecord(uint256 timestamp,uint256 missionId,uint256 boostingId,uint256 optionId,uint8 boostingWith,uint256 amt)'
     )
   );
 
-  // Record 데이터 인코딩 (userAddress 제거, optionId = artistId)
+  // Record 데이터 인코딩 (userId 제외, optionId = artistId)
   const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
     ['bytes32', 'uint256', 'uint256', 'uint256', 'uint256', 'uint8', 'uint256'],
     [
@@ -89,7 +89,7 @@ export function hashBoostRecord(record) {
       record.missionId,
       record.boostingId,
       record.artistId, // optionId
-      record.boostingWith, // 0=CELB, 1=BP
+      record.boostingWith, // uint8 타입 (0=BP, 1=CELB)
       record.amt
     ]
   );
@@ -98,19 +98,19 @@ export function hashBoostRecord(record) {
 }
 
 /**
- * User Signature Hash 계산 (1투표 1서명 패턴)
+ * User Signature Hash 계산 (1:1 서명 방식)
  * @param {string} user - 사용자 주소
  * @param {number} userNonce - 사용자 nonce
- * @param {string} recordHash - 개별 레코드 해시
+ * @param {string} recordHash - 단일 레코드 해시
  * @returns {string} User signature struct hash
  */
 export function hashUserSig(user, userNonce, recordHash) {
-  // USER_SIG_TYPEHASH (Boosting 컨트랙트 패턴)
+  // USER_SIG_TYPEHASH (Boosting 컨트랙트: 1유저 1레코드 1서명)
   const USER_SIG_TYPEHASH = ethers.keccak256(
     ethers.toUtf8Bytes('UserSig(address user,uint256 userNonce,bytes32 recordHash)')
   );
 
-  // UserSig 데이터 인코딩
+  // UserSig 데이터 인코딩 (단일 recordHash)
   const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
     ['bytes32', 'address', 'uint256', 'bytes32'],
     [USER_SIG_TYPEHASH, user, userNonce, recordHash]

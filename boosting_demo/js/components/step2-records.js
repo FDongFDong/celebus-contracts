@@ -25,7 +25,7 @@ export class Step2Records {
             <strong>💡 백엔드 시뮬레이션:</strong>
           </p>
           <ul class="text-xs text-purple-700 mt-1 ml-4 list-disc space-y-1">
-            <li><strong>User Nonce:</strong> 컨트랙트에서 자동 조회 (재사용 방지)</li>
+            <li><strong>User Nonce:</strong> 타임스탬프 기반 자동 생성 (중복 방지)</li>
             <li><strong>Boosting ID:</strong> 프론트엔드에서 타임스탬프 기반 자동 생성 (사용자별 유니크)</li>
             <li><strong>userId:</strong> 백엔드가 지갑 주소를 기반으로 DB에서 자동 설정</li>
           </ul>
@@ -43,12 +43,12 @@ export class Step2Records {
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">🔢 User Nonce</label>
             <div class="flex gap-2">
-              <input type="text" id="userNonce" class="flex-1 px-3 py-2 border rounded-md bg-gray-100" readonly placeholder="컨트랙트에서 조회">
-              <button onclick="step2.fetchUserNonce()" class="px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm whitespace-nowrap" title="컨트랙트에서 사용자 Nonce 조회">
-                🔄 조회
+              <input type="text" id="userNonce" class="flex-1 px-3 py-2 border rounded-md bg-gray-100" readonly placeholder="타임스탬프 자동 생성">
+              <button onclick="step2.generateUserNonce()" class="px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm whitespace-nowrap" title="타임스탬프 기반 Nonce 생성">
+                🎲 생성
               </button>
             </div>
-            <p class="text-xs text-gray-500 mt-1">사용자별 서명 카운터 (컨트랙트에서 자동 조회)</p>
+            <p class="text-xs text-gray-500 mt-1">타임스탬프 기반 자동 생성 (중복 방지)</p>
           </div>
 
           <!-- userId는 숨김 처리, 백엔드가 자동 설정 -->
@@ -141,7 +141,7 @@ export class Step2Records {
     // userNonce 가져오기 및 검증
     const userNonceValue = document.getElementById('userNonce').value;
     if (!userNonceValue || userNonceValue === '') {
-      alert('먼저 🔄 조회 버튼을 눌러 User Nonce를 조회해주세요!');
+      alert('먼저 🎲 생성 버튼을 눌러 User Nonce를 생성해주세요!');
       return;
     }
 
@@ -305,59 +305,26 @@ export class Step2Records {
   }
 
   /**
-   * 컨트랙트에서 User Nonce 조회 (백엔드 시뮬레이션)
-   * 사용 가능한 다음 Nonce를 자동으로 찾음
+   * User Nonce 생성 (타임스탬프 기반)
+   *
+   * ✅ 중복 체크 방식에서는 순차적 nonce 불필요
+   * - 타임스탬프를 nonce로 사용하면 자동으로 유니크
+   * - 컨트랙트 조회 없이 즉시 생성 가능
    */
-  async fetchUserNonce() {
-    try {
-      const selectedUserIndex = parseInt(document.getElementById('selectedUser').value);
-      const wallet = selectedUserIndex === 0 ? this.state.user1Wallet : this.state.user2Wallet;
+  generateUserNonce() {
+    const selectedUserIndex = parseInt(document.getElementById('selectedUser').value);
 
-      if (!wallet) {
-        alert('먼저 Step 1에서 지갑을 초기화해주세요!');
-        return;
-      }
+    // Unix timestamp (초 단위) 사용
+    const nonce = Math.floor(Date.now() / 1000);
+    document.getElementById('userNonce').value = nonce.toString();
 
-      // 컨트랙트 인스턴스 생성
-      const provider = this.state.provider;
-      const contract = new ethers.Contract(
-        this.state.contractAddress,
-        [
-          'function minUserNonce(address) view returns (uint256)',
-          'function userNonceUsed(address,uint256) view returns (bool)'
-        ],
-        provider
-      );
-
-      // minUserNonce 조회
-      console.log(`🔍 Fetching next available nonce for ${wallet.address}...`);
-      const minNonce = await contract.minUserNonce(wallet.address);
-      let nextNonce = parseInt(minNonce.toString());
-
-      // 사용 가능한 다음 Nonce 찾기 (최대 10번까지 확인)
-      for (let i = 0; i < 10; i++) {
-        const isUsed = await contract.userNonceUsed(wallet.address, nextNonce);
-        if (!isUsed) {
-          break; // 사용 가능한 Nonce 찾음
-        }
-        nextNonce++; // 다음 Nonce 확인
-      }
-
-      // UI 업데이트
-      document.getElementById('userNonce').value = nextNonce;
-
-      console.log(`✅ Next available nonce for User ${selectedUserIndex + 1}: ${nextNonce}`);
-
-      // state에도 저장
-      if (selectedUserIndex === 0) {
-        this.state.user1Nonce = nextNonce;
-      } else {
-        this.state.user2Nonce = nextNonce;
-      }
-
-    } catch (error) {
-      console.error('❌ Failed to fetch user nonce:', error);
-      alert(`User Nonce 조회 실패: ${error.message}`);
+    // state에도 저장
+    if (selectedUserIndex === 0) {
+      this.state.user1Nonce = nonce;
+    } else {
+      this.state.user2Nonce = nonce;
     }
+
+    console.log(`🎲 User Nonce generated (timestamp) for User ${selectedUserIndex + 1}:`, nonce);
   }
 }

@@ -205,9 +205,10 @@ export class Step7Submit {
 
   generateRemixParams() {
     // UserBoostBatch[] 형태로 데이터 구성 (record + userSig 쌍)
-    // 컨트랙트: submitBoostBatch(UserBoostBatch[] calldata batches, uint256 batchNonce, bytes calldata executorSig)
+    // 컨트랙트: submitBoostBatch(UserBoostBatch[] calldata batches, uint256 batchNonce_, bytes calldata executorSig)
     const batches = this.state.records.map((r, idx) => ({
       record: {
+        recordId: idx + 1, // recordId는 백엔드가 생성 (여기서는 인덱스 기반)
         timestamp: r.timestamp,
         missionId: r.missionId,
         boostingId: r.boostingId,
@@ -320,6 +321,7 @@ export class Step7Submit {
       // UserBoostBatch[] 형태로 데이터 구성 (record + userSig 쌍) - 키-밸류 형식
       const batches = this.state.records.map((r, idx) => ({
         record: {
+          recordId: idx + 1, // recordId는 백엔드가 생성 (여기서는 인덱스 기반)
           timestamp: r.timestamp,
           missionId: r.missionId,
           boostingId: r.boostingId,

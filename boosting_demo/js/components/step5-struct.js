@@ -91,16 +91,16 @@ export class Step5Struct {
       const provider = new ethers.JsonRpcProvider('https://opbnb-testnet-rpc.bnbchain.org');
       const contract = new ethers.Contract(
         this.state.contractAddress,
-        ['function batchNonceUsed(address,uint256) view returns (bool)'],
+        ['function usedBatchNonces(address, uint256) view returns (bool)'],
         provider
       );
 
       const executorAddress = this.state.executorWallet.address;
-      
+
       // 0부터 20까지 확인
       let nextNonce = null;
       for (let i = 0; i < 20; i++) {
-        const used = await contract.batchNonceUsed(executorAddress, i);
+        const used = await contract.usedBatchNonces(executorAddress, i);
         if (!used) {
           nextNonce = i;
           break;

@@ -53,7 +53,7 @@ contract Boosting is Ownable2Step, EIP712 {
      * @dev 한 트랜잭션에서 처리할 수 있는 최대 부스팅 레코드 수
      *      가스 한도 초과 방지 및 DoS 공격 방지 목적
      */
-    uint256 public constant MAX_RECORDS_PER_BATCH = 5000;
+    uint256 public constant MAX_RECORDS_PER_BATCH = 2000;
 
     /**
      * @dev userId 등 문자열 필드의 최대 길이
@@ -158,6 +158,7 @@ contract Boosting is Ownable2Step, EIP712 {
 
     /**
      * @dev 개별 부스팅 레코드
+     * @param recordId 백엔드가 생성하는 유니크 ID (서명 데이터에는 포함 X)
      * @param timestamp 부스팅 생성 시간 (오프체인에서 설정)
      * @param missionId 미션(캠페인) ID
      * @param boostingId 부스팅 세션 ID
@@ -167,6 +168,7 @@ contract Boosting is Ownable2Step, EIP712 {
      * @param amt 부스팅 수량 (포인트)
      */
     struct BoostRecord {
+        uint256 recordId;
         uint256 timestamp;
         uint256 missionId;
         uint256 boostingId;
@@ -375,6 +377,30 @@ contract Boosting is Ownable2Step, EIP712 {
      * @param name 타입 이름
      */
     event BoostingTypeSet(uint8 indexed typeId, string name);
+
+    /// @notice 부스팅 스킵 이벤트 (중복 또는 0 수량)
+    /// @param reason 1=duplicate, 2=zeroAmount
+    event BoostSkipped(
+        address indexed user,
+        uint256 indexed boostingId,
+        uint256 recordId,
+        uint8 reason
+    );
+
+    /**
+     * @dev boostingId별 부스팅 결과 이벤트
+     *      MainVoting/SubVoting의 UserVoteResult와 일관성 유지
+     * @param boostingId 부스팅 세션 ID
+     * @param success 모든 레코드 성공 여부 (일부 실패 시 false)
+     * @param failedRecordIds 실패한 레코드 ID 배열
+     * @param reasonCode 실패 사유 코드 (모두 성공 시 0)
+     */
+    event UserBoostResult(
+        uint256 indexed boostingId,
+        bool success,
+        uint256[] failedRecordIds,
+        uint8 reasonCode
+    );
 
     // ========================================
     // 생성자 및 관리자 함수 (Constructor & Admin)
@@ -705,6 +731,7 @@ contract Boosting is Ownable2Step, EIP712 {
 
             // 0포인트 부스팅 스킵
             if (record.amt == 0) {
+                emit BoostSkipped(user, record.boostingId, record.recordId, 2);
                 unchecked {
                     ++i;
                 }
@@ -733,6 +760,7 @@ contract Boosting is Ownable2Step, EIP712 {
 
             // 중복 레코드 스킵
             if (consumed[recordDigest]) {
+                emit BoostSkipped(user, record.boostingId, record.recordId, 1);
                 unchecked {
                     ++i;
                 }
@@ -754,6 +782,10 @@ contract Boosting is Ownable2Step, EIP712 {
 
             // 실시간 집계 (아티스트별 총 amt)
             artistTotalAmt[record.missionId][record.optionId] += record.amt;
+
+            // boostingId별 결과 이벤트 발생 (MainVoting/SubVoting과 일관성)
+            uint256[] memory emptyArray = new uint256[](0);
+            emit UserBoostResult(record.boostingId, true, emptyArray, 0);
 
             unchecked {
                 ++storedCount;
@@ -896,6 +928,7 @@ contract Boosting is Ownable2Step, EIP712 {
 
     /**
      * @dev 부스팅 조회용 요약 구조체
+     * @param recordId 레코드 ID
      * @param timestamp 부스팅 시간
      * @param missionId 미션 ID
      * @param boostingId 부스팅 세션 ID
@@ -905,6 +938,7 @@ contract Boosting is Ownable2Step, EIP712 {
      * @param amt 부스팅 수량
      */
     struct BoostRecordSummary {
+        uint256 recordId;
         uint256 timestamp;
         uint256 missionId;
         uint256 boostingId;
@@ -946,6 +980,7 @@ contract Boosting is Ownable2Step, EIP712 {
             ];
 
             result[i] = BoostRecordSummary({
+                recordId: record.recordId,
                 timestamp: record.timestamp,
                 missionId: record.missionId,
                 boostingId: record.boostingId,

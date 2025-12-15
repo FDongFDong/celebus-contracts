@@ -283,42 +283,10 @@ export class Step8Query {
   renderNonceTab() {
     return `
       <div class="space-y-6">
-        <!-- Min User Nonce -->
-        <div class="bg-orange-50 rounded-lg p-4 border border-orange-200">
-          <h3 class="font-semibold text-orange-900 mb-3">🔢 Min User Nonce</h3>
-          <p class="text-xs text-gray-600 mb-3">minUserNonce(user)</p>
-          <div class="mb-3">
-            <label class="block text-xs text-gray-600 mb-1">User Address</label>
-            <input id="q_minUserNonce_user" type="text" placeholder="0x..."
-                   class="w-full p-2 border rounded text-sm font-mono">
-          </div>
-          <button onclick="step8.queryMinUserNonce()"
-                  class="bg-orange-500 text-white px-4 py-2 rounded text-sm hover:bg-orange-600">
-            조회
-          </button>
-          <div id="result_minUserNonce" class="mt-3"></div>
-        </div>
-
-        <!-- Min Batch Nonce -->
-        <div class="bg-orange-50 rounded-lg p-4 border border-orange-200">
-          <h3 class="font-semibold text-orange-900 mb-3">🔢 Min Batch Nonce</h3>
-          <p class="text-xs text-gray-600 mb-3">minBatchNonce(executor)</p>
-          <div class="mb-3">
-            <label class="block text-xs text-gray-600 mb-1">Executor Address</label>
-            <input id="q_minBatchNonce_executor" type="text" placeholder="0x..."
-                   class="w-full p-2 border rounded text-sm font-mono">
-          </div>
-          <button onclick="step8.queryMinBatchNonce()"
-                  class="bg-orange-500 text-white px-4 py-2 rounded text-sm hover:bg-orange-600">
-            조회
-          </button>
-          <div id="result_minBatchNonce" class="mt-3"></div>
-        </div>
-
         <!-- User Nonce Used -->
         <div class="bg-orange-50 rounded-lg p-4 border border-orange-200">
           <h3 class="font-semibold text-orange-900 mb-3">✅ User Nonce 사용 여부</h3>
-          <p class="text-xs text-gray-600 mb-3">userNonceUsed(user, nonce)</p>
+          <p class="text-xs text-gray-600 mb-3">usedUserNonces(user, nonce)</p>
           <div class="grid grid-cols-2 gap-3 mb-3">
             <div>
               <label class="block text-xs text-gray-600 mb-1">User Address</label>
@@ -341,7 +309,7 @@ export class Step8Query {
         <!-- Batch Nonce Used -->
         <div class="bg-orange-50 rounded-lg p-4 border border-orange-200">
           <h3 class="font-semibold text-orange-900 mb-3">✅ Batch Nonce 사용 여부</h3>
-          <p class="text-xs text-gray-600 mb-3">batchNonceUsed(executor, nonce)</p>
+          <p class="text-xs text-gray-600 mb-3">usedBatchNonces(executor, nonce)</p>
           <div class="grid grid-cols-2 gap-3 mb-3">
             <div>
               <label class="block text-xs text-gray-600 mb-1">Executor Address</label>
@@ -729,44 +697,6 @@ export class Step8Query {
 
   // ==================== Nonce 조회 ====================
 
-  async queryMinUserNonce() {
-    const resultId = 'result_minUserNonce';
-    try {
-      this.showLoading(resultId);
-      const contract = this.getContract();
-      const user = document.getElementById('q_minUserNonce_user').value;
-
-      if (!ethers.isAddress(user)) {
-        throw new Error('올바른 주소를 입력해주세요');
-      }
-
-      const nonce = await contract.minUserNonce(user);
-      this.showResult(resultId, { minUserNonce: nonce.toString() });
-    } catch (err) {
-      console.error('queryMinUserNonce error:', err);
-      this.showError(resultId, err.message);
-    }
-  }
-
-  async queryMinBatchNonce() {
-    const resultId = 'result_minBatchNonce';
-    try {
-      this.showLoading(resultId);
-      const contract = this.getContract();
-      const executor = document.getElementById('q_minBatchNonce_executor').value;
-
-      if (!ethers.isAddress(executor)) {
-        throw new Error('올바른 주소를 입력해주세요');
-      }
-
-      const nonce = await contract.minBatchNonce(executor);
-      this.showResult(resultId, { minBatchNonce: nonce.toString() });
-    } catch (err) {
-      console.error('queryMinBatchNonce error:', err);
-      this.showError(resultId, err.message);
-    }
-  }
-
   async queryUserNonceUsed() {
     const resultId = 'result_userNonceUsed';
     try {
@@ -779,7 +709,7 @@ export class Step8Query {
         throw new Error('올바른 주소를 입력해주세요');
       }
 
-      const used = await contract.userNonceUsed(user, nonce);
+      const used = await contract.usedUserNonces(user, nonce);
       this.showResult(resultId, used, 'bool');
     } catch (err) {
       console.error('queryUserNonceUsed error:', err);
@@ -799,7 +729,7 @@ export class Step8Query {
         throw new Error('올바른 주소를 입력해주세요');
       }
 
-      const used = await contract.batchNonceUsed(executor, nonce);
+      const used = await contract.usedBatchNonces(executor, nonce);
       this.showResult(resultId, used, 'bool');
     } catch (err) {
       console.error('queryBatchNonceUsed error:', err);

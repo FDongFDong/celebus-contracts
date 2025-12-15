@@ -43,12 +43,12 @@ export class Step2Records {
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">🔢 User Nonce</label>
             <div class="flex gap-2">
-              <input type="text" id="userNonce" class="flex-1 px-3 py-2 border rounded-md bg-gray-100" readonly placeholder="컨트랙트에서 조회">
-              <button onclick="step2.fetchUserNonce()" class="px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm whitespace-nowrap" title="컨트랙트에서 사용자 Nonce 조회">
-                🔄 조회
+              <input type="text" id="userNonce" class="flex-1 px-3 py-2 border rounded-md bg-gray-100" readonly placeholder="타임스탬프 자동 생성">
+              <button onclick="step2.generateUserNonce()" class="px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm whitespace-nowrap" title="타임스탬프 기반 Nonce 생성">
+                🎲 생성
               </button>
             </div>
-            <p class="text-xs text-gray-500 mt-1">사용자별 서명 카운터 (컨트랙트에서 자동 조회)</p>
+            <p class="text-xs text-gray-500 mt-1">타임스탬프 기반 자동 생성 (중복 방지)</p>
           </div>
 
           <div>
@@ -138,37 +138,17 @@ export class Step2Records {
   }
 
   /**
-   * User Nonce 조회 (컨트랙트에서)
+   * User Nonce 생성 (타임스탬프 기반)
+   *
+   * ✅ 중복 체크 방식에서는 순차적 nonce 불필요
+   * - 타임스탬프를 nonce로 사용하면 자동으로 유니크
+   * - 컨트랙트 조회 없이 즉시 생성 가능
    */
-  async fetchUserNonce() {
-    const selectedUserIndex = parseInt(document.getElementById('selectedUser').value);
-    const wallet = selectedUserIndex === 0 ? this.state.user1Wallet : this.state.user2Wallet;
-
-    if (!wallet) {
-      alert('먼저 STEP 1에서 사용자 지갑을 로드해주세요!');
-      return;
-    }
-
-    try {
-      const provider = this.state.provider;
-      const contract = new ethers.Contract(
-        this.state.contractAddress,
-        [
-          'function userNonce(address) view returns (uint256)'
-        ],
-        provider
-      );
-
-      // SubVoting에서는 userNonce가 현재 사용해야 할 nonce 값을 반환
-      const currentNonce = await contract.userNonce(wallet.address);
-      const nextNonce = parseInt(currentNonce.toString());
-
-      document.getElementById('userNonce').value = nextNonce;
-      console.log('✅ User Nonce fetched:', nextNonce);
-    } catch (error) {
-      console.error('❌ Failed to fetch user nonce:', error);
-      alert('User Nonce 조회 실패: ' + error.message);
-    }
+  generateUserNonce() {
+    // Unix timestamp (초 단위) 사용
+    const nonce = Math.floor(Date.now() / 1000);
+    document.getElementById('userNonce').value = nonce.toString();
+    console.log('🎲 User Nonce generated (timestamp):', nonce);
   }
 
   /**

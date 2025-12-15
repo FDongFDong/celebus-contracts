@@ -34,6 +34,9 @@ export function calculateDomainSeparator(domain) {
 
 /**
  * Batch Struct Hash 계산 (Executor 서명용)
+ *
+ * ⚠️ SubVoting.sol BATCH_TYPEHASH:
+ * "Batch(uint256 batchNonce)"
  */
 export function calculateBatchStructHash(batchNonce) {
   const typeHash = ethers.keccak256(
@@ -62,7 +65,9 @@ export function calculateDigest(domainSeparator, structHash) {
 
 /**
  * Vote Record Hash 계산
- * VOTE_RECORD_TYPEHASH: "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 questionId,uint256 optionId,uint256 votingAmt,address user)"
+ *
+ * ⚠️ SubVoting.sol VOTE_RECORD_TYPEHASH:
+ * "VoteRecord(uint256 timestamp,uint256 missionId,uint256 votingId,uint256 questionId,uint256 optionId,uint256 votingAmt,address user)"
  *
  * 참고: userId는 서명 대상에서 제외됩니다.
  *   - 프론트엔드에서 userId 없이 서명 가능
@@ -108,7 +113,9 @@ export function hashRecordsArray(recordHashes) {
 
 /**
  * User Batch Hash 계산
- * USER_BATCH_TYPEHASH: "UserBatch(address user,uint256 userNonce,bytes32 recordsHash)"
+ *
+ * ⚠️ SubVoting.sol USER_BATCH_TYPEHASH:
+ * "UserBatch(address user,uint256 userNonce,bytes32 recordsHash)"
  */
 export function hashUserBatch(userAddress, userNonce, recordsHash) {
   const USER_BATCH_TYPEHASH = ethers.keccak256(
