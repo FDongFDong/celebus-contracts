@@ -351,6 +351,23 @@ export class Step7Submit {
       // 로딩 상태 시작
       this.setLoadingState(true, '가스 추정 중...');
       
+      // preflight: 유저별로 votingId가 하나로 고정돼야 함 (원자성 정책)
+      if (this.state.records && this.state.records.length > 0) {
+        const byUser = new Map();
+        for (const r of this.state.records) {
+          const prev = byUser.get(r.userAddress);
+          if (prev === undefined) byUser.set(r.userAddress, r.votingId);
+          else if (prev !== r.votingId) {
+            throw new Error(
+              `같은 유저의 레코드는 votingId가 모두 같아야 합니다.\n` +
+              `user=${r.userAddress}\n` +
+              `votingId=${prev} vs ${r.votingId}\n\n` +
+              `STEP 2에서 votingId를 하나만 생성해서 그 유저의 모든 레코드에 사용하세요.`
+            );
+          }
+        }
+      }
+	      
       // 기존 결과/에러 숨기기
       document.getElementById('submitResult').classList.add('hidden');
       document.getElementById('submitError').classList.add('hidden');
@@ -440,6 +457,16 @@ export class Step7Submit {
     } catch (error) {
       console.error('[ERROR] Submit failed:', error);
       this.setLoadingState(false);
+      // ethers가 custom error를 ABI 없이 "unknown custom error"로 출력하는 경우가 많아서 보강
+      const selector = error?.data?.slice?.(0, 10);
+      if (selector === '0x8894779f') {
+        error.message =
+          'NoSuccessfulUser(): 모든 유저 배치가 실패하여 저장된 레코드가 0개입니다.\n' +
+          '- 각 유저 배치(records[]) 안에서 votingId가 모두 같은지 확인\n' +
+          '- voteType(0/1), optionId(0 금지), votingAmt(0 금지), allowedArtist 여부 확인\n' +
+          '- 동일한 레코드(동일 필드) 중복 제출이 없는지 확인\n\n' +
+          (error.message || '');
+      }
       document.getElementById('errorMessage').textContent = error.message;
       document.getElementById('submitError').classList.remove('hidden');
       document.getElementById('submitResult').classList.add('hidden');

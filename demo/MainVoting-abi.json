@@ -1038,6 +1038,22 @@
   },
   {
     "type": "error",
+    "name": "EmptyText",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidOptionId",
+    "inputs": [
+      {
+        "name": "optionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InvalidRecordIndices",
     "inputs": []
   },

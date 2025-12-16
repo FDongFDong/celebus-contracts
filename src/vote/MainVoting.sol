@@ -51,6 +51,10 @@ contract MainVoting is Ownable2Step, EIP712 {
     uint8 private constant REASON_INVALID_VOTE_TYPE = 4;         // 잘못된 투표 타입 (0 또는 MAX_VOTE_TYPE 초과)
     uint8 private constant REASON_ARTIST_NOT_ALLOWED = 5;        // 허용되지 않은 아티스트 (비활성화된 아티스트에 투표 시도)
     uint8 private constant REASON_STRING_TOO_LONG = 6;           // 문자열 길이 초과 (userId > 100자)
+    uint8 private constant REASON_DUPLICATE_RECORD = 7;          // 중복 레코드 (이미 저장된 레코드 또는 배치 내 중복)
+    uint8 private constant REASON_ZERO_AMOUNT = 8;               // votingAmt = 0
+    uint8 private constant REASON_VOTING_ID_MISMATCH = 9;         // 유저 배치 내 votingId 불일치
+    uint8 private constant REASON_INVALID_OPTION_ID = 10;         // 잘못된 optionId (0)
 
     // EIP-712 TypeHash: 서명 검증용 구조체 해시
     // recordId는 서명 데이터에 포함되지 않음 (백엔드 생성, 온체인 식별용)
@@ -75,9 +79,11 @@ contract MainVoting is Ownable2Step, EIP712 {
     error BatchNonceAlreadyUsed();
     error UserNonceAlreadyUsed();
     error InvalidRecordIndices();
+    error InvalidOptionId(uint256 optionId);
     error BatchTooLarge();
     error UserBatchTooLarge();
     error StringTooLong();
+    error EmptyText();
     error NotOwnerOrExecutor();
     error ArtistNotAllowed(uint256 missionId, uint256 optionId);
     error InvalidVoteType(uint8 value);
@@ -256,6 +262,8 @@ contract MainVoting is Ownable2Step, EIP712 {
         string calldata name,
         bool allowed_
     ) external onlyOwner {
+        if (optionId == 0) revert InvalidOptionId(optionId);
+        if (bytes(name).length == 0) revert EmptyText();
         artistName[missionId][optionId] = name;
         allowedArtist[missionId][optionId] = allowed_;
         emit ArtistSet(missionId, optionId, name, allowed_);
@@ -267,6 +275,7 @@ contract MainVoting is Ownable2Step, EIP712 {
         string calldata name
     ) external onlyOwner {
         if (voteType > MAX_VOTE_TYPE) revert InvalidVoteType(voteType);
+        if (bytes(name).length == 0) revert EmptyText();
         voteTypeName[voteType] = name;
         emit VoteTypeSet(voteType, name);
     }
@@ -420,10 +429,58 @@ contract MainVoting is Ownable2Step, EIP712 {
         return (true, 0);
     }
 
+    function _validateUserRecordsAtomic(
+        address user,
+        VoteRecord[] calldata userRecords,
+        bytes32[] memory userRecordDigests
+    ) internal view returns (bool fail, uint8 reasonCode) {
+        uint256 len = userRecords.length;
+        uint256 expectedVotingId = userRecords[0].votingId;
+
+        for (uint256 j; j < len; ) {
+            VoteRecord calldata record = userRecords[j];
+            bytes32 recordDigest = userRecordDigests[j];
+
+            if (record.votingId != expectedVotingId) {
+                return (true, REASON_VOTING_ID_MISMATCH);
+            }
+            if (record.optionId == 0) {
+                return (true, REASON_INVALID_OPTION_ID);
+            }
+            if (record.votingAmt == 0) {
+                return (true, REASON_ZERO_AMOUNT);
+            }
+            if (record.voteType > MAX_VOTE_TYPE) {
+                return (true, REASON_INVALID_VOTE_TYPE);
+            }
+            if (!allowedArtist[record.missionId][record.optionId]) {
+                return (true, REASON_ARTIST_NOT_ALLOWED);
+            }
+
+            // 배치 내 중복 recordDigest 체크 (최대 20개라 O(n^2) 허용)
+            for (uint256 k; k < j; ) {
+                if (userRecordDigests[k] == recordDigest) {
+                    return (true, REASON_DUPLICATE_RECORD);
+                }
+                unchecked {
+                    ++k;
+                }
+            }
+            if (consumed[user][recordDigest]) {
+                return (true, REASON_DUPLICATE_RECORD);
+            }
+
+            unchecked {
+                ++j;
+            }
+        }
+
+        return (false, 0);
+    }
+
     /**
      * @dev 검증 통과한 사용자들의 투표 레코드 저장
      *      - 중복 방지: consumed 체크
-     *      - votingAmt=0인 레코드 스킵
      *      - 아티스트별 통계 업데이트
      *      - votingId 단위 UserMissionResult 이벤트 발생
      *
@@ -432,16 +489,15 @@ contract MainVoting is Ownable2Step, EIP712 {
      *     → 배치 수준에서 실패 (서명/nonce/개수)
      *     → 그 유저의 모든 recordId를 실패로 처리
      * - userOk[i] == true:
-     *     → per-record 검증 수행
-     *     → invalid voteType / artist인 레코드만 failedRecordIds에 포함
-     *     → 일부라도 실패가 있으면 success=false
+     *     → per-record 검증을 먼저 수행 (원자성 all-or-nothing)
+     *     → 하나라도 실패하면 저장/집계/consumed 없음
      */
     function _storeVoteRecords(
         UserVoteBatch[] calldata batches,
         bytes32[][] memory recordDigests,
         bool[] memory userOk,
         uint8[] memory userReason
-    ) internal returns (uint256 storedCount) {
+    ) internal returns (uint256 storedCount, uint256 successfulUserCount) {
         uint256 userCount = batches.length;
 
         for (uint256 i; i < userCount; ) {
@@ -477,69 +533,39 @@ contract MainVoting is Ownable2Step, EIP712 {
                 continue;
             }
 
-            // 여기부터는 유저 배치 검증 통과 → 실제 저장 로직 (per-record 검증 포함)
+            // 여기부터는 유저 배치 검증 통과 → 유저 배치 단위 원자성(all-or-nothing)
             address user = ub.userBatchSig.user;
 
             uint256 votingId = userRecordLen > 0 ? userRecords[0].votingId : 0;
-            uint256 localStored; // 이 유저 배치에서 실제로 저장된 레코드 수
-            uint256 failedCount;
-            bool hasReason;
-            uint8 localReason;
+            bytes32[] memory userRecordDigests = recordDigests[i];
 
-            // 최대 길이 배열 만들어두고, 실제 사용 개수만큼 잘라서 이벤트에 사용
-            uint256[] memory tmpFailedRecordIds = new uint256[](userRecordLen);
+            uint256[] memory allRecordIds = new uint256[](userRecordLen);
+            for (uint256 j; j < userRecordLen; ) {
+                allRecordIds[j] = userRecords[j].recordId;
+                unchecked {
+                    ++j;
+                }
+            }
+
+            (bool fail, uint8 failReason) = _validateUserRecordsAtomic(
+                user,
+                userRecords,
+                userRecordDigests
+            );
+            if (fail) {
+                if (userRecordLen > 0) {
+                    emit UserMissionResult(votingId, false, allRecordIds, failReason);
+                }
+                unchecked {
+                    ++i;
+                }
+                continue;
+            }
 
             for (uint256 j; j < userRecordLen; ) {
                 VoteRecord calldata record = userRecords[j];
-                bytes32 recordDigest = recordDigests[i][j];
+                bytes32 recordDigest = userRecordDigests[j];
 
-                // 중복 투표 스킵
-                if (consumed[user][recordDigest]) {
-                    emit VoteSkipped(user, record.votingId, record.recordId, 1);
-                    unchecked {
-                        ++j;
-                    }
-                    continue;
-                }
-
-                // 빈 투표 스킵
-                if (record.votingAmt == 0) {
-                    emit VoteSkipped(user, record.votingId, record.recordId, 2);
-                    unchecked {
-                        ++j;
-                    }
-                    continue;
-                }
-
-                // per-record 검증: voteType
-                if (record.voteType > MAX_VOTE_TYPE) {
-                    tmpFailedRecordIds[failedCount] = record.recordId;
-                    failedCount++;
-                    if (!hasReason) {
-                        hasReason = true;
-                        localReason = REASON_INVALID_VOTE_TYPE;
-                    }
-                    unchecked {
-                        ++j;
-                    }
-                    continue;
-                }
-
-                // per-record 검증: artist allowed
-                if (!allowedArtist[record.missionId][record.optionId]) {
-                    tmpFailedRecordIds[failedCount] = record.recordId;
-                    failedCount++;
-                    if (!hasReason) {
-                        hasReason = true;
-                        localReason = REASON_ARTIST_NOT_ALLOWED;
-                    }
-                    unchecked {
-                        ++j;
-                    }
-                    continue;
-                }
-
-                // 여기까지 왔다면 이 레코드는 온전히 유효 → 저장 + 통계 반영
                 consumed[user][recordDigest] = true;
                 votes[recordDigest] = record;
                 voteHashesByMissionVotingId[record.missionId][record.votingId]
@@ -557,37 +583,16 @@ contract MainVoting is Ownable2Step, EIP712 {
 
                 unchecked {
                     ++storedCount;
-                    ++localStored;
                     ++j;
                 }
             }
 
-            // 이 유저 배치에 대한 UserMissionResult 이벤트 발행
             if (userRecordLen > 0) {
-                // failedRecordIds 배열 사이즈 맞게 잘라서 생성
-                uint256[] memory finalFailedIds;
-                if (failedCount > 0) {
-                    finalFailedIds = new uint256[](failedCount);
-                    for (uint256 k; k < failedCount; ) {
-                        finalFailedIds[k] = tmpFailedRecordIds[k];
-                        unchecked {
-                            ++k;
-                        }
-                    }
-                } else {
-                    finalFailedIds = new uint256[](0);
-                }
+                emit UserMissionResult(votingId, true, new uint256[](0), 0);
+            }
 
-                // 일부라도 실패가 있으면 success = false
-                bool success = (failedCount == 0 && localStored > 0);
-                uint8 reasonCode = success ? 0 : (hasReason ? localReason : 0);
-
-                emit UserMissionResult(
-                    votingId,
-                    success,
-                    finalFailedIds,
-                    reasonCode
-                );
+            unchecked {
+                ++successfulUserCount;
             }
 
             unchecked {
@@ -688,7 +693,7 @@ contract MainVoting is Ownable2Step, EIP712 {
         if (successUserCount == 0) revert NoSuccessfulUser();
 
         // === 4. 레코드 저장 + UserMissionResult 이벤트 ===
-        uint256 stored = _storeVoteRecords(
+        (uint256 stored, uint256 successfulUsers) = _storeVoteRecords(
             batches,
             recordDigests,
             userOk,
@@ -702,7 +707,7 @@ contract MainVoting is Ownable2Step, EIP712 {
             batchNonce_,
             stored,
             userCount,
-            userCount - successUserCount
+            userCount - successfulUsers
         );
     }
 

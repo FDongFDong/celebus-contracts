@@ -27,18 +27,21 @@ const DEMOS = [
     artifactPath: 'out/MainVoting.sol/MainVoting.json',
     configPath: 'demo/js/config.js',
     variableName: 'MAINVOTING_BYTECODE',
+    abiPaths: ['demo/MainVoting-abi.json', 'demo/js/abi/MainVoting.json'],
   },
   {
     name: 'SubVoting',
     artifactPath: 'out/SubVoting.sol/SubVoting.json',
     configPath: 'sub_demo/js/config.js',
     variableName: 'SUBVOTING_BYTECODE',
+    abiPaths: ['sub_demo/SubVoting-abi.json', 'sub_demo/js/abi/SubVoting.json'],
   },
   {
     name: 'Boosting',
     artifactPath: 'out/Boosting.sol/Boosting.json',
     configPath: 'boosting_demo/js/config.js',
     variableName: 'BOOSTING_BYTECODE',
+    abiPaths: ['boosting_demo/Boosting-abi.json', 'boosting_demo/js/abi/Boosting.json'],
   }
 ];
 
@@ -63,6 +66,131 @@ function getBytecodeFromArtifact(artifactPath) {
   }
 
   return bytecode;
+}
+
+/**
+ * forge artifact에서 ABI 추출
+ */
+function getAbiFromArtifact(artifactPath) {
+  const fullPath = path.join(ROOT_DIR, artifactPath);
+
+  if (!fs.existsSync(fullPath)) {
+    console.error(`  [ERROR] Artifact not found: ${artifactPath}`);
+    console.error(`  Run 'forge build' first.`);
+    return null;
+  }
+
+  const artifact = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+  const abi = artifact.abi;
+
+  if (!Array.isArray(abi)) {
+    console.error(`  [ERROR] No abi in artifact: ${artifactPath}`);
+    return null;
+  }
+
+  return abi;
+}
+
+function writeJsonFile(relativePath, data) {
+  const fullPath = path.join(ROOT_DIR, relativePath);
+  fs.writeFileSync(fullPath, JSON.stringify(data, null, 2) + '\n', 'utf8');
+}
+
+/**
+ * config.js 내 embedded ABI 배열 업데이트 (file:// 환경 fallback용)
+ */
+function updateConfigEmbeddedAbi(configPath, newAbi) {
+  const fullPath = path.join(ROOT_DIR, configPath);
+
+  if (!fs.existsSync(fullPath)) {
+    console.error(`  [ERROR] Config file not found: ${configPath}`);
+    return { success: false, skipped: false };
+  }
+
+  const content = fs.readFileSync(fullPath, 'utf8');
+  const abiLineMatch = content.match(/^\s*ABI\s*:\s*\[/m);
+  if (!abiLineMatch || abiLineMatch.index === undefined) {
+    console.error(`  [ERROR] Embedded ABI not found in ${configPath}`);
+    return { success: false, skipped: false };
+  }
+
+  const abiPropStart = abiLineMatch.index;
+  const indent = abiLineMatch[0].match(/^\s*/)?.[0] ?? '';
+
+  const arrayStart = content.indexOf('[', abiPropStart);
+  if (arrayStart === -1) {
+    console.error(`  [ERROR] Embedded ABI array start not found in ${configPath}`);
+    return { success: false, skipped: false };
+  }
+
+  // Bracket matching with string awareness (handles JSON-like ABI pretty safely)
+  let i = arrayStart;
+  let depth = 0;
+  let inString = false;
+  let stringQuote = '';
+  let escaped = false;
+
+  for (; i < content.length; i++) {
+    const ch = content[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch === stringQuote) {
+        inString = false;
+        stringQuote = '';
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      stringQuote = ch;
+      continue;
+    }
+
+    if (ch === '[') depth++;
+    else if (ch === ']') {
+      depth--;
+      if (depth === 0) {
+        i++; // include closing bracket
+        break;
+      }
+    }
+  }
+
+  if (depth !== 0) {
+    console.error(`  [ERROR] Failed to parse embedded ABI array in ${configPath}`);
+    return { success: false, skipped: false };
+  }
+
+  // Include trailing comma if present
+  let end = i;
+  while (end < content.length && /\s/.test(content[end])) end++;
+  if (content[end] === ',') end++;
+
+  const abiJson = JSON.stringify(newAbi, null, 2);
+  const abiLines = abiJson.split('\n');
+  const abiLiteral =
+    abiLines.length <= 1
+      ? abiLines[0]
+      : abiLines[0] + '\n' + abiLines.slice(1).map((l) => indent + l).join('\n');
+
+  const replacement = `${indent}ABI: ${abiLiteral},`;
+  const newContent = content.slice(0, abiPropStart) + replacement + content.slice(end);
+
+  if (newContent === content) {
+    return { success: true, skipped: true };
+  }
+
+  fs.writeFileSync(fullPath, newContent, 'utf8');
+  return { success: true, skipped: false };
 }
 
 /**
@@ -153,6 +281,10 @@ function main() {
   let successCount = 0;
   let failCount = 0;
   let skipCount = 0;
+  let abiUpdateCount = 0;
+  let abiFailCount = 0;
+  let embeddedAbiUpdateCount = 0;
+  let embeddedAbiFailCount = 0;
 
   for (const demo of DEMOS) {
     console.log(`[${demo.name}]`);
@@ -166,7 +298,44 @@ function main() {
       continue;
     }
 
+    // ABI 업데이트
+    const abi = getAbiFromArtifact(demo.artifactPath);
+    if (!abi) {
+      abiFailCount++;
+      console.log(`  [WARN] ABI not updated (artifact ABI missing)`);
+    } else if (Array.isArray(demo.abiPaths)) {
+      for (const abiPath of demo.abiPaths) {
+        try {
+          writeJsonFile(abiPath, abi);
+          abiUpdateCount++;
+          console.log(`  [SUCCESS] Updated ABI: ${abiPath}`);
+        } catch (e) {
+          abiFailCount++;
+          console.log(`  [FAIL] Failed to update ABI: ${abiPath}`);
+          console.log(`    ${e.message}`);
+        }
+      }
+    }
+
     console.log(`  Bytecode length: ${bytecode.length} chars`);
+
+    // Embedded ABI 업데이트 (file:// fallback)
+    if (abi) {
+      const { success: abiOk, skipped: abiSkipped } = updateConfigEmbeddedAbi(
+        demo.configPath,
+        abi
+      );
+      if (abiOk) {
+        if (abiSkipped) {
+          console.log(`  [SKIP] Embedded ABI already up-to-date`);
+        } else {
+          console.log(`  [SUCCESS] Updated embedded ABI in ${demo.configPath}`);
+        }
+        embeddedAbiUpdateCount++;
+      } else {
+        embeddedAbiFailCount++;
+      }
+    }
 
     // config.js 업데이트
     const { success, skipped } = updateConfigBytecode(
@@ -248,6 +417,8 @@ function main() {
   console.log(' Results');
   console.log('========================================');
   console.log(` Update:   ${successCount} updated, ${skipCount} skipped, ${failCount} failed`);
+  console.log(` ABI:      ${abiUpdateCount} updated, ${abiFailCount} failed`);
+  console.log(` ABI(embed): ${embeddedAbiUpdateCount} updated, ${embeddedAbiFailCount} failed`);
   console.log(` Verify:   ${verifyPassCount} passed, ${verifyFailCount} failed`);
   console.log('========================================');
 

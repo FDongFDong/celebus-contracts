@@ -120,7 +120,19 @@ contract MainVotingTest is Test {
         uint256 votingAmt
     ) internal view returns (MainVoting.VoteRecord memory) {
         return MainVoting.VoteRecord({
-            recordId: uint256(keccak256(abi.encodePacked(userId, missionId, votingId, block.timestamp))),
+            recordId: uint256(
+                keccak256(
+                    abi.encodePacked(
+                        userId,
+                        missionId,
+                        votingId,
+                        optionId,
+                        voteType,
+                        votingAmt,
+                        block.timestamp
+                    )
+                )
+            ),
             timestamp: block.timestamp,
             missionId: missionId,
             votingId: votingId,
@@ -319,8 +331,8 @@ contract MainVotingTest is Test {
     function test_SubmitUserWithMultipleRecords() public {
         MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](3);
         records[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
-        records[1] = _createVoteRecord("user1", 1, 2, 2, 0, 50);
-        records[2] = _createVoteRecord("user1", 1, 3, 1, 1, 80);
+        records[1] = _createVoteRecord("user1", 1, 1, 2, 0, 50);
+        records[2] = _createVoteRecord("user1", 1, 1, 1, 1, 80);
 
         MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
         batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
@@ -336,7 +348,7 @@ contract MainVotingTest is Test {
     function test_SubmitMixedVoteTypes() public {
         MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](2);
         records[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100); // Remember
-        records[1] = _createVoteRecord("user1", 1, 2, 1, 0, 50);  // Forget
+        records[1] = _createVoteRecord("user1", 1, 1, 1, 0, 50);  // Forget
 
         MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
         batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
@@ -353,8 +365,10 @@ contract MainVotingTest is Test {
     function test_UserBatchExactMax() public {
         // MAX_RECORDS_PER_USER_BATCH = 20
         MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](20);
+        uint256 baseTs = block.timestamp;
         for (uint256 i = 0; i < 20; i++) {
-            records[i] = _createVoteRecord("user1", 1, i + 1, 1, 1, 100);
+            vm.warp(baseTs + i + 1);
+            records[i] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
         }
 
         MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
@@ -368,20 +382,29 @@ contract MainVotingTest is Test {
         assertEq(t, 2000);
     }
 
-    function test_SkipZeroAmountVote() public {
-        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](2);
-        records[0] = _createVoteRecord("user1", 1, 1, 1, 1, 0);   // 0 포인트 - 스킵
-        records[1] = _createVoteRecord("user1", 1, 2, 1, 1, 100);
+    function test_ZeroAmountVote_FailsUserBatch_PartialSuccess() public {
+        // user1: 0 수량 레코드 포함 -> 유저 배치 전체 실패(저장/집계 없음)
+        MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](2);
+        records1[0] = _createVoteRecord("user1", 1, 1, 1, 1, 0);
+        records1[1] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
 
-        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](1);
-        batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
+        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
+        records2[0] = _createVoteRecord("user2", 1, 2, 1, 1, 200);
+
+        MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](2);
+        batches[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);
+        batches[1] = _createUserVoteBatch(records2, user2, 0, user2PrivateKey);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
+        assertTrue(voting.usedUserNonces(user1, 0));
+        assertTrue(voting.usedUserNonces(user2, 0));
+
+        // 집계는 user2만 반영
         (uint256 remember,, uint256 total) = voting.getArtistAggregates(1, 1);
-        assertEq(remember, 100);
-        assertEq(total, 100);
+        assertEq(remember, 200);
+        assertEq(total, 200);
     }
 
     // ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -722,16 +745,16 @@ contract MainVotingTest is Test {
          * - Record2: 잘못된 voteType (5)
          * - Record3: 유효
          *
-         * 결과: 서명/nonce 검증은 통과하고 유효한 레코드만 저장됨
-         *       (per-record 검증은 저장 단계에서 수행)
+         * 결과: 서명/nonce 검증은 통과하지만, 레코드 1개라도 실패하면
+         *       해당 유저 배치 전체가 실패(all-or-nothing)
          */
         MainVoting.UserVoteBatch[] memory batches = new MainVoting.UserVoteBatch[](2);
 
-        // User1: 3개 레코드 중 1개가 잘못됨 → 유효한 2개만 저장
+        // User1: 3개 레코드 중 1개가 잘못됨 → 유저 배치 전체 실패
         MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](3);
         records1[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
-        records1[1] = _createVoteRecord("user1", 1, 2, 2, 5, 50); // voteType 5 invalid
-        records1[2] = _createVoteRecord("user1", 1, 3, 1, 1, 80);
+        records1[1] = _createVoteRecord("user1", 1, 1, 2, 5, 50); // voteType 5 invalid
+        records1[2] = _createVoteRecord("user1", 1, 1, 1, 1, 80);
         batches[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);
 
         // User2: 유효
@@ -748,10 +771,10 @@ contract MainVotingTest is Test {
         // User2 성공
         assertTrue(voting.usedUserNonces(user2, 0));
 
-        // User1의 유효한 레코드 2개 집계 (100 + 80 = 180)
+        // User1은 유저 배치 전체 실패이므로 집계 반영 없음
         (uint256 r1,, uint256 t1) = voting.getArtistAggregates(1, 1);
-        assertEq(r1, 180);
-        assertEq(t1, 180);
+        assertEq(r1, 0);
+        assertEq(t1, 0);
 
         // User2의 투표 집계
         (,uint256 f2, uint256 t2) = voting.getArtistAggregates(1, 2);
@@ -934,8 +957,8 @@ contract MainVotingTest is Test {
     // ║                         9. 중복 처리 테스트                                 ║
     // ╚═══════════════════════════════════════════════════════════════════════════╝
 
-    function test_DuplicateRecordSkipped() public {
-        // 첫 번째 제출
+    function test_DuplicateRecordFailsUserBatch_PartialSuccess() public {
+        // 첫 번째 제출 (user1 성공)
         MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](1);
         records1[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
 
@@ -945,21 +968,36 @@ contract MainVotingTest is Test {
         bytes memory executorSig1 = _signBatchSig(executorPrivateKey, 0);
         voting.submitMultiUserBatch(batches1, 0, executorSig1);
 
-        // 동일한 레코드 + 새 레코드로 두 번째 제출
-        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](2);
-        records2[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100); // 동일한 레코드 (스킵됨)
-        records2[1] = _createVoteRecord("user1", 1, 2, 1, 1, 50);  // 새 레코드
+        // 두 번째 제출:
+        // - user1: 이전에 저장된 레코드(digest)가 포함됨 -> 유저 배치 전체 실패(all-or-nothing)
+        // - user2: 유효 -> 성공
+        MainVoting.VoteRecord[] memory user1Records2 = new MainVoting.VoteRecord[](2);
+        user1Records2[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100); // duplicate
+        user1Records2[1] = _createVoteRecord("user1", 1, 1, 2, 0, 50);  // would be valid but not stored
 
-        MainVoting.UserVoteBatch[] memory batches2 = new MainVoting.UserVoteBatch[](1);
-        batches2[0] = _createUserVoteBatch(records2, user1, 1, user1PrivateKey);
+        MainVoting.VoteRecord[] memory user2Records = new MainVoting.VoteRecord[](1);
+        user2Records[0] = _createVoteRecord("user2", 1, 2, 1, 1, 200);
+
+        MainVoting.UserVoteBatch[] memory batches2 = new MainVoting.UserVoteBatch[](2);
+        batches2[0] = _createUserVoteBatch(user1Records2, user1, 1, user1PrivateKey);
+        batches2[1] = _createUserVoteBatch(user2Records, user2, 0, user2PrivateKey);
 
         bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 1);
         voting.submitMultiUserBatch(batches2, 1, executorSig2);
 
-        // 집계: 100 (첫 번째) + 50 (새 레코드) = 150
-        (uint256 r,, uint256 t) = voting.getArtistAggregates(1, 1);
-        assertEq(r, 150);
-        assertEq(t, 150);
+        assertTrue(voting.usedUserNonces(user1, 1));
+        assertTrue(voting.usedUserNonces(user2, 0));
+
+        // 집계: user1(100) + user2(200) = 300
+        (uint256 r1,, uint256 t1) = voting.getArtistAggregates(1, 1);
+        assertEq(r1, 300);
+        assertEq(t1, 300);
+
+        // user1의 두 번째 배치(artist2)는 반영되지 않음
+        (uint256 r2, uint256 f2, uint256 t2) = voting.getArtistAggregates(1, 2);
+        assertEq(r2, 0);
+        assertEq(f2, 0);
+        assertEq(t2, 0);
     }
 
     function test_AllDuplicateRecords_NoSuccessfulUser() public {
@@ -995,7 +1033,7 @@ contract MainVotingTest is Test {
 
         MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](2);
         records1[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
-        records1[1] = _createVoteRecord("user1", 1, 2, 1, 0, 50);
+        records1[1] = _createVoteRecord("user1", 1, 1, 1, 0, 50);
         batches[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);
 
         MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);

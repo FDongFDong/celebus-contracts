@@ -162,19 +162,38 @@ export class Step2Records {
       this.state.user2Nonce = userNonce;
     }
 
-    // votingId 검증
+    // votingId 검증 (유저 배치 단위 원자성: 한 유저의 records는 votingId가 모두 같아야 함)
     const votingIdValue = document.getElementById('votingId').value;
     if (!votingIdValue || votingIdValue === '') {
-      alert('먼저 🎲 생성 버튼을 눌러 Voting ID를 생성해주세요!');
+      alert('먼저 🎲 생성 버튼을 눌러 Voting ID를 생성해주세요!\n(유저 배치 내 모든 레코드는 같은 votingId여야 합니다)');
       return;
+    }
+
+    const parsedVotingId = parseInt(votingIdValue);
+    if (isNaN(parsedVotingId)) {
+      alert('유효하지 않은 Voting ID입니다. 다시 생성해주세요.');
+      return;
+    }
+
+    // 이미 해당 유저에 레코드가 있으면 votingId 고정
+    const existing = this.records.find(r => r.userIndex === selectedUserIndex);
+    if (existing && existing.votingId !== parsedVotingId) {
+      alert(
+        `같은 유저(User ${selectedUserIndex + 1})의 레코드는 모두 같은 votingId여야 합니다.\n` +
+        `기존 votingId: ${existing.votingId}\n` +
+        `입력 votingId: ${parsedVotingId}\n\n` +
+        `기존 votingId로 자동 맞춥니다.`
+      );
+      document.getElementById('votingId').value = String(existing.votingId);
     }
 
     const record = {
       userIndex: selectedUserIndex,
       userAddress: wallet.address,  // step7 필터링용 (컨트랙트에는 제출 안 함)
-      timestamp: Math.floor(Date.now() / 1000),
+      // digest 중복을 피하기 위해 ms 단위 timestamp 사용 (컨트랙트는 범위 제한 없음)
+      timestamp: Date.now(),
       missionId: parseInt(document.getElementById('missionId').value),
-      votingId: parseInt(votingIdValue),
+      votingId: existing ? existing.votingId : parsedVotingId,
       optionId: parseInt(document.getElementById('optionId').value),
       voteType: parseInt(document.getElementById('voteType').value),
       userId: document.getElementById('userId').value,
