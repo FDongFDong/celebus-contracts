@@ -1,9 +1,9 @@
 /**
  * STEP 6: Batch Digest 계산 및 Executor 서명
- * Foundry 테스트와 동일한 패턴: contract.hashBatchPreview() + vm.sign
+ * demo와 동일한 방식: signTypedData 사용 (컨트랙트 호출 없이 프론트엔드에서 직접 계산)
  */
 
-import { CONFIG } from '../config.js';
+import { CONFIG, getDomain } from "../config.js";
 
 export class Step6Digest {
   constructor(state) {
@@ -51,105 +51,189 @@ export class Step6Digest {
   }
 
   /**
-   * Batch Digest 계산 - 컨트랙트의 hashBatchPreview 직접 호출 (Foundry 패턴)
+   * Batch Digest 계산 - 프론트엔드에서 직접 EIP-712 digest 계산
    */
-  async calculateDigest() {
+  calculateDigest() {
     // STEP 5에서 batchNonce 가져오기
     if (!this.state.batchNonce && this.state.batchNonce !== 0) {
-      alert('먼저 STEP 5에서 Struct Hash를 계산해주세요!');
+      alert("먼저 STEP 5에서 Struct Hash를 계산해주세요!");
       return;
     }
 
     const batchNonce = this.state.batchNonce;
 
     // UI에 표시
-    document.getElementById('batchNonceDisplay').value = batchNonce;
+    document.getElementById("batchNonceDisplay").value = batchNonce;
 
     try {
-      // 컨트랙트 연결
-      const contract = new ethers.Contract(
-        this.state.contractAddress,
-        CONFIG.ABI,
-        this.state.provider
-      );
+      // 프론트엔드에서 직접 EIP-712 digest 계산
+      const domain = getDomain(this.state.contractAddress);
 
-      // Foundry 테스트와 동일: 컨트랙트의 hashBatchPreview 호출
-      const digest = await contract.hashBatchPreview(batchNonce);
-      console.log('🔍 [STEP6] Contract hashBatchPreview digest:', digest);
+      // Domain Separator 계산
+      const domainSeparator = this._calculateDomainSeparator(domain);
+
+      // Struct Hash 계산 (Batch typeHash + batchNonce)
+      const structHash = this._calculateStructHash(batchNonce);
+
+      // Final Digest 계산 (EIP-191)
+      const digest = this._calculateDigest(domainSeparator, structHash);
+
+      console.log("🔍 [STEP6] Calculated digest:", {
+        domainSeparator,
+        structHash,
+        digest,
+      });
 
       this.state.finalDigest = digest;
+      this.state.domainSeparator = domainSeparator;
+      this.state.structHash = structHash;
 
       this.updateResult();
 
-      console.log('✅ Batch digest calculated:', digest);
+      console.log("✅ Batch digest calculated:", digest);
     } catch (error) {
-      console.error('❌ Batch digest calculation failed:', error);
-      alert('Batch digest 계산 실패: ' + error.message);
+      console.error("❌ Batch digest calculation failed:", error);
+      alert("Batch digest 계산 실패: " + error.message);
     }
   }
 
   /**
-   * Executor 서명 생성 - Foundry의 vm.sign과 동일한 패턴
+   * Domain Separator 계산
+   */
+  _calculateDomainSeparator(domain) {
+    const typeHash = ethers.keccak256(
+      ethers.toUtf8Bytes(
+        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+      )
+    );
+
+    const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
+      ["bytes32", "bytes32", "bytes32", "uint256", "address"],
+      [
+        typeHash,
+        ethers.keccak256(ethers.toUtf8Bytes(domain.name)),
+        ethers.keccak256(ethers.toUtf8Bytes(domain.version)),
+        domain.chainId,
+        domain.verifyingContract,
+      ]
+    );
+
+    return ethers.keccak256(encoded);
+  }
+
+  /**
+   * Struct Hash 계산 (Batch 타입)
+   */
+  _calculateStructHash(batchNonce) {
+    const typeHash = ethers.keccak256(
+      ethers.toUtf8Bytes("Batch(uint256 batchNonce)")
+    );
+
+    const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
+      ["bytes32", "uint256"],
+      [typeHash, batchNonce]
+    );
+
+    return ethers.keccak256(encoded);
+  }
+
+  /**
+   * Final Digest 계산 (EIP-191)
+   */
+  _calculateDigest(domainSeparator, structHash) {
+    return ethers.keccak256(
+      ethers.solidityPacked(
+        ["bytes2", "bytes32", "bytes32"],
+        ["0x1901", domainSeparator, structHash]
+      )
+    );
+  }
+
+  /**
+   * Executor 서명 생성 - signTypedData 사용 (demo와 동일 방식)
    */
   async generateSignature() {
-    if (!this.state.finalDigest) {
-      alert('먼저 Batch Digest를 계산해주세요!');
+    if (!this.state.executorWallet) {
+      alert("먼저 STEP 1에서 Executor 지갑을 로드해주세요!");
       return;
     }
 
-    if (!this.state.executorWallet) {
-      alert('먼저 STEP 1에서 Executor 지갑을 로드해주세요!');
+    // batchNonce가 없으면 먼저 계산
+    if (!this.state.batchNonce && this.state.batchNonce !== 0) {
+      alert("먼저 STEP 5에서 Struct Hash를 계산해주세요!");
       return;
     }
 
     try {
       const executorWallet = this.state.executorWallet;
-      const batchNonce = this.state.batchNonce || 0;
+      const batchNonce = this.state.batchNonce;
 
-      // 컨트랙트 연결
-      const contract = new ethers.Contract(
-        this.state.contractAddress,
-        CONFIG.ABI,
-        this.state.provider
+      // EIP-712 서명 생성 (signTypedData 사용)
+      const domain = getDomain(this.state.contractAddress);
+      const types = {
+        Batch: [{ name: "batchNonce", type: "uint256" }],
+      };
+      const value = { batchNonce: batchNonce };
+
+      const signature = await executorWallet.signTypedData(
+        domain,
+        types,
+        value
       );
+      console.log("🔍 [STEP6] Executor Signature (signTypedData):", signature);
 
-      // 1. 컨트랙트의 hashBatchPreview 호출 → digest 얻기 (Foundry 테스트 패턴)
-      const digest = await contract.hashBatchPreview(batchNonce);
-      console.log('🔍 [STEP6] Contract hashBatchPreview digest:', digest);
-
-      // 2. digest에 직접 ECDSA 서명 (Foundry의 vm.sign과 동일)
-      const sig = executorWallet.signingKey.sign(digest);
-
-      // 3. r, s, v를 연결하여 서명 생성 (abi.encodePacked(r, s, v) 형식 - Foundry와 동일)
-      const signature = ethers.concat([sig.r, sig.s, ethers.toBeHex(sig.v)]);
-      console.log('🔍 [STEP6] Executor Signature:', signature);
+      // 서명 분해 (r, s, v)
+      const sig = ethers.Signature.from(signature);
 
       // State에 저장
       this.state.executorSig = signature;
-      this.state.finalDigest = digest;
+
+      // Digest도 계산해서 저장 (표시용)
+      if (!this.state.finalDigest) {
+        this.calculateDigest();
+      }
 
       // UI 업데이트
       this.updateResult();
 
-      console.log('✅ Executor signature generated:', {
+      console.log("✅ Executor signature generated:", {
         signature,
         signer: executorWallet.address,
-        digest,
         r: sig.r,
         s: sig.s,
-        v: sig.v
+        v: sig.v,
       });
     } catch (error) {
-      console.error('❌ Signature generation failed:', error);
-      alert('서명 생성 실패: ' + error.message);
+      console.error("❌ Signature generation failed:", error);
+      alert("서명 생성 실패: " + error.message);
     }
   }
 
+  /**
+   * 이전 단계의 결과를 UI에 로드 (STEP 4, STEP 5 완료 후 자동 호출)
+   */
+  loadPreviousResults() {
+    // batchNonce가 설정되어 있으면 UI에 표시
+    const batchNonceDisplay = document.getElementById("batchNonceDisplay");
+    if (
+      batchNonceDisplay &&
+      (this.state.batchNonce || this.state.batchNonce === 0)
+    ) {
+      batchNonceDisplay.value = this.state.batchNonce;
+    }
+
+    console.log("📝 [STEP6] Previous results loaded:", {
+      batchNonce: this.state.batchNonce,
+      domainSeparator: this.state.domainSeparator,
+      structHash: this.state.structHash,
+    });
+  }
+
   updateResult() {
-    const resultEl = document.getElementById('digestResult');
+    const resultEl = document.getElementById("digestResult");
     if (!resultEl) return;
 
-    let html = '';
+    let html = "";
 
     if (this.state.finalDigest) {
       html += `
