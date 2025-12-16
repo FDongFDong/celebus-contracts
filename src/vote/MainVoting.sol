@@ -286,23 +286,31 @@ contract MainVoting is Ownable2Step, EIP712 {
 
     /// @dev 개별 투표 레코드의 EIP-712 해시 생성
     ///      recordId는 해시/서명에 포함되지 않음
+    ///      inline assembly로 가스 최적화
     function _hashVoteRecord(
         VoteRecord calldata record,
         address user
-    ) internal pure returns (bytes32) {
-        return
-            keccak256(
-                abi.encode(
-                    VOTE_RECORD_TYPEHASH,
-                    record.timestamp,
-                    record.missionId,
-                    record.votingId,
-                    record.optionId,
-                    record.voteType,
-                    record.votingAmt,
-                    user
-                )
-            );
+    ) internal pure returns (bytes32 result) {
+        bytes32 typeHash = VOTE_RECORD_TYPEHASH;
+        uint256 timestamp_ = record.timestamp;
+        uint256 missionId_ = record.missionId;
+        uint256 votingId_ = record.votingId;
+        uint256 optionId_ = record.optionId;
+        uint8 voteType_ = record.voteType;
+        uint256 votingAmt_ = record.votingAmt;
+
+        assembly {
+            let ptr := mload(0x40)
+            mstore(ptr, typeHash)
+            mstore(add(ptr, 0x20), timestamp_)
+            mstore(add(ptr, 0x40), missionId_)
+            mstore(add(ptr, 0x60), votingId_)
+            mstore(add(ptr, 0x80), optionId_)
+            mstore(add(ptr, 0xa0), voteType_)
+            mstore(add(ptr, 0xc0), votingAmt_)
+            mstore(add(ptr, 0xe0), user)
+            result := keccak256(ptr, 0x100)
+        }
     }
 
     /// @dev 사용자 배치의 EIP-712 해시 생성 (서명 검증용)
@@ -406,8 +414,13 @@ contract MainVoting is Ownable2Step, EIP712 {
             return (false, reasonCode);
         }
 
-        // 2) 서명 검증
-        bytes32 recordsHash = keccak256(abi.encodePacked(userRecordDigests));
+        // 2) 서명 검증 (inline assembly로 가스 최적화)
+        bytes32 recordsHash;
+        assembly {
+            let len := mload(userRecordDigests)
+            let dataStart := add(userRecordDigests, 0x20)
+            recordsHash := keccak256(dataStart, mul(len, 0x20))
+        }
         bytes32 userBatchDigest = _hashUserBatch(user, nonce_, recordsHash);
 
         if (!_isValidSig(user, userBatchDigest, userSig.signature)) {

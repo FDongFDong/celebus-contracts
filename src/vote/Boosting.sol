@@ -494,29 +494,37 @@ contract Boosting is Ownable2Step, EIP712 {
     /**
      * @dev 개별 부스팅 레코드의 EIP-712 구조체 해시 생성
      * @param record 부스팅 레코드
-     * @return 레코드의 해시값
+     * @return result 레코드의 해시값
      *
      * 참고: userId는 서명 검증에 포함되지 않습니다.
      *   프론트엔드에서 userId 없이 서명하고,
      *   백엔드가 나중에 userId를 주입합니다.
+     *   inline assembly로 가스 최적화
      */
     function _hashBoostRecord(
         BoostRecord calldata record,
         address user
-    ) internal pure returns (bytes32) {
-        return
-            keccak256(
-                abi.encode(
-                    BOOST_RECORD_TYPEHASH,
-                    record.timestamp,
-                    record.missionId,
-                    record.boostingId,
-                    record.optionId,
-                    record.boostingWith,
-                    record.amt,
-                    user
-                )
-            );
+    ) internal pure returns (bytes32 result) {
+        bytes32 typeHash = BOOST_RECORD_TYPEHASH;
+        uint256 timestamp_ = record.timestamp;
+        uint256 missionId_ = record.missionId;
+        uint256 boostingId_ = record.boostingId;
+        uint256 optionId_ = record.optionId;
+        uint8 boostingWith_ = record.boostingWith;
+        uint256 amt_ = record.amt;
+
+        assembly {
+            let ptr := mload(0x40)
+            mstore(ptr, typeHash)
+            mstore(add(ptr, 0x20), timestamp_)
+            mstore(add(ptr, 0x40), missionId_)
+            mstore(add(ptr, 0x60), boostingId_)
+            mstore(add(ptr, 0x80), optionId_)
+            mstore(add(ptr, 0xa0), boostingWith_)
+            mstore(add(ptr, 0xc0), amt_)
+            mstore(add(ptr, 0xe0), user)
+            result := keccak256(ptr, 0x100)
+        }
     }
 
     /**

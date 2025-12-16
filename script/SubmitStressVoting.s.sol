@@ -15,10 +15,10 @@ import {MainVoting} from "../src/vote/MainVoting.sol";
 ///   ...
 /// ]
 contract SubmitStressVoting is Script {
-    MainVoting internal VOTING;
+    MainVoting internal voting;
 
     function run() external {
-        VOTING = MainVoting(_envOrAddress("VOTING_ADDRESS", 0x10Fb9C7BFec7d2059b65c9e70B4F58E2E6fd0eFE));
+        voting = MainVoting(_envOrAddress("VOTING_ADDRESS", 0x10Fb9C7BFec7d2059b65c9e70B4F58E2E6fd0eFE));
         uint256 executorKey = vm.envUint("PRIVATE_KEY");
         string memory filePath = _envOrString("STRESS_FILE", "stress-artifacts/stress-output.json");
         string memory json = vm.readFile(filePath);
@@ -26,12 +26,12 @@ contract SubmitStressVoting is Script {
         // UserVoteBatch[] 구조로 파싱
         MainVoting.UserVoteBatch[] memory batches =
             abi.decode(vm.parseJsonBytes(json, ".batches"), (MainVoting.UserVoteBatch[]));
-        
+
         bytes memory executorSig = vm.parseJsonBytes(json, ".executorSig");
         uint256 batchNonce = vm.parseJsonUint(json, ".batchNonce");
 
         vm.startBroadcast(executorKey);
-        VOTING.submitMultiUserBatch(batches, batchNonce, executorSig);
+        voting.submitMultiUserBatch(batches, batchNonce, executorSig);
         vm.stopBroadcast();
 
         console2.log("Stress payload submitted from", filePath);
