@@ -2,7 +2,7 @@
  * Step 4: Domain Separator 계산
  */
 
-import { CONFIG } from '../config.js?v=2';
+import { CONFIG } from '../config.js?v=3';
 import { calculateDomainSeparator, generateExplanation } from '../utils/eip712.js';
 
 export class Step4Domain {

@@ -3,7 +3,7 @@
  * SubVoting N:1 구조: 유저당 { records: [...], userBatchSig: {...} }
  */
 
-import { CONFIG, getContractInstance } from '../config.js?v=2';
+import { CONFIG, getContractInstance } from '../config.js?v=3';
 
 export class Step7Submit {
   constructor(state) {
@@ -347,7 +347,7 @@ export class Step7Submit {
       });
 
       this.setLoadingState(true, '컨트랙트 호출 중...');
-      const contract = getContractInstance(this.state.executorWallet, this.state.contractAddress);
+      const contract = await getContractInstance(this.state.executorWallet, this.state.contractAddress);
 
       const tx = await contract.submitMultiUserBatch(
         batches,
@@ -409,17 +409,25 @@ export class Step7Submit {
 
   async checkVoteResults() {
     try {
-      const contract = getContractInstance(this.state.provider, this.state.contractAddress);
+      const contract = await getContractInstance(this.state.provider, this.state.contractAddress);
 
       // 첫 번째 레코드의 질문 집계 조회
       const firstRecord = this.state.records[0];
+      const optionIds = Array.from(
+        new Set(
+          this.state.records
+            .filter(r => r.missionId === firstRecord.missionId && r.questionId === firstRecord.questionId)
+            .map(r => r.optionId)
+        )
+      );
       const [optionVotes, total] = await contract.getQuestionAggregates(
         firstRecord.missionId,
-        firstRecord.questionId
+        firstRecord.questionId,
+        optionIds
       );
 
       console.log('📊 Vote results:', {
-        optionVotes: optionVotes.map((v, i) => `Option ${i}: ${v.toString()}`),
+        optionVotes: optionVotes.map((v, i) => `Option ${optionIds[i]}: ${v.toString()}`),
         total: total.toString()
       });
 
@@ -430,9 +438,10 @@ export class Step7Submit {
           <div class="text-sm text-gray-700">
             <p>Total: ${total.toString()} votes</p>
             <div class="mt-2 space-y-1">
-              ${optionVotes.map((v, i) =>
-                i > 0 && v > 0n ? `<p>Option ${i}: ${v.toString()} votes</p>` : ''
-              ).join('')}
+              ${optionVotes.map((v, i) => {
+                const id = optionIds[i];
+                return v > 0n ? `<p>Option ${id}: ${v.toString()} votes</p>` : '';
+              }).join('')}
             </div>
           </div>
         </div>

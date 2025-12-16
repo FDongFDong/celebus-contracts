@@ -203,12 +203,34 @@ contract SubVotingTest is Test {
         assertTrue(voting.allowedOption(2, 1, 1));
     }
 
+    function test_RevertWhen_SetQuestionEmptyText() public {
+        vm.expectRevert(SubVoting.EmptyText.selector);
+        voting.setQuestion(2, 1, "", true);
+    }
+
+    function test_RevertWhen_SetOptionEmptyText() public {
+        voting.setQuestion(2, 1, "Q", true);
+        vm.expectRevert(SubVoting.EmptyText.selector);
+        voting.setOption(2, 1, 1, "", true);
+    }
+
     function test_RevertWhen_SetOptionInvalidId() public {
         vm.expectRevert(abi.encodeWithSelector(SubVoting.InvalidOptionId.selector, 0));
         voting.setOption(1, 1, 0, "Invalid", true);
+    }
 
-        vm.expectRevert(abi.encodeWithSelector(SubVoting.InvalidOptionId.selector, 11));
-        voting.setOption(1, 1, 11, "Invalid", true);
+    function test_RevertWhen_SetOptionQuestionNotRegistered() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(SubVoting.QuestionNotRegistered.selector, 999, 1)
+        );
+        voting.setOption(999, 1, 1, "Option", true);
+    }
+
+    function test_SetOptionAllowsLargeId() public {
+        voting.setQuestion(2, 1, "Q", true);
+        voting.setOption(2, 1, 11, "LargeOption", true);
+        assertEq(voting.optionName(2, 1, 11), "LargeOption");
+        assertTrue(voting.allowedOption(2, 1, 11));
     }
 
     // ========================================
@@ -230,9 +252,8 @@ contract SubVotingTest is Test {
         assertTrue(voting.usedBatchNonces(executorSigner, 0));
 
         // 집계 검증
-        (uint256[11] memory optionVotes, uint256 total) = voting.getQuestionAggregates(1, 1);
-        assertEq(optionVotes[1], 100);
-        assertEq(total, 100);
+        assertEq(voting.getOptionVotes(1, 1, 1), 100);
+        assertEq(voting.getQuestionTotalVotes(1, 1), 100);
     }
 
     function test_SubmitMultipleUsersVotes() public {
@@ -261,15 +282,13 @@ contract SubVotingTest is Test {
         assertTrue(voting.usedBatchNonces(executorSigner, 0));
 
         // 집계 검증 - Question1
-        (uint256[11] memory q1Votes, uint256 q1Total) = voting.getQuestionAggregates(1, 1);
-        assertEq(q1Votes[1], 100); // user1 voted option1
-        assertEq(q1Votes[2], 200); // user2 voted option2
-        assertEq(q1Total, 300);
+        assertEq(voting.getOptionVotes(1, 1, 1), 100); // user1 voted option1
+        assertEq(voting.getOptionVotes(1, 1, 2), 200); // user2 voted option2
+        assertEq(voting.getQuestionTotalVotes(1, 1), 300);
 
         // 집계 검증 - Question2
-        (uint256[11] memory q2Votes, uint256 q2Total) = voting.getQuestionAggregates(1, 2);
-        assertEq(q2Votes[1], 150); // user3 voted option1
-        assertEq(q2Total, 150);
+        assertEq(voting.getOptionVotes(1, 2, 1), 150); // user3 voted option1
+        assertEq(voting.getQuestionTotalVotes(1, 2), 150);
     }
 
     function test_SubmitMultipleRecordsPerUser() public {
@@ -290,15 +309,13 @@ contract SubVotingTest is Test {
         assertTrue(voting.usedUserNonces(user1, 0));
 
         // 집계 검증 - Question1
-        (uint256[11] memory q1Votes, uint256 q1Total) = voting.getQuestionAggregates(1, 1);
-        assertEq(q1Votes[1], 100);
-        assertEq(q1Votes[2], 50);
-        assertEq(q1Total, 150);
+        assertEq(voting.getOptionVotes(1, 1, 1), 100);
+        assertEq(voting.getOptionVotes(1, 1, 2), 50);
+        assertEq(voting.getQuestionTotalVotes(1, 1), 150);
 
         // 집계 검증 - Question2
-        (uint256[11] memory q2Votes, uint256 q2Total) = voting.getQuestionAggregates(1, 2);
-        assertEq(q2Votes[1], 75);
-        assertEq(q2Total, 75);
+        assertEq(voting.getOptionVotes(1, 2, 1), 75);
+        assertEq(voting.getQuestionTotalVotes(1, 2), 75);
     }
 
     // ========================================
@@ -340,9 +357,8 @@ contract SubVotingTest is Test {
         assertTrue(voting.usedUserNonces(user2, 0));
 
         // 집계는 user2의 투표만 반영
-        (uint256[11] memory optionVotes, uint256 total) = voting.getQuestionAggregates(1, 1);
-        assertEq(optionVotes[1], 200);
-        assertEq(total, 200);
+        assertEq(voting.getOptionVotes(1, 1, 1), 200);
+        assertEq(voting.getQuestionTotalVotes(1, 1), 200);
     }
 
     function test_RevertWhen_UserNonceInvalid() public {
@@ -404,14 +420,13 @@ contract SubVotingTest is Test {
         // 전체 트랜잭션은 성공 (soft-fail)
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
-        // user1도 nonce 0 사용됨 (배치 수준 검증은 통과)
+        // user1은 레코드 검증 실패로 유저 배치 전체 실패 → nonce 소비(서명 검증 성공 기준)
         assertTrue(voting.usedUserNonces(user1, 0));
         assertTrue(voting.usedUserNonces(user2, 0));
 
         // 집계는 user2의 투표만 반영 (user1의 레코드는 per-record 검증에서 실패)
-        (uint256[11] memory optionVotes, uint256 total) = voting.getQuestionAggregates(1, 1);
-        assertEq(optionVotes[1], 200);
-        assertEq(total, 200);
+        assertEq(voting.getOptionVotes(1, 1, 1), 200);
+        assertEq(voting.getQuestionTotalVotes(1, 1), 200);
     }
 
     function test_SoftFailWhen_OptionNotAllowed() public {
@@ -428,13 +443,12 @@ contract SubVotingTest is Test {
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
         // 집계는 user2의 투표만 반영
-        (uint256[11] memory optionVotes, uint256 total) = voting.getQuestionAggregates(1, 1);
-        assertEq(optionVotes[1], 200);
-        assertEq(total, 200);
+        assertEq(voting.getOptionVotes(1, 1, 1), 200);
+        assertEq(voting.getQuestionTotalVotes(1, 1), 200);
     }
 
     function test_SoftFailWhen_InvalidOptionId() public {
-        // 유효하지 않은 optionId (0 또는 >10)
+        // 유효하지 않은 optionId (0)
         SubVoting.VoteRecord memory record1 = _createVoteRecord(1, "user1", 1, 1, 1, 0, 100); // optionId 0 invalid
         SubVoting.VoteRecord memory record2 = _createVoteRecord(2, "user2", 1, 1, 1, 1, 200); // valid
 
@@ -447,9 +461,60 @@ contract SubVotingTest is Test {
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
         // 집계는 user2의 투표만 반영
-        (uint256[11] memory optionVotes, uint256 total) = voting.getQuestionAggregates(1, 1);
-        assertEq(optionVotes[1], 200);
-        assertEq(total, 200);
+        assertEq(voting.getOptionVotes(1, 1, 1), 200);
+        assertEq(voting.getQuestionTotalVotes(1, 1), 200);
+    }
+
+    function test_UserBatchAtomicity_NonceConsumedOnRecordFailure() public {
+        // user1: 2개 레코드 중 1개가 option not allowed -> 유저 배치 전체 실패(저장/집계 없음) + nonce 소비
+        SubVoting.VoteRecord[] memory user1Records = new SubVoting.VoteRecord[](2);
+        user1Records[0] = _createVoteRecord(1, "user1", 1, 1, 1, 1, 100); // would be valid
+        user1Records[1] = _createVoteRecord(2, "user1", 1, 1, 1, 5, 50); // optionId 5 not allowed (setUp에서 등록 안 함)
+
+        SubVoting.VoteRecord memory user2Record = _createVoteRecord(3, "user2", 1, 1, 1, 1, 200); // valid
+
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](2);
+        batches[0] = _createBatch(user1Records, user1, 0, user1PrivateKey);
+        batches[1] = _createSingleRecordBatch(user2Record, user2, 0, user2PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        // user1은 레코드 실패로 유저 배치 전체 실패 -> nonce 소비(서명 검증 성공 기준)
+        assertTrue(voting.usedUserNonces(user1, 0));
+        // user2는 성공 -> nonce 소비
+        assertTrue(voting.usedUserNonces(user2, 0));
+
+        // 집계는 user2만 반영 (user1의 유효 레코드도 저장되지 않음)
+        assertEq(voting.getOptionVotes(1, 1, 1), 200);
+        assertEq(voting.getQuestionTotalVotes(1, 1), 200);
+
+        // user1 레코드는 consumed 되지 않음
+        bytes32 digest1 = _hashVoteRecord(user1Records[0], user1);
+        assertFalse(voting.consumed(user1, digest1));
+    }
+
+    function test_UserBatchAtomicity_VotingIdMismatchFailsUserBatch() public {
+        // user1: votingId가 섞인 레코드 -> 유저 배치 전체 실패(저장/집계 없음) + nonce 소비
+        SubVoting.VoteRecord[] memory user1Records = new SubVoting.VoteRecord[](2);
+        user1Records[0] = _createVoteRecord(1, "user1", 1, 1, 1, 1, 100);
+        user1Records[1] = _createVoteRecord(2, "user1", 1, 2, 1, 1, 50); // votingId mismatch
+
+        SubVoting.VoteRecord memory user2Record = _createVoteRecord(3, "user2", 1, 3, 1, 1, 200); // valid
+
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](2);
+        batches[0] = _createBatch(user1Records, user1, 0, user1PrivateKey);
+        batches[1] = _createSingleRecordBatch(user2Record, user2, 0, user2PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        assertTrue(voting.usedUserNonces(user1, 0));
+        assertTrue(voting.usedUserNonces(user2, 0));
+
+        // 집계는 user2만 반영
+        assertEq(voting.getOptionVotes(1, 1, 1), 200);
+        assertEq(voting.getQuestionTotalVotes(1, 1), 200);
     }
 
     // ========================================
@@ -472,9 +537,8 @@ contract SubVotingTest is Test {
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
         // 집계 검증 - 0 포인트 투표는 스킵되어 100만 집계됨
-        (uint256[11] memory optionVotes, uint256 total) = voting.getQuestionAggregates(1, 1);
-        assertEq(optionVotes[1], 100);
-        assertEq(total, 100);
+        assertEq(voting.getOptionVotes(1, 1, 1), 100);
+        assertEq(voting.getQuestionTotalVotes(1, 1), 100);
     }
 
     // ========================================
@@ -558,7 +622,6 @@ contract SubVotingTest is Test {
     }
 
     function test_SetOptionMaxId() public {
-        // MAX_OPTION_ID = 10까지 허용
         voting.setQuestion(2, 1, "TestQuestion", true);
         voting.setOption(2, 1, 10, "MaxOption", true);
         assertEq(voting.optionName(2, 1, 10), "MaxOption");
@@ -671,9 +734,8 @@ contract SubVotingTest is Test {
         voting.submitMultiUserBatch(batches, 0, executorSig);
 
         // 집계 확인
-        (uint256[11] memory optionVotes1, uint256 total1) = voting.getQuestionAggregates(1, 1);
-        assertEq(optionVotes1[1], 100);
-        assertEq(total1, 100);
+        assertEq(voting.getOptionVotes(1, 1, 1), 100);
+        assertEq(voting.getQuestionTotalVotes(1, 1), 100);
 
         // 같은 user가 nonce 1로 동일한 레코드 해시를 다시 제출 시도
         // (consumed 체크로 인해 스킵됨)

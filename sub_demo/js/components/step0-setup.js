@@ -3,7 +3,7 @@
  * 컨트랙트 배포, Executor 등록, 질문/답변 등록
  */
 
-import { CONFIG, getContractInstance, SUBVOTING_BYTECODE } from '../config.js?v=2';
+import { CONFIG, loadABI, SUBVOTING_BYTECODE } from '../config.js?v=3';
 
 export class Step0Setup {
   constructor(state) {
@@ -358,8 +358,8 @@ export class Step0Setup {
       return;
     }
 
-    if (optionId < 1 || optionId > 10) {
-      this.showStatus('Option ID는 1~10 사이여야 합니다', 'error', 'optionStatus');
+    if (optionId < 1) {
+      this.showStatus('Option ID는 1 이상의 정수여야 합니다', 'error', 'optionStatus');
       return;
     }
 
@@ -416,8 +416,8 @@ export class Step0Setup {
   /**
    * ABI JSON 다운로드
    */
-  downloadAbi() {
-    const abi = CONFIG.ABI;
+  async downloadAbi() {
+    const abi = await loadABI();
     const blob = new Blob([JSON.stringify(abi, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

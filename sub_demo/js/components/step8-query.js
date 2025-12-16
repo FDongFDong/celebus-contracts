@@ -3,7 +3,7 @@
  * SubVoting 컨트랙트의 모든 view 함수를 UI에서 호출 가능하게 함
  */
 
-import { CONFIG } from '../config.js?v=2';
+import { CONFIG, loadABI } from '../config.js?v=3';
 
 export class Step8Query {
   constructor(state) {
@@ -98,8 +98,8 @@ export class Step8Query {
         <!-- 질문별 집계 조회 -->
         <div class="bg-purple-50 rounded-lg p-4 border border-purple-200">
           <h3 class="font-semibold text-purple-900 mb-3">📊 질문별 집계 조회</h3>
-          <p class="text-xs text-gray-600 mb-3">getQuestionAggregates(missionId, questionId)</p>
-          <div class="grid grid-cols-2 gap-3 mb-3">
+          <p class="text-xs text-gray-600 mb-3">getQuestionAggregates(missionId, questionId, optionIds[])</p>
+          <div class="grid grid-cols-3 gap-3 mb-3">
             <div>
               <label class="block text-xs text-gray-600 mb-1">Mission ID</label>
               <input id="q_questionAgg_missionId" type="number" value="1" min="0"
@@ -109,6 +109,11 @@ export class Step8Query {
               <label class="block text-xs text-gray-600 mb-1">Question ID</label>
               <input id="q_questionAgg_questionId" type="number" value="1" min="0"
                      class="w-full p-2 border rounded text-sm">
+            </div>
+            <div>
+              <label class="block text-xs text-gray-600 mb-1">Option IDs (comma-separated)</label>
+              <input id="q_questionAgg_optionIds" type="text" placeholder="1,2,11"
+                     class="w-full p-2 border rounded text-sm font-mono">
             </div>
           </div>
           <button onclick="step8.queryQuestionAggregates()"
@@ -144,7 +149,7 @@ export class Step8Query {
         <!-- 옵션별 투표 수 조회 -->
         <div class="bg-purple-50 rounded-lg p-4 border border-purple-200">
           <h3 class="font-semibold text-purple-900 mb-3">🗳️ 옵션별 투표 수</h3>
-          <p class="text-xs text-gray-600 mb-3">getQuestionAggregates(missionId, questionId)[optionId]</p>
+          <p class="text-xs text-gray-600 mb-3">getOptionVotes(missionId, questionId, optionId)</p>
           <div class="grid grid-cols-3 gap-3 mb-3">
             <div>
               <label class="block text-xs text-gray-600 mb-1">Mission ID</label>
@@ -157,8 +162,8 @@ export class Step8Query {
                      class="w-full p-2 border rounded text-sm">
             </div>
             <div>
-              <label class="block text-xs text-gray-600 mb-1">Option ID (1~10)</label>
-              <input id="q_optionVotes_optionId" type="number" value="1" min="1" max="10"
+              <label class="block text-xs text-gray-600 mb-1">Option ID (1 이상 정수)</label>
+              <input id="q_optionVotes_optionId" type="number" value="1" min="1"
                      class="w-full p-2 border rounded text-sm">
             </div>
           </div>
@@ -175,29 +180,6 @@ export class Step8Query {
   renderQuestionTab() {
     return `
       <div class="space-y-6">
-        <!-- 질문+옵션 전체 조회 -->
-        <div class="bg-indigo-50 rounded-lg p-4 border border-indigo-200">
-          <h3 class="font-semibold text-indigo-900 mb-3">📋 질문+옵션 전체 조회</h3>
-          <p class="text-xs text-gray-600 mb-3">getQuestionWithOptions(missionId, questionId)</p>
-          <div class="grid grid-cols-2 gap-3 mb-3">
-            <div>
-              <label class="block text-xs text-gray-600 mb-1">Mission ID</label>
-              <input id="q_questionWithOptions_missionId" type="number" value="1" min="0"
-                     class="w-full p-2 border rounded text-sm">
-            </div>
-            <div>
-              <label class="block text-xs text-gray-600 mb-1">Question ID</label>
-              <input id="q_questionWithOptions_questionId" type="number" value="1" min="0"
-                     class="w-full p-2 border rounded text-sm">
-            </div>
-          </div>
-          <button onclick="step8.queryQuestionWithOptions()"
-                  class="bg-indigo-500 text-white px-4 py-2 rounded text-sm hover:bg-indigo-600">
-            조회
-          </button>
-          <div id="result_questionWithOptions" class="mt-3"></div>
-        </div>
-
         <!-- 질문 이름 -->
         <div class="bg-indigo-50 rounded-lg p-4 border border-indigo-200">
           <h3 class="font-semibold text-indigo-900 mb-3">🏷️ 질문 이름</h3>
@@ -237,8 +219,8 @@ export class Step8Query {
                      class="w-full p-2 border rounded text-sm">
             </div>
             <div>
-              <label class="block text-xs text-gray-600 mb-1">Option ID (1~10)</label>
-              <input id="q_optionName_optionId" type="number" value="1" min="1" max="10"
+              <label class="block text-xs text-gray-600 mb-1">Option ID (1 이상 정수)</label>
+              <input id="q_optionName_optionId" type="number" value="1" min="1"
                      class="w-full p-2 border rounded text-sm">
             </div>
           </div>
@@ -288,8 +270,8 @@ export class Step8Query {
                      class="w-full p-2 border rounded text-sm">
             </div>
             <div>
-              <label class="block text-xs text-gray-600 mb-1">Option ID (1~10)</label>
-              <input id="q_allowedOption_optionId" type="number" value="1" min="1" max="10"
+              <label class="block text-xs text-gray-600 mb-1">Option ID (1 이상 정수)</label>
+              <input id="q_allowedOption_optionId" type="number" value="1" min="1"
                      class="w-full p-2 border rounded text-sm">
             </div>
           </div>
@@ -309,7 +291,7 @@ export class Step8Query {
         <!-- 투표 레코드 조회 -->
         <div class="bg-teal-50 rounded-lg p-4 border border-teal-200">
           <h3 class="font-semibold text-teal-900 mb-3">📝 투표 레코드 조회</h3>
-          <p class="text-xs text-gray-600 mb-3">getVoteByHash(hash) - bytes32 hash로 특정 레코드 조회</p>
+          <p class="text-xs text-gray-600 mb-3">votes(hash) - bytes32 hash로 특정 레코드 조회</p>
           <div class="mb-3">
             <label class="block text-xs text-gray-600 mb-1">Hash (bytes32)</label>
             <input id="q_votes_hash" type="text" placeholder="0x..."
@@ -328,42 +310,10 @@ export class Step8Query {
   renderNonceTab() {
     return `
       <div class="space-y-6">
-        <!-- Min User Nonce -->
-        <div class="bg-orange-50 rounded-lg p-4 border border-orange-200">
-          <h3 class="font-semibold text-orange-900 mb-3">🔢 Min User Nonce</h3>
-          <p class="text-xs text-gray-600 mb-3">minUserNonce(user)</p>
-          <div class="mb-3">
-            <label class="block text-xs text-gray-600 mb-1">User Address</label>
-            <input id="q_minUserNonce_user" type="text" placeholder="0x..."
-                   class="w-full p-2 border rounded text-sm font-mono">
-          </div>
-          <button onclick="step8.queryMinUserNonce()"
-                  class="bg-orange-500 text-white px-4 py-2 rounded text-sm hover:bg-orange-600">
-            조회
-          </button>
-          <div id="result_minUserNonce" class="mt-3"></div>
-        </div>
-
-        <!-- Min Batch Nonce -->
-        <div class="bg-orange-50 rounded-lg p-4 border border-orange-200">
-          <h3 class="font-semibold text-orange-900 mb-3">🔢 Min Batch Nonce</h3>
-          <p class="text-xs text-gray-600 mb-3">minBatchNonce(executor)</p>
-          <div class="mb-3">
-            <label class="block text-xs text-gray-600 mb-1">Executor Address</label>
-            <input id="q_minBatchNonce_executor" type="text" placeholder="0x..."
-                   class="w-full p-2 border rounded text-sm font-mono">
-          </div>
-          <button onclick="step8.queryMinBatchNonce()"
-                  class="bg-orange-500 text-white px-4 py-2 rounded text-sm hover:bg-orange-600">
-            조회
-          </button>
-          <div id="result_minBatchNonce" class="mt-3"></div>
-        </div>
-
         <!-- User Nonce Used -->
         <div class="bg-orange-50 rounded-lg p-4 border border-orange-200">
           <h3 class="font-semibold text-orange-900 mb-3">✅ User Nonce 사용 여부</h3>
-          <p class="text-xs text-gray-600 mb-3">userNonceUsed(user, nonce)</p>
+          <p class="text-xs text-gray-600 mb-3">usedUserNonces(user, nonce)</p>
           <div class="grid grid-cols-2 gap-3 mb-3">
             <div>
               <label class="block text-xs text-gray-600 mb-1">User Address</label>
@@ -386,7 +336,7 @@ export class Step8Query {
         <!-- Batch Nonce Used -->
         <div class="bg-orange-50 rounded-lg p-4 border border-orange-200">
           <h3 class="font-semibold text-orange-900 mb-3">✅ Batch Nonce 사용 여부</h3>
-          <p class="text-xs text-gray-600 mb-3">batchNonceUsed(executor, nonce)</p>
+          <p class="text-xs text-gray-600 mb-3">usedBatchNonces(executor, nonce)</p>
           <div class="grid grid-cols-2 gap-3 mb-3">
             <div>
               <label class="block text-xs text-gray-600 mb-1">Executor Address</label>
@@ -450,10 +400,11 @@ export class Step8Query {
 
   // ==================== 조회 메서드 ====================
 
-  getContract() {
+  async getContract() {
     if (!this.state.contractAddress) {
       throw new Error('컨트랙트 주소가 설정되지 않았습니다.');
     }
+    await loadABI();
     return new ethers.Contract(this.state.contractAddress, CONFIG.ABI, this.state.provider);
   }
 
@@ -531,9 +482,9 @@ export class Step8Query {
   }
 
   renderOptionVotesCards(data) {
-    const { optionVotes, total } = data;
-    const optionCards = optionVotes.slice(1, 11).map((votes, idx) => {
-      const optionId = idx + 1;
+    const { optionIds, optionVotes, total } = data;
+    const optionCards = (optionIds || []).map((optionId, idx) => {
+      const votes = optionVotes?.[idx] ?? 0n;
       const voteCount = votes.toString();
       return `
         <div class="bg-blue-50 p-2 rounded text-center border border-blue-200">
@@ -546,7 +497,7 @@ export class Step8Query {
     return `
       <div class="mt-2">
         <div class="grid grid-cols-5 gap-2 mb-3">
-          ${optionCards}
+          ${optionCards || '<p class="text-gray-500 text-sm">Option IDs를 입력해주세요.</p>'}
         </div>
         <div class="bg-green-50 p-3 rounded text-center border border-green-200">
           <p class="text-sm text-gray-600">Total Votes</p>
@@ -614,12 +565,27 @@ export class Step8Query {
     const resultId = 'result_questionAggregates';
     try {
       this.showLoading(resultId);
-      const contract = this.getContract();
+      const contract = await this.getContract();
       const missionId = document.getElementById('q_questionAgg_missionId').value;
       const questionId = document.getElementById('q_questionAgg_questionId').value;
+      const optionIdsRaw = document.getElementById('q_questionAgg_optionIds').value || '';
 
-      const result = await contract.getQuestionAggregates(missionId, questionId);
-      this.showResult(resultId, { optionVotes: result.optionVotes, total: result.total }, 'optionVotes');
+      const optionIds = optionIdsRaw
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+        .map(s => BigInt(s));
+
+      const [optionVotes, total] = await contract.getQuestionAggregates(
+        missionId,
+        questionId,
+        optionIds
+      );
+      this.showResult(
+        resultId,
+        { optionIds: optionIds.map(String), optionVotes, total },
+        'optionVotes'
+      );
     } catch (err) {
       console.error('queryQuestionAggregates error:', err);
       this.showError(resultId, err.message);
@@ -630,7 +596,7 @@ export class Step8Query {
     const resultId = 'result_voteSummaries';
     try {
       this.showLoading(resultId);
-      const contract = this.getContract();
+      const contract = await this.getContract();
       const missionId = document.getElementById('q_voteSummary_missionId').value;
       const votingId = document.getElementById('q_voteSummary_votingId').value;
 
@@ -642,8 +608,8 @@ export class Step8Query {
         missionId: s.missionId.toString(),
         votingId: s.votingId.toString(),
         userId: s.userId,
-        votingFor: s.votingFor,
-        votedOn: s.votedOn,
+        questionText: s.questionText,
+        optionText: s.optionText,
         votingAmt: s.votingAmt.toString()
       }));
 
@@ -658,13 +624,13 @@ export class Step8Query {
     const resultId = 'result_optionVotes';
     try {
       this.showLoading(resultId);
-      const contract = this.getContract();
+      const contract = await this.getContract();
       const missionId = document.getElementById('q_optionVotes_missionId').value;
       const questionId = document.getElementById('q_optionVotes_questionId').value;
       const optionId = document.getElementById('q_optionVotes_optionId').value;
 
-      const [optionVotes, total] = await contract.getQuestionAggregates(missionId, questionId);
-      const votes = optionVotes[optionId];
+      const votes = await contract.getOptionVotes(missionId, questionId, optionId);
+      const total = await contract.getQuestionTotalVotes(missionId, questionId);
       this.showResult(resultId, { optionId, votes: votes.toString(), total: total.toString() });
     } catch (err) {
       console.error('queryOptionVotes error:', err);
@@ -674,39 +640,11 @@ export class Step8Query {
 
   // ==================== Question/Option 조회 ====================
 
-  async queryQuestionWithOptions() {
-    const resultId = 'result_questionWithOptions';
-    try {
-      this.showLoading(resultId);
-      const contract = this.getContract();
-      const missionId = document.getElementById('q_questionWithOptions_missionId').value;
-      const questionId = document.getElementById('q_questionWithOptions_questionId').value;
-
-      const result = await contract.getQuestionWithOptions(missionId, questionId);
-
-      const data = {
-        questionText: result.questionText || '(등록되지 않음)',
-        questionAllowed: result.questionAllowed,
-        options: result.options.map(o => ({
-          optionId: o.optionId.toString(),
-          optionText: o.optionText,
-          votes: o.votes.toString(),
-          allowed: o.allowed
-        }))
-      };
-
-      this.showResult(resultId, data);
-    } catch (err) {
-      console.error('queryQuestionWithOptions error:', err);
-      this.showError(resultId, err.message);
-    }
-  }
-
   async queryQuestionName() {
     const resultId = 'result_questionName';
     try {
       this.showLoading(resultId);
-      const contract = this.getContract();
+      const contract = await this.getContract();
       const missionId = document.getElementById('q_questionName_missionId').value;
       const questionId = document.getElementById('q_questionName_questionId').value;
 
@@ -722,7 +660,7 @@ export class Step8Query {
     const resultId = 'result_optionName';
     try {
       this.showLoading(resultId);
-      const contract = this.getContract();
+      const contract = await this.getContract();
       const missionId = document.getElementById('q_optionName_missionId').value;
       const questionId = document.getElementById('q_optionName_questionId').value;
       const optionId = document.getElementById('q_optionName_optionId').value;
@@ -739,7 +677,7 @@ export class Step8Query {
     const resultId = 'result_allowedQuestion';
     try {
       this.showLoading(resultId);
-      const contract = this.getContract();
+      const contract = await this.getContract();
       const missionId = document.getElementById('q_allowedQuestion_missionId').value;
       const questionId = document.getElementById('q_allowedQuestion_questionId').value;
 
@@ -755,7 +693,7 @@ export class Step8Query {
     const resultId = 'result_allowedOption';
     try {
       this.showLoading(resultId);
-      const contract = this.getContract();
+      const contract = await this.getContract();
       const missionId = document.getElementById('q_allowedOption_missionId').value;
       const questionId = document.getElementById('q_allowedOption_questionId').value;
       const optionId = document.getElementById('q_allowedOption_optionId').value;
@@ -774,14 +712,14 @@ export class Step8Query {
     const resultId = 'result_voteRecord';
     try {
       this.showLoading(resultId);
-      const contract = this.getContract();
+      const contract = await this.getContract();
       const hash = document.getElementById('q_votes_hash').value;
 
       if (!hash || !hash.startsWith('0x') || hash.length !== 66) {
         throw new Error('올바른 bytes32 형식의 hash를 입력해주세요 (0x + 64 hex chars)');
       }
 
-      const record = await contract.getVoteByHash(hash);
+      const record = await contract.votes(hash);
 
       // timestamp가 0이면 존재하지 않는 레코드
       if (record.timestamp.toString() === '0') {
@@ -790,6 +728,7 @@ export class Step8Query {
       }
 
       const data = {
+        recordId: record.recordId.toString(),
         timestamp: new Date(Number(record.timestamp) * 1000).toLocaleString(),
         missionId: record.missionId.toString(),
         votingId: record.votingId.toString(),
@@ -808,49 +747,11 @@ export class Step8Query {
 
   // ==================== Nonce 조회 ====================
 
-  async queryMinUserNonce() {
-    const resultId = 'result_minUserNonce';
-    try {
-      this.showLoading(resultId);
-      const contract = this.getContract();
-      const user = document.getElementById('q_minUserNonce_user').value;
-
-      if (!ethers.isAddress(user)) {
-        throw new Error('올바른 주소를 입력해주세요');
-      }
-
-      const nonce = await contract.minUserNonce(user);
-      this.showResult(resultId, { minUserNonce: nonce.toString() });
-    } catch (err) {
-      console.error('queryMinUserNonce error:', err);
-      this.showError(resultId, err.message);
-    }
-  }
-
-  async queryMinBatchNonce() {
-    const resultId = 'result_minBatchNonce';
-    try {
-      this.showLoading(resultId);
-      const contract = this.getContract();
-      const executor = document.getElementById('q_minBatchNonce_executor').value;
-
-      if (!ethers.isAddress(executor)) {
-        throw new Error('올바른 주소를 입력해주세요');
-      }
-
-      const nonce = await contract.minBatchNonce(executor);
-      this.showResult(resultId, { minBatchNonce: nonce.toString() });
-    } catch (err) {
-      console.error('queryMinBatchNonce error:', err);
-      this.showError(resultId, err.message);
-    }
-  }
-
   async queryUserNonceUsed() {
     const resultId = 'result_userNonceUsed';
     try {
       this.showLoading(resultId);
-      const contract = this.getContract();
+      const contract = await this.getContract();
       const user = document.getElementById('q_userNonceUsed_user').value;
       const nonce = document.getElementById('q_userNonceUsed_nonce').value;
 
@@ -858,7 +759,7 @@ export class Step8Query {
         throw new Error('올바른 주소를 입력해주세요');
       }
 
-      const used = await contract.userNonceUsed(user, nonce);
+      const used = await contract.usedUserNonces(user, nonce);
       this.showResult(resultId, used, 'bool');
     } catch (err) {
       console.error('queryUserNonceUsed error:', err);
@@ -870,7 +771,7 @@ export class Step8Query {
     const resultId = 'result_batchNonceUsed';
     try {
       this.showLoading(resultId);
-      const contract = this.getContract();
+      const contract = await this.getContract();
       const executor = document.getElementById('q_batchNonceUsed_executor').value;
       const nonce = document.getElementById('q_batchNonceUsed_nonce').value;
 
@@ -878,7 +779,7 @@ export class Step8Query {
         throw new Error('올바른 주소를 입력해주세요');
       }
 
-      const used = await contract.batchNonceUsed(executor, nonce);
+      const used = await contract.usedBatchNonces(executor, nonce);
       this.showResult(resultId, used, 'bool');
     } catch (err) {
       console.error('queryBatchNonceUsed error:', err);
@@ -892,7 +793,7 @@ export class Step8Query {
     const resultId = 'result_executorSigner';
     try {
       this.showLoading(resultId);
-      const contract = this.getContract();
+      const contract = await this.getContract();
 
       const signer = await contract.executorSigner();
       this.showResult(resultId, signer, 'address');
@@ -906,7 +807,7 @@ export class Step8Query {
     const resultId = 'result_owner';
     try {
       this.showLoading(resultId);
-      const contract = this.getContract();
+      const contract = await this.getContract();
 
       const owner = await contract.owner();
       this.showResult(resultId, owner, 'address');
@@ -920,7 +821,7 @@ export class Step8Query {
     const resultId = 'result_domainSeparator';
     try {
       this.showLoading(resultId);
-      const contract = this.getContract();
+      const contract = await this.getContract();
 
       const separator = await contract.domainSeparator();
       this.showResult(resultId, separator, 'bytes32');

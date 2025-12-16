@@ -2,7 +2,7 @@
  * Step 1: Executor 및 User 지갑 설정
  */
 
-import { CONFIG } from '../config.js?v=2';
+import { CONFIG } from '../config.js?v=3';
 
 export class Step1Executor {
   constructor(state) {

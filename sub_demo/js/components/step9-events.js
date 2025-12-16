@@ -7,7 +7,7 @@
  * 3. 실패 알림 처리 (success=false인 경우)
  */
 
-import { CONFIG } from '../config.js?v=2';
+import { CONFIG } from '../config.js?v=3';
 
 export class Step9Events {
   constructor(state) {

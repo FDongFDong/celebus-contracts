@@ -44,17 +44,18 @@ contract SubVoting is Ownable2Step, EIP712 {
     uint16 public constant MAX_RECORDS_PER_USER_BATCH = 20;
     /// @notice 문자열 필드 최대 길이
     uint16 public constant MAX_STRING_LENGTH = 100;
-    /// @notice 선택지 ID 최대값 (1~10 범위)
-    uint256 public constant MAX_OPTION_ID = 10;
 
     // UserBatchFailed / UserMissionResult 이벤트용 실패 사유 코드
     uint8 private constant REASON_USER_BATCH_TOO_LARGE = 1;      // 유저 배치 크기 초과 (레코드 0개 또는 MAX_RECORDS_PER_USER_BATCH 초과)
     uint8 private constant REASON_INVALID_USER_SIGNATURE = 2;    // 유저 서명 검증 실패 (EIP-712 서명 불일치)
     uint8 private constant REASON_USER_NONCE_INVALID = 3;        // 유저 nonce 중복 사용 (이미 사용된 nonce)
-    uint8 private constant REASON_INVALID_OPTION_ID = 4;         // 잘못된 선택지 ID (0 또는 MAX_OPTION_ID 초과)
+    uint8 private constant REASON_INVALID_OPTION_ID = 4;         // 잘못된 선택지 ID (0)
     uint8 private constant REASON_QUESTION_NOT_ALLOWED = 5;      // 허용되지 않은 질문 (비활성화된 질문에 투표 시도)
     uint8 private constant REASON_OPTION_NOT_ALLOWED = 6;        // 허용되지 않은 선택지 (비활성화된 선택지에 투표 시도)
     uint8 private constant REASON_STRING_TOO_LONG = 7;           // 문자열 길이 초과 (userId > 100자)
+    uint8 private constant REASON_DUPLICATE_RECORD = 8;          // 중복 레코드 (이미 저장된 레코드 또는 배치 내 중복)
+    uint8 private constant REASON_ZERO_AMOUNT = 9;               // votingAmt = 0
+    uint8 private constant REASON_VOTING_ID_MISMATCH = 10;       // 유저 배치 내 votingId 불일치
 
     // EIP-712 TypeHash: 서명 검증용 구조체 해시
     // recordId는 서명 데이터에 포함되지 않음 (백엔드 생성, 온체인 식별용)
@@ -83,8 +84,10 @@ contract SubVoting is Ownable2Step, EIP712 {
     error BatchTooLarge();
     error UserBatchTooLarge();
     error StringTooLong();
+    error EmptyText();
     error NotOwnerOrExecutor();
     error QuestionNotAllowed(uint256 missionId, uint256 questionId);
+    error QuestionNotRegistered(uint256 missionId, uint256 questionId);
     error OptionNotAllowed(uint256 missionId, uint256 optionId);
     error InvalidOptionId(uint256 optionId);
     error NoSuccessfulUser();
@@ -101,7 +104,7 @@ contract SubVoting is Ownable2Step, EIP712 {
         uint256 votingId; // 투표 ID
         string userId; // 사용자 식별자 (off-chain, 서명에 포함 X)
         uint256 questionId; // 질문 ID
-        uint256 optionId; // 선택한 답변 ID (1~10)
+        uint256 optionId; // 선택한 답변 ID (양의 정수, 0 불가)
         uint256 votingAmt; // 투표 수량
     }
 
@@ -127,12 +130,6 @@ contract SubVoting is Ownable2Step, EIP712 {
         string questionText; // 질문 이름
         string optionText; // 선택지 이름
         uint256 votingAmt;
-    }
-
-    /// @notice 질문별 선택지 득표 통계
-    struct QuestionStats {
-        uint256[11] optionVotes; // optionVotes[1~10] 사용, 0번 인덱스 미사용
-        uint256 total; // 전체 투표 포인트 합계
     }
 
     // ============================================================
@@ -167,6 +164,9 @@ contract SubVoting is Ownable2Step, EIP712 {
     /// @notice 질문 허용 여부 (missionId => questionId => allowed)
     mapping(uint256 => mapping(uint256 => bool)) public allowedQuestion;
 
+    /// @notice 질문 등록 여부 (missionId => questionId => registered)
+    mapping(uint256 => mapping(uint256 => bool)) public questionRegistered;
+
     /// @notice 선택지 이름 (missionId => questionId => optionId => name)
     mapping(uint256 => mapping(uint256 => mapping(uint256 => string)))
         public optionName;
@@ -175,8 +175,12 @@ contract SubVoting is Ownable2Step, EIP712 {
     mapping(uint256 => mapping(uint256 => mapping(uint256 => bool)))
         public allowedOption;
 
-    /// @notice 질문별 투표 통계 (missionId => questionId => stats)
-    mapping(uint256 => mapping(uint256 => QuestionStats)) public questionStats;
+    /// @notice 질문별 선택지 득표 (missionId => questionId => optionId => votes)
+    mapping(uint256 => mapping(uint256 => mapping(uint256 => uint256)))
+        public optionVotesByQuestion;
+
+    /// @notice 질문별 전체 득표 합계 (missionId => questionId => total votes)
+    mapping(uint256 => mapping(uint256 => uint256)) public questionTotalVotes;
 
     // ============================================================
     //                         이벤트 (Events)
@@ -272,8 +276,10 @@ contract SubVoting is Ownable2Step, EIP712 {
         string calldata text,
         bool allowed_
     ) external onlyOwner {
+        if (bytes(text).length == 0) revert EmptyText();
         questionName[missionId][questionId] = text;
         allowedQuestion[missionId][questionId] = allowed_;
+        questionRegistered[missionId][questionId] = true;
         emit QuestionSet(missionId, questionId, text, allowed_);
     }
 
@@ -285,7 +291,11 @@ contract SubVoting is Ownable2Step, EIP712 {
         string calldata text,
         bool allowed_
     ) external onlyOwner {
-        if (optionId == 0 || optionId > MAX_OPTION_ID) {
+        if (!questionRegistered[missionId][questionId]) {
+            revert QuestionNotRegistered(missionId, questionId);
+        }
+        if (bytes(text).length == 0) revert EmptyText();
+        if (optionId == 0) {
             revert InvalidOptionId(optionId);
         }
         optionName[missionId][questionId][optionId] = text;
@@ -458,12 +468,64 @@ contract SubVoting is Ownable2Step, EIP712 {
      *     → invalid optionId / question / option인 레코드만 failedRecordIds에 포함
      *     → 일부라도 실패가 있으면 success=false
      */
+    function _validateUserRecordsAtomic(
+        address user,
+        VoteRecord[] calldata userRecords,
+        bytes32[] memory userRecordDigests
+    ) internal view returns (bool fail, uint8 reasonCode) {
+        uint256 len = userRecords.length;
+        uint256 expectedVotingId = userRecords[0].votingId;
+        for (uint256 j; j < len; ) {
+            VoteRecord calldata record = userRecords[j];
+            bytes32 recordDigest = userRecordDigests[j];
+
+            if (record.votingId != expectedVotingId) {
+                return (true, REASON_VOTING_ID_MISMATCH);
+            }
+
+            // 배치 내 중복 recordDigest 체크 (최대 20개라 O(n^2) 허용)
+            for (uint256 k; k < j; ) {
+                if (userRecordDigests[k] == recordDigest) {
+                    return (true, REASON_DUPLICATE_RECORD);
+                }
+                unchecked {
+                    ++k;
+                }
+            }
+
+            if (consumed[user][recordDigest]) {
+                return (true, REASON_DUPLICATE_RECORD);
+            }
+            if (record.votingAmt == 0) {
+                return (true, REASON_ZERO_AMOUNT);
+            }
+            if (record.optionId == 0) {
+                return (true, REASON_INVALID_OPTION_ID);
+            }
+            if (!allowedQuestion[record.missionId][record.questionId]) {
+                return (true, REASON_QUESTION_NOT_ALLOWED);
+            }
+            if (
+                !allowedOption[record.missionId][record.questionId][
+                    record.optionId
+                ]
+            ) {
+                return (true, REASON_OPTION_NOT_ALLOWED);
+            }
+
+            unchecked {
+                ++j;
+            }
+        }
+        return (false, 0);
+    }
+
     function _storeVoteRecords(
         UserVoteBatch[] calldata batches,
         bytes32[][] memory recordDigests,
         bool[] memory userOk,
         uint8[] memory userReason
-    ) internal returns (uint256 storedCount) {
+    ) internal returns (uint256 storedCount, uint256 successfulUserCount) {
         uint256 userCount = batches.length;
 
         for (uint256 i; i < userCount; ) {
@@ -499,131 +561,72 @@ contract SubVoting is Ownable2Step, EIP712 {
                 continue;
             }
 
-            // 여기부터는 유저 배치 검증 통과 → 실제 저장 로직 (per-record 검증 포함)
+            // 여기부터는 유저 배치 검증 통과 → 유저 배치 단위 원자성(all-or-nothing)
             address user = ub.userBatchSig.user;
+            uint256 nonce_ = ub.userBatchSig.userNonce;
 
             uint256 votingId = userRecordLen > 0 ? userRecords[0].votingId : 0;
-            uint256 localStored; // 이 유저 배치에서 실제로 저장된 레코드 수
-            uint256 failedCount;
-            bool hasReason;
-            uint8 localReason;
+            bytes32[] memory userRecordDigests = recordDigests[i];
 
-            // 최대 길이 배열 만들어두고, 실제 사용 개수만큼 잘라서 이벤트에 사용
-            uint256[] memory tmpFailedRecordIds = new uint256[](userRecordLen);
+            // 실패 시 이벤트에 모든 recordId를 포함 (유저 배치 전체 실패)
+            uint256[] memory allRecordIds = new uint256[](userRecordLen);
+            for (uint256 j; j < userRecordLen; ) {
+                allRecordIds[j] = userRecords[j].recordId;
+                unchecked {
+                    ++j;
+                }
+            }
 
+            // 1) 사전 검증: 하나라도 문제면 전체 실패 (저장/집계/consumed 없음)
+            (bool fail, uint8 failReason) = _validateUserRecordsAtomic(
+                user,
+                userRecords,
+                userRecordDigests
+            );
+            if (fail) {
+                if (userRecordLen > 0) {
+                    emit UserMissionResult(
+                        votingId,
+                        false,
+                        allRecordIds,
+                        failReason
+                    );
+                }
+
+                unchecked {
+                    ++i;
+                }
+                continue;
+            }
+
+            // 2) 모든 레코드가 유효하면 전체 저장 + 통계 반영
             for (uint256 j; j < userRecordLen; ) {
                 VoteRecord calldata record = userRecords[j];
-                bytes32 recordDigest = recordDigests[i][j];
+                bytes32 recordDigest = userRecordDigests[j];
 
-                // 중복 투표 스킵
-                if (consumed[user][recordDigest]) {
-                    emit VoteSkipped(user, record.votingId, record.recordId, 1);
-                    unchecked {
-                        ++j;
-                    }
-                    continue;
-                }
-
-                // 빈 투표 스킵
-                if (record.votingAmt == 0) {
-                    emit VoteSkipped(user, record.votingId, record.recordId, 2);
-                    unchecked {
-                        ++j;
-                    }
-                    continue;
-                }
-
-                // per-record 검증: optionId 범위
-                if (record.optionId == 0 || record.optionId > MAX_OPTION_ID) {
-                    tmpFailedRecordIds[failedCount] = record.recordId;
-                    failedCount++;
-                    if (!hasReason) {
-                        hasReason = true;
-                        localReason = REASON_INVALID_OPTION_ID;
-                    }
-                    unchecked {
-                        ++j;
-                    }
-                    continue;
-                }
-
-                // per-record 검증: question allowed
-                if (!allowedQuestion[record.missionId][record.questionId]) {
-                    tmpFailedRecordIds[failedCount] = record.recordId;
-                    failedCount++;
-                    if (!hasReason) {
-                        hasReason = true;
-                        localReason = REASON_QUESTION_NOT_ALLOWED;
-                    }
-                    unchecked {
-                        ++j;
-                    }
-                    continue;
-                }
-
-                // per-record 검증: option allowed
-                if (
-                    !allowedOption[record.missionId][record.questionId][
-                        record.optionId
-                    ]
-                ) {
-                    tmpFailedRecordIds[failedCount] = record.recordId;
-                    failedCount++;
-                    if (!hasReason) {
-                        hasReason = true;
-                        localReason = REASON_OPTION_NOT_ALLOWED;
-                    }
-                    unchecked {
-                        ++j;
-                    }
-                    continue;
-                }
-
-                // 여기까지 왔다면 이 레코드는 온전히 유효 → 저장 + 통계 반영
                 consumed[user][recordDigest] = true;
                 votes[recordDigest] = record;
                 voteHashesByMissionVotingId[record.missionId][record.votingId]
                     .push(recordDigest);
 
-                QuestionStats storage stats = questionStats[record.missionId][
-                    record.questionId
-                ];
-                stats.optionVotes[record.optionId] += record.votingAmt;
-                stats.total += record.votingAmt;
+                optionVotesByQuestion[record.missionId][record.questionId][
+                    record.optionId
+                ] += record.votingAmt;
+                questionTotalVotes[record.missionId][record.questionId] += record
+                    .votingAmt;
 
                 unchecked {
                     ++storedCount;
-                    ++localStored;
                     ++j;
                 }
             }
 
-            // 이 유저 배치에 대한 UserMissionResult 이벤트 발행
             if (userRecordLen > 0) {
-                // failedRecordIds 배열 사이즈 맞게 잘라서 생성
-                uint256[] memory finalFailedIds;
-                if (failedCount > 0) {
-                    finalFailedIds = new uint256[](failedCount);
-                    for (uint256 k; k < failedCount; ) {
-                        finalFailedIds[k] = tmpFailedRecordIds[k];
-                        unchecked {
-                            ++k;
-                        }
-                    }
-                } else {
-                    finalFailedIds = new uint256[](0);
-                }
+                emit UserMissionResult(votingId, true, new uint256[](0), 0);
+            }
 
-                // 일부라도 실패가 있으면 success = false
-                bool success = (failedCount == 0 && localStored > 0);
-                uint8 reasonCode = success ? 0 : (hasReason ? localReason : 0);
-
-                emit UserMissionResult(
-                    votingId,
-                    success,
-                    finalFailedIds,
-                    reasonCode
-                );
+            unchecked {
+                ++successfulUserCount;
             }
 
             unchecked {
@@ -724,7 +727,7 @@ contract SubVoting is Ownable2Step, EIP712 {
         if (successUserCount == 0) revert NoSuccessfulUser();
 
         // === 4. 레코드 저장 + UserMissionResult 이벤트 ===
-        uint256 stored = _storeVoteRecords(
+        (uint256 stored, uint256 successfulUsers) = _storeVoteRecords(
             batches,
             recordDigests,
             userOk,
@@ -738,7 +741,7 @@ contract SubVoting is Ownable2Step, EIP712 {
             batchNonce_,
             stored,
             userCount,
-            userCount - successUserCount
+            userCount - successfulUsers
         );
     }
 
@@ -779,12 +782,39 @@ contract SubVoting is Ownable2Step, EIP712 {
         return result;
     }
 
-    /// @notice 질문별 선택지 득표 현황 조회
-    function getQuestionAggregates(
+    /// @notice 특정 선택지 득표 조회
+    function getOptionVotes(
+        uint256 missionId,
+        uint256 questionId,
+        uint256 optionId
+    ) external view returns (uint256) {
+        return optionVotesByQuestion[missionId][questionId][optionId];
+    }
+
+    /// @notice 질문별 전체 득표 합계 조회
+    function getQuestionTotalVotes(
         uint256 missionId,
         uint256 questionId
-    ) external view returns (uint256[11] memory optionVotes, uint256 total) {
-        QuestionStats storage s = questionStats[missionId][questionId];
-        return (s.optionVotes, s.total);
+    ) external view returns (uint256) {
+        return questionTotalVotes[missionId][questionId];
+    }
+
+    /// @notice 질문별 특정 선택지들의 득표 + 전체 합계 조회 (옵션 열거는 오프체인/별도 관리 전제)
+    function getQuestionAggregates(
+        uint256 missionId,
+        uint256 questionId,
+        uint256[] calldata optionIds
+    ) external view returns (uint256[] memory optionVotes, uint256 total) {
+        uint256 len = optionIds.length;
+        optionVotes = new uint256[](len);
+        for (uint256 i; i < len; ) {
+            optionVotes[i] = optionVotesByQuestion[missionId][questionId][
+                optionIds[i]
+            ];
+            unchecked {
+                ++i;
+            }
+        }
+        total = questionTotalVotes[missionId][questionId];
     }
 }

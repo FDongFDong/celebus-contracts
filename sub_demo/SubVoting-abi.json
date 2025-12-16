@@ -25,19 +25,6 @@
   },
   {
     "type": "function",
-    "name": "MAX_OPTION_ID",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "MAX_RECORDS_PER_BATCH",
     "inputs": [],
     "outputs": [
@@ -230,7 +217,70 @@
   },
   {
     "type": "function",
+    "name": "getOptionVotes",
+    "inputs": [
+      {
+        "name": "missionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "questionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "optionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getQuestionAggregates",
+    "inputs": [
+      {
+        "name": "missionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "questionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "optionIds",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "optionVotes",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "total",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getQuestionTotalVotes",
     "inputs": [
       {
         "name": "missionId",
@@ -245,12 +295,7 @@
     ],
     "outputs": [
       {
-        "name": "optionVotes",
-        "type": "uint256[11]",
-        "internalType": "uint256[11]"
-      },
-      {
-        "name": "total",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -349,6 +394,35 @@
   },
   {
     "type": "function",
+    "name": "optionVotesByQuestion",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "owner",
     "inputs": [],
     "outputs": [
@@ -399,7 +473,7 @@
   },
   {
     "type": "function",
-    "name": "questionStats",
+    "name": "questionRegistered",
     "inputs": [
       {
         "name": "",
@@ -414,7 +488,31 @@
     ],
     "outputs": [
       {
-        "name": "total",
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "questionTotalVotes",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -1053,6 +1151,11 @@
   },
   {
     "type": "error",
+    "name": "EmptyText",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidOptionId",
     "inputs": [
       {
@@ -1128,6 +1231,22 @@
   {
     "type": "error",
     "name": "QuestionNotAllowed",
+    "inputs": [
+      {
+        "name": "missionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "questionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "QuestionNotRegistered",
     "inputs": [
       {
         "name": "missionId",

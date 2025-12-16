@@ -3,7 +3,7 @@
  * SubVoting N:1 구조: 유저당 최대 5개 레코드 = 1개 서명
  */
 
-import { CONFIG } from '../config.js?v=2';
+import { CONFIG } from '../config.js?v=3';
 
 export class Step2Records {
   constructor(state) {
@@ -76,8 +76,8 @@ export class Step2Records {
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Option ID (1~10)</label>
-            <input type="number" id="optionId" class="w-full px-3 py-2 border rounded-md" value="1" min="1" max="10">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Option ID (1 이상 정수)</label>
+            <input type="number" id="optionId" class="w-full px-3 py-2 border rounded-md" value="1" min="1">
           </div>
 
           <div>

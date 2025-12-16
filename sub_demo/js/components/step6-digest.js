@@ -2,11 +2,23 @@
  * STEP 6: Batch Digest 계산 및 Executor 서명
  */
 
-import { CONFIG } from '../config.js?v=2';
+import { CONFIG } from '../config.js?v=3';
 
 export class Step6Digest {
   constructor(state) {
     this.state = state;
+  }
+
+  /**
+   * Step 4/5 결과를 Step 6 UI에 반영 (main.js 연동용)
+   */
+  loadPreviousResults() {
+    const batchNonceDisplay = document.getElementById('batchNonceDisplay');
+    if (batchNonceDisplay) {
+      batchNonceDisplay.value =
+        this.state.batchNonce !== undefined ? String(this.state.batchNonce) : '';
+    }
+    this.updateResult();
   }
 
   render() {
