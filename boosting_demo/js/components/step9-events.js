@@ -1,5 +1,5 @@
 /**
- * Step 9: UserMissionResult 이벤트 조회 및 알림 처리
+ * Step 9: UserMissionResult 이벤트 조회 및 알림 처리 (Boosting)
  *
  * 기능:
  * 1. 트랜잭션 해시로 이벤트 조회
@@ -7,7 +7,7 @@
  * 3. 실패 알림 처리 (success=false인 경우)
  */
 
-import { CONFIG } from '../config.js?v=2';
+import { CONFIG } from '../config.js';
 
 export class Step9Events {
   constructor(state) {
@@ -78,7 +78,7 @@ export class Step9Events {
   async queryByBlockRange() {
     const fromBlockInput = document.getElementById('fromBlock');
     const toBlockInput = document.getElementById('toBlock');
-    const votingIdFilter = document.getElementById('votingIdFilter')?.value?.trim();
+    const boostingIdFilter = document.getElementById('boostingIdFilter')?.value?.trim();
 
     let fromBlock = fromBlockInput?.value?.trim();
     let toBlock = toBlockInput?.value?.trim();
@@ -107,9 +107,9 @@ export class Step9Events {
         toBlock: toBlock === 'latest' ? toBlock : parseInt(toBlock)
       };
 
-      // votingId 필터 적용
-      if (votingIdFilter) {
-        filter.topics.push(ethers.zeroPadValue(ethers.toBeHex(BigInt(votingIdFilter)), 32));
+      // boostingId 필터 적용
+      if (boostingIdFilter) {
+        filter.topics.push(ethers.zeroPadValue(ethers.toBeHex(BigInt(boostingIdFilter)), 32));
       }
 
       const logs = await this.state.provider.getLogs(filter);
@@ -129,7 +129,7 @@ export class Step9Events {
    */
   parseUserMissionResultEvents(logs) {
     const iface = new ethers.Interface([
-      "event UserMissionResult(uint256 indexed votingId, bool success, uint256[] failedRecordIds, uint8 reasonCode)"
+      "event UserMissionResult(uint256 indexed boostingId, bool success, uint256[] failedRecordIds, uint8 reasonCode)"
     ]);
 
     const events = [];
@@ -140,7 +140,7 @@ export class Step9Events {
         try {
           const parsed = iface.parseLog(log);
           events.push({
-            votingId: parsed.args.votingId.toString(),
+            boostingId: parsed.args.boostingId.toString(),
             success: parsed.args.success,
             failedRecordIds: parsed.args.failedRecordIds,
             reasonCode: Number(parsed.args.reasonCode),
@@ -161,12 +161,12 @@ export class Step9Events {
    */
   parseLog(log) {
     const iface = new ethers.Interface([
-      "event UserMissionResult(uint256 indexed votingId, bool success, uint256[] failedRecordIds, uint8 reasonCode)"
+      "event UserMissionResult(uint256 indexed boostingId, bool success, uint256[] failedRecordIds, uint8 reasonCode)"
     ]);
 
     const parsed = iface.parseLog(log);
     return {
-      votingId: parsed.args.votingId.toString(),
+      boostingId: parsed.args.boostingId.toString(),
       success: parsed.args.success,
       failedRecordIds: parsed.args.failedRecordIds,
       reasonCode: Number(parsed.args.reasonCode),
@@ -196,12 +196,10 @@ export class Step9Events {
     }
 
     tbody.innerHTML = events.map((event, index) => {
-      // ===== 여기를 추가해주세요 =====
       console.log(`[Debug] Event[${index}]:`, event);
-      console.log(`[Debug] Raw failedRecordIds for Voting ID ${event.votingId}:`, event.failedRecordIds);
-      // ============================
-      
-      const reasonInfo = CONFIG.REASON_CODES[event.reasonCode] || { name: 'UNKNOWN', message: '알 수 없는 오류' };
+      console.log(`[Debug] Raw failedRecordIds for Boosting ID ${event.boostingId}:`, event.failedRecordIds);
+
+      const reasonInfo = this.getReasonInfo(event.reasonCode);
       const statusClass = event.success ? 'success' : 'failure';
       const statusText = event.success ? '성공' : '실패';
       const failedCount = event.failedRecordIds?.length || 0;
@@ -209,7 +207,7 @@ export class Step9Events {
       return `
         <tr class="${statusClass}">
           <td>${index + 1}</td>
-          <td>${event.votingId}</td>
+          <td>${event.boostingId}</td>
           <td><span class="status-badge ${statusClass}">${statusText}</span></td>
           <td>${failedCount}</td>
           <td>
@@ -233,10 +231,26 @@ export class Step9Events {
   }
 
   /**
+   * Reason Code 정보 조회 (Boosting용)
+   */
+  getReasonInfo(reasonCode) {
+    const REASON_CODES = {
+      0: { name: 'SUCCESS', message: '성공' },
+      1: { name: 'INVALID_BATCH_SIG', message: '배치 서명 검증 실패' },
+      2: { name: 'NONCE_REPLAY', message: 'Nonce 재사용 시도' },
+      3: { name: 'INVALID_USER_SIG', message: '사용자 서명 검증 실패' },
+      4: { name: 'DUPLICATE_HASH', message: '중복 해시 감지' },
+      5: { name: 'ARTIST_NOT_ALLOWED', message: '허용되지 않은 아티스트' }
+    };
+
+    return REASON_CODES[reasonCode] || { name: 'UNKNOWN', message: '알 수 없는 오류' };
+  }
+
+  /**
    * 이벤트 상세 정보 표시
    */
   showEventDetails(event) {
-    const reasonInfo = CONFIG.REASON_CODES[event.reasonCode] || { name: 'UNKNOWN', message: '알 수 없는 오류' };
+    const reasonInfo = this.getReasonInfo(event.reasonCode);
 
     let recordIdsHtml = '없음';
     if (event.failedRecordIds && event.failedRecordIds.length > 0) {
@@ -249,9 +263,9 @@ export class Step9Events {
     const detailsHtml = `
       <div class="event-details-modal">
         <div class="modal-content">
-          <h3>투표 결과 상세</h3>
+          <h3>부스팅 결과 상세</h3>
           <table class="details-table">
-            <tr><th>Voting ID</th><td>${event.votingId}</td></tr>
+            <tr><th>Boosting ID</th><td>${event.boostingId}</td></tr>
             <tr><th>결과</th><td><span class="status-badge failure">실패</span></td></tr>
             <tr><th>실패 코드</th><td>${event.reasonCode} (${reasonInfo.name})</td></tr>
             <tr><th>실패 사유</th><td>${reasonInfo.message}</td></tr>
@@ -288,15 +302,15 @@ export class Step9Events {
     const failures = events.filter(e => !e.success);
 
     if (failures.length === 0) {
-      this.log('모든 투표가 성공적으로 처리되었습니다');
+      this.log('모든 부스팅이 성공적으로 처리되었습니다');
       return;
     }
 
     failures.forEach(event => {
-      const reasonInfo = CONFIG.REASON_CODES[event.reasonCode] || { name: 'UNKNOWN', message: '알 수 없는 오류' };
+      const reasonInfo = this.getReasonInfo(event.reasonCode);
 
       const alertData = {
-        votingId: event.votingId,
+        boostingId: event.boostingId,
         failedCount: event.failedRecordIds?.length || 0,
         reasonCode: event.reasonCode,
         reasonName: reasonInfo.name,
@@ -314,17 +328,17 @@ export class Step9Events {
    * 관리자 알림 발송 (시뮬레이션)
    */
   sendAdminAlert(alertData) {
-    // 중복 알림 방지: 같은 votingId + transactionHash 조합이 이미 있으면 스킵
+    // 중복 알림 방지: 같은 boostingId + transactionHash 조합이 이미 있으면 스킵
     const isDuplicate = this.alerts.some(
-      a => a.votingId === alertData.votingId && a.transactionHash === alertData.transactionHash
+      a => a.boostingId === alertData.boostingId && a.transactionHash === alertData.transactionHash
     );
     if (isDuplicate) {
-      console.log(`[관리자 알림] 중복 알림 스킵: votingId=${alertData.votingId}`);
+      console.log(`[관리자 알림] 중복 알림 스킵: boostingId=${alertData.boostingId}`);
       return;
     }
 
     // 콘솔에 경고 출력
-    console.warn(`[관리자 알림] 투표 실패 발생!`, alertData);
+    console.warn(`[관리자 알림] 부스팅 실패 발생!`, alertData);
 
     // 알림 목록에 추가
     this.alerts.push(alertData);
@@ -345,13 +359,13 @@ export class Step9Events {
     alertCard.innerHTML = `
       <div class="alert-header">
         <span class="alert-icon">!</span>
-        <span class="alert-title">투표 실패 알림</span>
+        <span class="alert-title">부스팅 실패 알림</span>
         <span class="alert-time">${new Date(alertData.timestamp).toLocaleTimeString()}</span>
       </div>
       <div class="alert-body">
         <div class="alert-row">
-          <span class="alert-label">Voting ID:</span>
-          <span class="alert-value">${alertData.votingId}</span>
+          <span class="alert-label">Boosting ID:</span>
+          <span class="alert-value">${alertData.boostingId}</span>
         </div>
         <div class="alert-row">
           <span class="alert-label">실패 코드:</span>

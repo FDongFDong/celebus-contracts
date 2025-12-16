@@ -1,5 +1,5 @@
 /**
- * Step 9: UserVoteResult 이벤트 조회 및 알림 처리
+ * Step 9: UserMissionResult 이벤트 조회 및 알림 처리
  *
  * 기능:
  * 1. 트랜잭션 해시로 이벤트 조회
@@ -42,7 +42,7 @@ export class Step9Events {
   }
 
   /**
-   * 트랜잭션 해시로 UserVoteResult 이벤트 조회
+   * 트랜잭션 해시로 UserMissionResult 이벤트 조회
    */
   async queryByTxHash() {
     const txHashInput = document.getElementById('txHashInput');
@@ -62,7 +62,7 @@ export class Step9Events {
         return;
       }
 
-      const events = this.parseUserVoteResultEvents(receipt.logs);
+      const events = this.parseUserMissionResultEvents(receipt.logs);
       this.displayEvents(events, txHash);
       this.processFailureAlerts(events);
 
@@ -73,7 +73,7 @@ export class Step9Events {
   }
 
   /**
-   * 블록 범위로 UserVoteResult 이벤트 조회
+   * 블록 범위로 UserMissionResult 이벤트 조회
    */
   async queryByBlockRange() {
     const fromBlockInput = document.getElementById('fromBlock');
@@ -97,8 +97,8 @@ export class Step9Events {
 
       const contractAddress = this.state.contractAddress || CONFIG.VOTING_ADDRESS;
 
-      // UserVoteResult 이벤트 토픽
-      const eventSignature = ethers.id("UserVoteResult(uint256,bool,uint256[],uint8)");
+      // UserMissionResult 이벤트 토픽
+      const eventSignature = ethers.id("UserMissionResult(uint256,bool,uint256[],uint8)");
 
       const filter = {
         address: contractAddress,
@@ -125,15 +125,15 @@ export class Step9Events {
   }
 
   /**
-   * 트랜잭션 receipt에서 UserVoteResult 이벤트 파싱
+   * 트랜잭션 receipt에서 UserMissionResult 이벤트 파싱
    */
-  parseUserVoteResultEvents(logs) {
+  parseUserMissionResultEvents(logs) {
     const iface = new ethers.Interface([
-      "event UserVoteResult(uint256 indexed votingId, bool success, uint256[] failedRecordIds, uint8 reasonCode)"
+      "event UserMissionResult(uint256 indexed votingId, bool success, uint256[] failedRecordIds, uint8 reasonCode)"
     ]);
 
     const events = [];
-    const eventSignature = ethers.id("UserVoteResult(uint256,bool,uint256[],uint8)");
+    const eventSignature = ethers.id("UserMissionResult(uint256,bool,uint256[],uint8)");
 
     for (const log of logs) {
       if (log.topics[0] === eventSignature) {
@@ -161,7 +161,7 @@ export class Step9Events {
    */
   parseLog(log) {
     const iface = new ethers.Interface([
-      "event UserVoteResult(uint256 indexed votingId, bool success, uint256[] failedRecordIds, uint8 reasonCode)"
+      "event UserMissionResult(uint256 indexed votingId, bool success, uint256[] failedRecordIds, uint8 reasonCode)"
     ]);
 
     const parsed = iface.parseLog(log);
@@ -393,7 +393,7 @@ export class Step9Events {
    * 외부에서 이벤트 직접 추가 (Step 7 연동용)
    */
   addEventsFromReceipt(receipt, txHash) {
-    const events = this.parseUserVoteResultEvents(receipt.logs);
+    const events = this.parseUserMissionResultEvents(receipt.logs);
     if (events.length > 0) {
       this.displayEvents(events, txHash);
       this.processFailureAlerts(events);

@@ -23,13 +23,13 @@ export class Step5Struct {
           <label class="block text-sm font-medium text-gray-700 mb-1">Batch Nonce</label>
           <div class="flex gap-2">
             <input type="number" id="batchNonce" class="flex-1 px-3 py-2 border rounded-md" value="0" min="0">
-            <button onclick="step5.findNextNonce()" 
+            <button onclick="step5.checkNonce()"
                     class="bg-purple-500 text-white px-4 py-2 rounded-md hover:bg-purple-600 whitespace-nowrap">
-              🔍 다음 Nonce 찾기
+              🔍 사용 가능 확인
             </button>
           </div>
           <p class="text-xs text-gray-500 mt-1">
-            배치의 고유 번호 (재전송 방지용) - 사용된 nonce는 재사용 불가
+            배치의 고유 번호 (재전송 방지용) - 중복 체크 방식으로 원하는 숫자 사용 가능
           </p>
           <div id="nonceCheckResult" class="hidden mt-2"></div>
         </div>
@@ -77,48 +77,49 @@ export class Step5Struct {
     `;
   }
 
-  async findNextNonce() {
+  async checkNonce() {
     try {
       if (!this.state.executorWallet) {
         alert('먼저 STEP 1에서 Executor 지갑을 초기화해주세요!');
         return;
       }
 
+      const nonceInput = document.getElementById('batchNonce');
+      const nonceToCheck = parseInt(nonceInput.value);
+
+      if (isNaN(nonceToCheck) || nonceToCheck < 0) {
+        alert('유효한 Nonce 값을 입력해주세요 (0 이상의 정수)');
+        return;
+      }
+
       const resultDiv = document.getElementById('nonceCheckResult');
-      resultDiv.innerHTML = '<p class="text-sm text-blue-600">🔍 사용 가능한 nonce를 찾는 중...</p>';
+      resultDiv.innerHTML = '<p class="text-sm text-blue-600">🔍 Nonce 사용 여부 확인 중...</p>';
       resultDiv.classList.remove('hidden');
 
       const provider = new ethers.JsonRpcProvider('https://opbnb-testnet-rpc.bnbchain.org');
       const contract = new ethers.Contract(
         this.state.contractAddress,
-        ['function usedBatchNonces(address, uint256) view returns (bool)'],
+        ['function usedBatchNonces(address,uint256) view returns (bool)'],
         provider
       );
 
       const executorAddress = this.state.executorWallet.address;
 
-      // 0부터 20까지 확인
-      let nextNonce = null;
-      for (let i = 0; i < 20; i++) {
-        const used = await contract.usedBatchNonces(executorAddress, i);
-        if (!used) {
-          nextNonce = i;
-          break;
-        }
-      }
+      // 중복 체크 방식: usedBatchNonces(address, nonce)로 특정 nonce 사용 여부 확인
+      const isUsed = await contract.usedBatchNonces(executorAddress, nonceToCheck);
 
-      if (nextNonce !== null) {
-        document.getElementById('batchNonce').value = nextNonce;
-        resultDiv.innerHTML = `<p class="text-sm text-green-600">✅ 사용 가능한 nonce: ${nextNonce}</p>`;
-        console.log('✅ Next available batch nonce:', nextNonce);
+      if (isUsed) {
+        resultDiv.innerHTML = `<p class="text-sm text-red-600">❌ Nonce ${nonceToCheck}은(는) 이미 사용되었습니다. 다른 값을 사용하세요.</p>`;
+        console.log('[INFO] Nonce', nonceToCheck, 'is already used');
       } else {
-        resultDiv.innerHTML = '<p class="text-sm text-red-600">❌ 0-19 범위에서 사용 가능한 nonce를 찾을 수 없습니다</p>';
+        resultDiv.innerHTML = `<p class="text-sm text-green-600">✅ Nonce ${nonceToCheck}은(는) 사용 가능합니다!</p>`;
+        console.log('[SUCCESS] Nonce', nonceToCheck, 'is available');
       }
 
     } catch (error) {
-      console.error('❌ Nonce check failed:', error);
-      document.getElementById('nonceCheckResult').innerHTML = 
-        `<p class="text-sm text-red-600">❌ 확인 실패: ${error.message}</p>`;
+      console.error('[ERROR] Nonce check failed:', error);
+      document.getElementById('nonceCheckResult').innerHTML =
+        `<p class="text-sm text-red-600">❌ 조회 실패: ${error.message}</p>`;
     }
   }
 

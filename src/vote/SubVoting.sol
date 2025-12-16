@@ -29,7 +29,7 @@ interface IERC1271 {
  *      MainVoting과 동일한 구조:
  *      - 단일 서명 + 다중 레코드 (1:N 방식)
  *      - Soft-fail 처리 (한 유저 실패해도 다른 유저 계속 처리)
- *      - UserVoteResult 이벤트로 votingId 단위 결과 추적
+ *      - UserMissionResult 이벤트로 votingId 단위 결과 추적
  */
 contract SubVoting is Ownable2Step, EIP712 {
     // ============================================================
@@ -47,7 +47,7 @@ contract SubVoting is Ownable2Step, EIP712 {
     /// @notice 선택지 ID 최대값 (1~10 범위)
     uint256 public constant MAX_OPTION_ID = 10;
 
-    // UserBatchFailed / UserVoteResult 이벤트용 실패 사유 코드
+    // UserBatchFailed / UserMissionResult 이벤트용 실패 사유 코드
     uint8 private constant REASON_USER_BATCH_TOO_LARGE = 1;      // 유저 배치 크기 초과 (레코드 0개 또는 MAX_RECORDS_PER_USER_BATCH 초과)
     uint8 private constant REASON_INVALID_USER_SIGNATURE = 2;    // 유저 서명 검증 실패 (EIP-712 서명 불일치)
     uint8 private constant REASON_USER_NONCE_INVALID = 3;        // 유저 nonce 중복 사용 (이미 사용된 nonce)
@@ -135,22 +135,6 @@ contract SubVoting is Ownable2Step, EIP712 {
         uint256 total; // 전체 투표 포인트 합계
     }
 
-    /// @notice 선택지 정보 구조체 (조회용)
-    struct OptionInfo {
-        uint256 optionId;
-        string optionText;
-        uint256 votes;
-        bool allowed;
-    }
-
-    /// @notice 질문 정보 구조체 (조회용)
-    struct QuestionInfo {
-        string questionText;
-        bool questionAllowed;
-        OptionInfo[] options;
-        uint256 totalVotes;
-    }
-
     // ============================================================
     //                      상태 변수 (State Variables)
     // ============================================================
@@ -232,7 +216,7 @@ contract SubVoting is Ownable2Step, EIP712 {
     /// @notice votingId 단위 유저 투표 결과 이벤트
     /// @dev 한 UserVoteBatch(=한 유저 서명)에 포함된 모든 레코드의 votingId는 동일하다는 전제를 사용
     /// @dev 일부 레코드만 실패해도 success는 false, 실패한 recordId만 배열에 포함
-    event UserVoteResult(
+    event UserMissionResult(
         uint256 indexed votingId,
         bool success,
         uint256[] failedRecordIds,
@@ -463,7 +447,7 @@ contract SubVoting is Ownable2Step, EIP712 {
      *      - 중복 방지: consumed 체크
      *      - votingAmt=0인 레코드 스킵
      *      - 질문/선택지별 통계 업데이트
-     *      - votingId 단위 UserVoteResult 이벤트 발생
+     *      - votingId 단위 UserMissionResult 이벤트 발생
      *
      * 설계:
      * - userOk[i] == false:
@@ -502,7 +486,7 @@ contract SubVoting is Ownable2Step, EIP712 {
                         }
                     }
 
-                    emit UserVoteResult(
+                    emit UserMissionResult(
                         votingId_,
                         false, // 배치 수준에서 실패 → 전체 실패
                         failedRecordIds,
@@ -614,7 +598,7 @@ contract SubVoting is Ownable2Step, EIP712 {
                 }
             }
 
-            // 이 유저 배치에 대한 UserVoteResult 이벤트 발행
+            // 이 유저 배치에 대한 UserMissionResult 이벤트 발행
             if (userRecordLen > 0) {
                 // failedRecordIds 배열 사이즈 맞게 잘라서 생성
                 uint256[] memory finalFailedIds;
@@ -634,7 +618,7 @@ contract SubVoting is Ownable2Step, EIP712 {
                 bool success = (failedCount == 0 && localStored > 0);
                 uint8 reasonCode = success ? 0 : (hasReason ? localReason : 0);
 
-                emit UserVoteResult(
+                emit UserMissionResult(
                     votingId,
                     success,
                     finalFailedIds,
@@ -659,7 +643,7 @@ contract SubVoting is Ownable2Step, EIP712 {
      *      2. Executor 서명 검증 → 배치 Nonce 소비
      *      3. 각 사용자별 검증 (Soft-fail: 실패해도 다른 사용자 계속)
      *      4. 검증 통과한 레코드 저장 + 통계 업데이트
-     *      5. votingId 단위 UserVoteResult 이벤트 발생
+     *      5. votingId 단위 UserMissionResult 이벤트 발생
      *
      * @param batches 사용자별 투표 배치 배열
      * @param batchNonce_ 배치 순서 번호 (리플레이 방지)
@@ -739,7 +723,7 @@ contract SubVoting is Ownable2Step, EIP712 {
 
         if (successUserCount == 0) revert NoSuccessfulUser();
 
-        // === 4. 레코드 저장 + UserVoteResult 이벤트 ===
+        // === 4. 레코드 저장 + UserMissionResult 이벤트 ===
         uint256 stored = _storeVoteRecords(
             batches,
             recordDigests,
@@ -802,144 +786,5 @@ contract SubVoting is Ownable2Step, EIP712 {
     ) external view returns (uint256[11] memory optionVotes, uint256 total) {
         QuestionStats storage s = questionStats[missionId][questionId];
         return (s.optionVotes, s.total);
-    }
-
-    /// @notice 특정 선택지의 득표 조회
-    function getOptionVotes(
-        uint256 missionId,
-        uint256 questionId,
-        uint256 optionId
-    ) external view returns (uint256) {
-        if (optionId == 0 || optionId > MAX_OPTION_ID) {
-            revert InvalidOptionId(optionId);
-        }
-        return questionStats[missionId][questionId].optionVotes[optionId];
-    }
-
-    /// @notice 특정 질문과 모든 선택지 정보 조회
-    function getQuestionWithOptions(
-        uint256 missionId,
-        uint256 questionId
-    ) external view returns (QuestionInfo memory) {
-        string memory qText = questionName[missionId][questionId];
-        bool qAllowed = allowedQuestion[missionId][questionId];
-        QuestionStats storage stats = questionStats[missionId][questionId];
-
-        // 등록된 선택지 개수 세기
-        uint256 optionCount = 0;
-        for (uint256 i = 1; i <= MAX_OPTION_ID; ) {
-            if (bytes(optionName[missionId][questionId][i]).length > 0) {
-                unchecked {
-                    ++optionCount;
-                }
-            }
-            unchecked {
-                ++i;
-            }
-        }
-
-        // 선택지 배열 생성
-        OptionInfo[] memory options = new OptionInfo[](optionCount);
-        uint256 index = 0;
-
-        for (uint256 i = 1; i <= MAX_OPTION_ID; ) {
-            string memory oText = optionName[missionId][questionId][i];
-            if (bytes(oText).length > 0) {
-                options[index] = OptionInfo({
-                    optionId: i,
-                    optionText: oText,
-                    votes: stats.optionVotes[i],
-                    allowed: allowedOption[missionId][questionId][i]
-                });
-                unchecked {
-                    ++index;
-                }
-            }
-            unchecked {
-                ++i;
-            }
-        }
-
-        return
-            QuestionInfo({
-                questionText: qText,
-                questionAllowed: qAllowed,
-                options: options,
-                totalVotes: stats.total
-            });
-    }
-
-    /// @notice 선택지 목록만 간단히 조회
-    function getOptionList(
-        uint256 missionId,
-        uint256 questionId
-    ) external view returns (OptionInfo[] memory) {
-        QuestionStats storage stats = questionStats[missionId][questionId];
-
-        // 등록된 선택지 개수 세기
-        uint256 optionCount = 0;
-        for (uint256 i = 1; i <= MAX_OPTION_ID; ) {
-            if (bytes(optionName[missionId][questionId][i]).length > 0) {
-                unchecked {
-                    ++optionCount;
-                }
-            }
-            unchecked {
-                ++i;
-            }
-        }
-
-        // 선택지 배열 생성
-        OptionInfo[] memory options = new OptionInfo[](optionCount);
-        uint256 index = 0;
-
-        for (uint256 i = 1; i <= MAX_OPTION_ID; ) {
-            string memory oText = optionName[missionId][questionId][i];
-            if (bytes(oText).length > 0) {
-                options[index] = OptionInfo({
-                    optionId: i,
-                    optionText: oText,
-                    votes: stats.optionVotes[i],
-                    allowed: allowedOption[missionId][questionId][i]
-                });
-                unchecked {
-                    ++index;
-                }
-            }
-            unchecked {
-                ++i;
-            }
-        }
-
-        return options;
-    }
-
-    /// @notice 특정 해시의 투표 레코드 조회
-    function getVoteByHash(
-        bytes32 voteHash
-    ) external view returns (VoteRecord memory) {
-        return votes[voteHash];
-    }
-
-    /// @notice 특정 미션/투표 세션의 모든 투표 레코드 조회
-    function getVotesByMissionVotingId(
-        uint256 missionId,
-        uint256 votingId
-    ) external view returns (VoteRecord[] memory) {
-        bytes32[] storage allHashes = voteHashesByMissionVotingId[missionId][
-            votingId
-        ];
-        uint256 totalCount = allHashes.length;
-        VoteRecord[] memory result = new VoteRecord[](totalCount);
-
-        for (uint256 i; i < totalCount; ) {
-            bytes32 voteHash = allHashes[i];
-            result[i] = votes[voteHash];
-            unchecked {
-                ++i;
-            }
-        }
-
-        return result;
     }
 }

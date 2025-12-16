@@ -481,85 +481,6 @@ contract SubVotingTest is Test {
     // View 함수 테스트
     // ========================================
 
-    function test_GetVotesByMissionVotingId() public {
-        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](3);
-        batches[0] = _createSingleRecordBatch(
-            _createVoteRecord(1, "user1", 1, 1, 1, 1, 100),
-            user1, 0, user1PrivateKey
-        );
-        batches[1] = _createSingleRecordBatch(
-            _createVoteRecord(2, "user2", 1, 2, 1, 2, 200),
-            user2, 0, user2PrivateKey
-        );
-        batches[2] = _createSingleRecordBatch(
-            _createVoteRecord(3, "user3", 1, 1, 2, 1, 150), // 같은 votingId
-            user3, 0, user3PrivateKey
-        );
-
-        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
-        voting.submitMultiUserBatch(batches, 0, executorSig);
-
-        // votingId 1로 조회
-        SubVoting.VoteRecord[] memory votingId1 = voting.getVotesByMissionVotingId(1, 1);
-        assertEq(votingId1.length, 2); // user1, user3
-        assertEq(votingId1[0].userId, "user1");
-        assertEq(votingId1[1].userId, "user3");
-
-        // votingId 2로 조회
-        SubVoting.VoteRecord[] memory votingId2 = voting.getVotesByMissionVotingId(1, 2);
-        assertEq(votingId2.length, 1); // user2
-        assertEq(votingId2[0].userId, "user2");
-    }
-
-    function test_GetOptionVotes() public {
-        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](3);
-        batches[0] = _createSingleRecordBatch(
-            _createVoteRecord(1, "user1", 1, 1, 1, 1, 100),
-            user1, 0, user1PrivateKey
-        );
-        batches[1] = _createSingleRecordBatch(
-            _createVoteRecord(2, "user2", 1, 2, 1, 1, 200),
-            user2, 0, user2PrivateKey
-        );
-        batches[2] = _createSingleRecordBatch(
-            _createVoteRecord(3, "user3", 1, 3, 1, 2, 150),
-            user3, 0, user3PrivateKey
-        );
-
-        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
-        voting.submitMultiUserBatch(batches, 0, executorSig);
-
-        // 선택지별 득표 확인
-        assertEq(voting.getOptionVotes(1, 1, 1), 300); // user1 + user2
-        assertEq(voting.getOptionVotes(1, 1, 2), 150); // user3
-    }
-
-    function test_GetQuestionWithOptions() public {
-        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](2);
-        batches[0] = _createSingleRecordBatch(
-            _createVoteRecord(1, "user1", 1, 1, 1, 1, 100),
-            user1, 0, user1PrivateKey
-        );
-        batches[1] = _createSingleRecordBatch(
-            _createVoteRecord(2, "user2", 1, 2, 1, 2, 200),
-            user2, 0, user2PrivateKey
-        );
-
-        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
-        voting.submitMultiUserBatch(batches, 0, executorSig);
-
-        // 질문 정보 조회
-        SubVoting.QuestionInfo memory info = voting.getQuestionWithOptions(1, 1);
-        assertEq(info.questionText, "Question1");
-        assertTrue(info.questionAllowed);
-        assertEq(info.totalVotes, 300);
-        assertEq(info.options.length, 2);
-        assertEq(info.options[0].optionId, 1);
-        assertEq(info.options[0].votes, 100);
-        assertEq(info.options[1].optionId, 2);
-        assertEq(info.options[1].votes, 200);
-    }
-
     function test_DomainSeparator() public view {
         bytes32 separator = voting.domainSeparator();
         assertTrue(separator != bytes32(0));
@@ -773,10 +694,10 @@ contract SubVotingTest is Test {
     }
 
     // ========================================
-    // UserVoteResult 이벤트 테스트
+    // UserMissionResult 이벤트 테스트
     // ========================================
 
-    function test_UserVoteResultEvent_Success() public {
+    function test_UserMissionResultEvent_Success() public {
         SubVoting.VoteRecord memory record = _createVoteRecord(1, "user1", 1, 1, 1, 1, 100);
 
         SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](1);
@@ -784,15 +705,15 @@ contract SubVotingTest is Test {
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
-        // UserVoteResult 이벤트 확인
+        // UserMissionResult 이벤트 확인
         vm.expectEmit(true, false, false, true);
         uint256[] memory emptyFailedIds = new uint256[](0);
-        emit SubVoting.UserVoteResult(1, true, emptyFailedIds, 0);
+        emit SubVoting.UserMissionResult(1, true, emptyFailedIds, 0);
 
         voting.submitMultiUserBatch(batches, 0, executorSig);
     }
 
-    function test_UserVoteResultEvent_Failure() public {
+    function test_UserMissionResultEvent_Failure() public {
         // 허용되지 않은 질문에 투표
         SubVoting.VoteRecord memory record = _createVoteRecord(1, "user1", 1, 1, 99, 1, 100);
 
@@ -805,11 +726,11 @@ contract SubVotingTest is Test {
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
 
-        // user1의 UserVoteResult 이벤트 (실패)
+        // user1의 UserMissionResult 이벤트 (실패)
         vm.expectEmit(true, false, false, false);
         uint256[] memory failedIds = new uint256[](1);
         failedIds[0] = 1;
-        emit SubVoting.UserVoteResult(1, false, failedIds, 5); // REASON_QUESTION_NOT_ALLOWED = 5
+        emit SubVoting.UserMissionResult(1, false, failedIds, 5); // REASON_QUESTION_NOT_ALLOWED = 5
 
         voting.submitMultiUserBatch(batches, 0, executorSig);
     }

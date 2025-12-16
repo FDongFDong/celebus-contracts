@@ -7,6 +7,14 @@ import { CONFIG, getContractInstance } from '../config.js';
 export class Step7Submit {
   constructor(state) {
     this.state = state;
+    this.onEventsReceived = null; // Step 9 연동용 콜백
+  }
+
+  /**
+   * Step 9 연동을 위한 콜백 설정
+   */
+  setEventCallback(callback) {
+    this.onEventsReceived = callback;
   }
 
   render() {
@@ -374,6 +382,11 @@ export class Step7Submit {
       const receipt = await tx.wait();
 
       console.log('✅ Transaction confirmed:', receipt);
+
+      // Step 9 이벤트 파싱 연동
+      if (this.onEventsReceived) {
+        this.onEventsReceived(receipt, tx.hash);
+      }
 
       // 성공 UI 업데이트
       this.setLoadingState(false);

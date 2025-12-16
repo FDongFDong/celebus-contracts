@@ -275,17 +275,17 @@ class SubVotingApp {
   }
 
   /**
-   * Step 9: UserVoteResult 이벤트 조회 UI 렌더링
+   * Step 9: UserMissionResult 이벤트 조회 UI 렌더링
    */
   renderStep9() {
     return `
       <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-purple-500">
         <h2 class="text-xl font-semibold mb-4">
           <span class="step-badge bg-purple-500">STEP 9</span>
-          <i data-lucide="bell" class="w-5 h-5 inline"></i> UserVoteResult 이벤트 조회
+          <i data-lucide="bell" class="w-5 h-5 inline"></i> UserMissionResult 이벤트 조회
         </h2>
         <p class="text-sm text-gray-600 mb-4">
-          트랜잭션의 UserVoteResult 이벤트를 조회하고 실패 알림을 확인합니다
+          트랜잭션의 UserMissionResult 이벤트를 조회하고 실패 알림을 확인합니다
         </p>
 
         <!-- 트랜잭션 해시로 조회 -->

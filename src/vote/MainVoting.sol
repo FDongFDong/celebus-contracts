@@ -44,7 +44,7 @@ contract MainVoting is Ownable2Step, EIP712 {
     uint8 public constant VOTE_TYPE_FORGET = 0;
     uint8 public constant VOTE_TYPE_REMEMBER = 1;
 
-    // UserBatchFailed / UserVoteResult 이벤트용 실패 사유 코드
+    // UserBatchFailed / UserMissionResult 이벤트용 실패 사유 코드
     uint8 private constant REASON_USER_BATCH_TOO_LARGE = 1;      // 유저 배치 크기 초과 (레코드 0개 또는 MAX_RECORDS_PER_USER_BATCH 초과)
     uint8 private constant REASON_INVALID_USER_SIGNATURE = 2;    // 유저 서명 검증 실패 (EIP-712 서명 불일치)
     uint8 private constant REASON_USER_NONCE_INVALID = 3;        // 유저 nonce 중복 사용 (이미 사용된 nonce)
@@ -206,7 +206,7 @@ contract MainVoting is Ownable2Step, EIP712 {
     /// @notice votingId 단위 유저 투표 결과 이벤트
     /// @dev 한 UserVoteBatch(=한 유저 서명)에 포함된 모든 레코드의 votingId는 동일하다는 전제를 사용
     /// @dev 일부 레코드만 실패해도 success는 false, 실패한 recordId만 배열에 포함
-    event UserVoteResult(
+    event UserMissionResult(
         uint256 indexed votingId,
         bool success,
         uint256[] failedRecordIds,
@@ -425,7 +425,7 @@ contract MainVoting is Ownable2Step, EIP712 {
      *      - 중복 방지: consumed 체크
      *      - votingAmt=0인 레코드 스킵
      *      - 아티스트별 통계 업데이트
-     *      - votingId 단위 UserVoteResult 이벤트 발생
+     *      - votingId 단위 UserMissionResult 이벤트 발생
      *
      * 설계:
      * - userOk[i] == false:
@@ -464,7 +464,7 @@ contract MainVoting is Ownable2Step, EIP712 {
                         }
                     }
 
-                    emit UserVoteResult(
+                    emit UserMissionResult(
                         votingId_,
                         false, // 배치 수준에서 실패 → 전체 실패
                         failedRecordIds,
@@ -562,7 +562,7 @@ contract MainVoting is Ownable2Step, EIP712 {
                 }
             }
 
-            // 이 유저 배치에 대한 UserVoteResult 이벤트 발행
+            // 이 유저 배치에 대한 UserMissionResult 이벤트 발행
             if (userRecordLen > 0) {
                 // failedRecordIds 배열 사이즈 맞게 잘라서 생성
                 uint256[] memory finalFailedIds;
@@ -582,7 +582,7 @@ contract MainVoting is Ownable2Step, EIP712 {
                 bool success = (failedCount == 0 && localStored > 0);
                 uint8 reasonCode = success ? 0 : (hasReason ? localReason : 0);
 
-                emit UserVoteResult(
+                emit UserMissionResult(
                     votingId,
                     success,
                     finalFailedIds,
@@ -607,7 +607,7 @@ contract MainVoting is Ownable2Step, EIP712 {
      *      2. Executor 서명 검증 → 배치 Nonce 소비
      *      3. 각 사용자별 검증 (Soft-fail: 실패해도 다른 사용자 계속)
      *      4. 검증 통과한 레코드 저장 + 통계 업데이트
-     *      5. votingId 단위 UserVoteResult 이벤트 발생
+     *      5. votingId 단위 UserMissionResult 이벤트 발생
      *
      * @param batches 사용자별 투표 배치 배열
      * @param batchNonce_ 배치 순서 번호 (리플레이 방지)
@@ -687,7 +687,7 @@ contract MainVoting is Ownable2Step, EIP712 {
 
         if (successUserCount == 0) revert NoSuccessfulUser();
 
-        // === 4. 레코드 저장 + UserVoteResult 이벤트 ===
+        // === 4. 레코드 저장 + UserMissionResult 이벤트 ===
         uint256 stored = _storeVoteRecords(
             batches,
             recordDigests,

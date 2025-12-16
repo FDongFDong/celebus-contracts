@@ -101,3 +101,126 @@ details[open] summary {
     grid-template-columns: 1fr;
   }
 }
+
+/* ========================================
+   Step 9: Event Query Styles
+   ======================================== */
+
+/* 성공/실패 배지 */
+.status-badge {
+  @apply inline-block px-2 py-1 rounded text-xs font-semibold;
+}
+
+.status-badge.success {
+  @apply bg-green-100 text-green-800;
+}
+
+.status-badge.failure {
+  @apply bg-red-100 text-red-800;
+}
+
+/* 테이블 행 스타일 */
+#eventResultsBody tr.success {
+  background-color: #f0fdf4;
+}
+
+#eventResultsBody tr.failure {
+  background-color: #fef2f2;
+}
+
+/* 실패 사유 코드 */
+.reason-code {
+  @apply inline-block bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-xs font-mono mr-2;
+}
+
+.reason-message {
+  @apply text-gray-600 text-xs;
+}
+
+/* 알림 카드 */
+.alert-card {
+  @apply bg-red-50 border border-red-200 rounded-lg p-4 shadow-sm;
+}
+
+.alert-header {
+  @apply flex items-center gap-2 mb-2;
+}
+
+.alert-icon {
+  @apply w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold;
+}
+
+.alert-title {
+  @apply font-semibold text-red-800 flex-1;
+}
+
+.alert-time {
+  @apply text-xs text-gray-500;
+}
+
+.alert-body {
+  @apply space-y-2 text-sm;
+}
+
+.alert-row {
+  @apply flex gap-2;
+}
+
+.alert-label {
+  @apply text-gray-600 min-w-[120px];
+}
+
+.alert-value {
+  @apply font-medium text-gray-800;
+}
+
+.dismiss-alert-btn {
+  @apply mt-3 w-full py-2 bg-red-100 text-red-700 rounded hover:bg-red-200 transition text-sm font-medium;
+}
+
+/* 이벤트 상세 모달 */
+.event-details-modal {
+  @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50;
+}
+
+.event-details-modal .modal-content {
+  @apply bg-white rounded-lg shadow-xl p-6 max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto;
+}
+
+.event-details-modal h3 {
+  @apply text-lg font-semibold text-gray-800 mb-4;
+}
+
+.details-table {
+  @apply w-full text-sm border-collapse;
+}
+
+.details-table th {
+  @apply text-left py-2 px-3 bg-gray-50 border font-medium text-gray-700;
+  width: 140px;
+}
+
+.details-table td {
+  @apply py-2 px-3 border text-gray-800;
+}
+
+.details-table .tx-hash {
+  @apply font-mono text-xs break-all;
+}
+
+.record-ids-list {
+  @apply list-decimal list-inside text-xs space-y-1 max-h-32 overflow-y-auto;
+}
+
+.close-modal-btn {
+  @apply mt-4 w-full py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition font-medium;
+}
+
+.view-details-btn {
+  @apply px-3 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200 transition;
+}
+
+/* 조회 결과 없음 */
+.no-data {
+  @apply text-center text-gray-500 py-4;
+}

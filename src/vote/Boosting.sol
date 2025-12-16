@@ -68,12 +68,14 @@ contract Boosting is Ownable2Step, EIP712 {
      */
     uint8 public constant MAX_BOOST_TYPE = 1;
 
-    // UserBoostFailed 이벤트용 실패 사유 코드
-    uint8 private constant REASON_INVALID_USER_SIGNATURE = 1;    // 유저 서명 검증 실패 (EIP-712 서명 불일치)
-    uint8 private constant REASON_USER_NONCE_INVALID = 2;        // 유저 nonce 중복 사용 (이미 사용된 nonce)
-    uint8 private constant REASON_INVALID_BOOST_TYPE = 3;        // 잘못된 부스팅 타입 (0 또는 MAX_BOOST_TYPE 초과)
-    uint8 private constant REASON_ARTIST_NOT_ALLOWED = 4;        // 허용되지 않은 아티스트 (비활성화된 아티스트에 부스팅 시도)
-    uint8 private constant REASON_STRING_TOO_LONG = 5;           // 문자열 길이 초과 (userId > 100자)
+    // UserBoostFailed 이벤트용 실패 사유 코드 (MainVoting과 동일한 순서)
+    uint8 private constant REASON_INVALID_USER_SIGNATURE = 2;    // 유저 서명 검증 실패 (EIP-712 서명 불일치)
+    uint8 private constant REASON_USER_NONCE_INVALID = 3;        // 유저 nonce 중복 사용 (이미 사용된 nonce)
+    uint8 private constant REASON_INVALID_BOOST_TYPE = 4;        // 잘못된 부스팅 타입 (0 또는 MAX_BOOST_TYPE 초과)
+    uint8 private constant REASON_ARTIST_NOT_ALLOWED = 5;        // 허용되지 않은 아티스트 (비활성화된 아티스트에 부스팅 시도)
+    uint8 private constant REASON_STRING_TOO_LONG = 6;           // 문자열 길이 초과 (userId > 100자)
+    uint8 private constant REASON_ZERO_AMT = 7;                  // 0포인트 부스팅 (무효)
+    uint8 private constant REASON_DUPLICATE_HASH = 8;            // 중복 레코드 (이미 처리된 해시)
 
     // ========================================
     // EIP-712 타입 해시 (Type Hashes)
@@ -299,6 +301,12 @@ contract Boosting is Ownable2Step, EIP712 {
      */
     mapping(uint256 => mapping(uint256 => uint256)) public artistTotalAmt;
 
+    /// @dev 아티스트별 BP 타입 부스팅 총량
+    mapping(uint256 => mapping(uint256 => uint256)) public artistBpAmt;
+
+    /// @dev 아티스트별 CELB 타입 부스팅 총량
+    mapping(uint256 => mapping(uint256 => uint256)) public artistCelbAmt;
+
     // ========================================
     // 이벤트 (Events)
     // ========================================
@@ -395,7 +403,7 @@ contract Boosting is Ownable2Step, EIP712 {
      * @param failedRecordIds 실패한 레코드 ID 배열
      * @param reasonCode 실패 사유 코드 (모두 성공 시 0)
      */
-    event UserBoostResult(
+    event UserMissionResult(
         uint256 indexed boostingId,
         bool success,
         uint256[] failedRecordIds,
@@ -692,6 +700,8 @@ contract Boosting is Ownable2Step, EIP712 {
 
     /**
      * @dev 검증 통과한 부스팅 레코드들을 스토리지에 저장
+     *      MainVoting/SubVoting과 동일한 패턴: 유저 배치당 1개의 UserMissionResult 이벤트
+     *
      * @param batches 배치 배열
      * @param recordDigests 레코드 해시 배열
      * @param userOk 유저별 검증 통과 여부
@@ -700,12 +710,8 @@ contract Boosting is Ownable2Step, EIP712 {
      * @return storedCount 실제 저장된 레코드 수
      *
      * 저장 로직:
-     *   1. userOk[i] == false면 스킵 (이미 검증 단계에서 실패)
-     *   2. amt가 0이면 스킵 (무효 부스팅)
-     *   3. boostingWith 타입 검증
-     *   4. 아티스트 허용 여부 검증
-     *   5. 중복 레코드면 스킵
-     *   6. 저장 및 집계 업데이트
+     *   - userOk[i] == false: 검증 단계 실패 → recordId를 failedRecordIds에 넣고 이벤트 1개
+     *   - userOk[i] == true: per-record 검증 수행 → 실패 시 failedRecordIds에 포함, 이벤트 1개
      */
     function _storeBoostRecords(
         UserBoostBatch[] calldata batches,
@@ -717,75 +723,84 @@ contract Boosting is Ownable2Step, EIP712 {
         uint256 len = batches.length;
 
         for (uint256 i; i < len; ) {
-            // 검증 단계에서 실패한 유저는 스킵
-            if (!userOk[i]) {
-                unchecked {
-                    ++i;
-                }
-                continue;
-            }
-
             BoostRecord calldata record = batches[i].record;
             address user = batches[i].userSig.user;
             uint256 nonce_ = batches[i].userSig.userNonce;
 
-            // 0포인트 부스팅 스킵
+            // 검증 단계에서 실패한 유저 → UserMissionResult(false) 1개 발생
+            if (!userOk[i]) {
+                uint256[] memory failedRecordIds = new uint256[](1);
+                failedRecordIds[0] = record.recordId;
+                emit UserMissionResult(record.boostingId, false, failedRecordIds, userReason[i]);
+                unchecked {
+                    ++i;
+                }
+                continue;
+            }
+
+            // per-record 검증 및 저장 (Boosting은 1:1이므로 레코드 1개)
+            bool recordFailed;
+            uint8 localReason;
+
+            // 0포인트 부스팅 검증
             if (record.amt == 0) {
                 emit BoostSkipped(user, record.boostingId, record.recordId, 2);
-                unchecked {
-                    ++i;
-                }
-                continue;
+                recordFailed = true;
+                localReason = REASON_ZERO_AMT;
             }
-
-            // per-record 검증: boostingWith 타입
-            if (record.boostingWith > MAX_BOOST_TYPE) {
+            // boostingWith 타입 검증
+            else if (record.boostingWith > MAX_BOOST_TYPE) {
                 emit UserBoostFailed(batchDigest, user, nonce_, REASON_INVALID_BOOST_TYPE);
-                unchecked {
-                    ++i;
-                }
-                continue;
+                recordFailed = true;
+                localReason = REASON_INVALID_BOOST_TYPE;
             }
-
-            // per-record 검증: 아티스트 허용 여부
-            if (!allowedArtist[record.missionId][record.optionId]) {
+            // 아티스트 허용 여부 검증
+            else if (!allowedArtist[record.missionId][record.optionId]) {
                 emit UserBoostFailed(batchDigest, user, nonce_, REASON_ARTIST_NOT_ALLOWED);
-                unchecked {
-                    ++i;
-                }
-                continue;
+                recordFailed = true;
+                localReason = REASON_ARTIST_NOT_ALLOWED;
             }
-
-            bytes32 recordDigest = recordDigests[i];
-
-            // 중복 레코드 스킵
-            if (consumed[recordDigest]) {
+            // 중복 레코드 검증
+            else if (consumed[recordDigests[i]]) {
                 emit BoostSkipped(user, record.boostingId, record.recordId, 1);
+                recordFailed = true;
+                localReason = REASON_DUPLICATE_HASH;
+            }
+
+            // 검증 실패 시 → UserMissionResult(false) 1개 발생
+            if (recordFailed) {
+                uint256[] memory failedRecordIds = new uint256[](1);
+                failedRecordIds[0] = record.recordId;
+                emit UserMissionResult(record.boostingId, false, failedRecordIds, localReason);
                 unchecked {
                     ++i;
                 }
                 continue;
             }
-            consumed[recordDigest] = true;
 
-            bytes32 boostHash = recordDigest;
-            boosts[boostHash] = record;
+            // 여기까지 왔다면 검증 통과 → 저장
+            bytes32 recordDigest = recordDigests[i];
+            consumed[recordDigest] = true;
+            boosts[recordDigest] = record;
 
             // 조회용 인덱스에 추가
-            boostHashesByBoostingId[record.missionId][record.boostingId].push(
-                boostHash
-            );
+            boostHashesByBoostingId[record.missionId][record.boostingId].push(recordDigest);
 
             // 집계 업데이트
             boostCount[record.missionId][record.boostingId] += 1;
             boostCountByMission[record.missionId] += 1;
 
-            // 실시간 집계 (아티스트별 총 amt)
+            // 타입별 집계 업데이트
+            if (record.boostingWith == 0) {
+                artistBpAmt[record.missionId][record.optionId] += record.amt;
+            } else {
+                artistCelbAmt[record.missionId][record.optionId] += record.amt;
+            }
             artistTotalAmt[record.missionId][record.optionId] += record.amt;
 
-            // boostingId별 결과 이벤트 발생 (MainVoting/SubVoting과 일관성)
+            // 성공 → UserMissionResult(true) 1개 발생
             uint256[] memory emptyArray = new uint256[](0);
-            emit UserBoostResult(record.boostingId, true, emptyArray, 0);
+            emit UserMissionResult(record.boostingId, true, emptyArray, 0);
 
             unchecked {
                 ++storedCount;
@@ -916,17 +931,6 @@ contract Boosting is Ownable2Step, EIP712 {
     }
 
     /**
-     * @notice 특정 해시의 부스팅 레코드 조회
-     * @param boostHash 레코드 해시
-     * @return 부스팅 레코드
-     */
-    function getBoostByHash(
-        bytes32 boostHash
-    ) external view returns (BoostRecord memory) {
-        return boosts[boostHash];
-    }
-
-    /**
      * @dev 부스팅 조회용 요약 구조체
      * @param recordId 레코드 ID
      * @param timestamp 부스팅 시간
@@ -997,89 +1001,18 @@ contract Boosting is Ownable2Step, EIP712 {
         return result;
     }
 
-    /**
-     * @notice 아티스트별 총 부스팅 포인트 조회
-     * @param missionId 미션 ID
-     * @param optionId 아티스트 ID
-     * @return 해당 아티스트의 총 부스팅 포인트
-     */
-    function getArtistTotalAmt(
+    /// @notice 아티스트별 부스팅 집계 조회
+    /// @return bpAmt BP 타입 부스팅 총량
+    /// @return celbAmt CELB 타입 부스팅 총량
+    /// @return total 전체 부스팅 총량
+    function getBoostAggregates(
         uint256 missionId,
         uint256 optionId
-    ) external view returns (uint256) {
-        return artistTotalAmt[missionId][optionId];
-    }
-
-    /**
-     * @dev 아티스트 정보 구조체
-     * @param artistName 아티스트 이름
-     * @param allowed 부스팅 허용 여부
-     * @param totalAmt 총 부스팅 포인트
-     */
-    struct ArtistInfo {
-        string artistName;
-        bool allowed;
-        uint256 totalAmt;
-    }
-
-    /**
-     * @notice 아티스트 정보 조회 (이름, 허용 여부, 총 amt)
-     * @param missionId 미션 ID
-     * @param optionId 아티스트 ID
-     * @return ArtistInfo 아티스트 정보
-     */
-    function getArtistInfo(
-        uint256 missionId,
-        uint256 optionId
-    ) external view returns (ArtistInfo memory) {
-        return
-            ArtistInfo({
-                artistName: artistName[missionId][optionId],
-                allowed: allowedArtist[missionId][optionId],
-                totalAmt: artistTotalAmt[missionId][optionId]
-            });
-    }
-
-    // ========================================
-    // 해시 미리보기 함수 (Hash Preview Functions)
-    // ========================================
-
-    /**
-     * @notice 부스팅 레코드 해시 미리보기
-     * @param record 부스팅 레코드
-     * @return 레코드 해시
-     *
-     * 오프체인에서 서명 생성 시 참고용
-     */
-    function hashBoostRecord(
-        BoostRecord calldata record
-    ) external pure returns (bytes32) {
-        return _hashBoostRecord(record);
-    }
-
-    /**
-     * @notice 유저 서명 다이제스트 미리보기
-     * @param user 유저 주소
-     * @param nonce_ 유저 nonce
-     * @param recordHash 레코드 해시
-     * @return 서명할 다이제스트
-     */
-    function hashUserSigPreview(
-        address user,
-        uint256 nonce_,
-        bytes32 recordHash
-    ) external view returns (bytes32) {
-        return _hashUserSig(user, nonce_, recordHash);
-    }
-
-    /**
-     * @notice 배치 다이제스트 미리보기
-     * @param batchNonce 배치 nonce
-     * @return 서명할 다이제스트
-     */
-    function hashBatchPreview(
-        uint256 batchNonce
-    ) external view returns (bytes32) {
-        return _hashBatch(batchNonce);
+    ) external view returns (uint256 bpAmt, uint256 celbAmt, uint256 total) {
+        return (
+            artistBpAmt[missionId][optionId],
+            artistCelbAmt[missionId][optionId],
+            artistTotalAmt[missionId][optionId]
+        );
     }
 }

@@ -58,7 +58,10 @@
       "Bash(cast 4byte:*)",
       "Bash(cast sig:*)",
       "Bash(forge inspect:*)",
-      "Bash(jq:*)"
+      "Bash(jq:*)",
+      "Bash(__NEW_LINE__ echo \"=== ABI에서 이벤트 hex 확인 ===\")",
+      "Bash(__NEW_LINE__ echo \"\")",
+      "Bash(rm:*)"
     ],
     "deny": [],
     "ask": []

@@ -18,6 +18,14 @@ contract BoostingTest is Test {
     uint256 public user3PrivateKey;
     uint256 public executorPrivateKey;
 
+    // EIP-712 해시 계산용 상수 (컨트랙트에서 제거된 프리뷰 함수 대체)
+    bytes32 private constant BOOST_RECORD_TYPEHASH =
+        keccak256("BoostRecord(uint256 timestamp,uint256 missionId,uint256 boostingId,uint256 optionId,uint8 boostingWith,uint256 amt)");
+    bytes32 private constant USER_SIG_TYPEHASH =
+        keccak256("UserSig(address user,uint256 userNonce,bytes32 recordHash)");
+    bytes32 private constant BATCH_TYPEHASH =
+        keccak256("Batch(uint256 batchNonce)");
+
     function setUp() public {
         owner = address(this);
 
@@ -64,18 +72,41 @@ contract BoostingTest is Test {
         });
     }
 
+    // 테스트용 해시 함수들 (컨트랙트에서 제거된 프리뷰 함수 대체)
+    function _hashBoostRecord(Boosting.BoostRecord memory record) internal pure returns (bytes32) {
+        return keccak256(abi.encode(
+            BOOST_RECORD_TYPEHASH,
+            record.timestamp,
+            record.missionId,
+            record.boostingId,
+            record.optionId,
+            record.boostingWith,
+            record.amt
+        ));
+    }
+
+    function _hashUserSig(address user, uint256 nonce_, bytes32 recordHash) internal view returns (bytes32) {
+        bytes32 structHash = keccak256(abi.encode(USER_SIG_TYPEHASH, user, nonce_, recordHash));
+        return _hashTypedDataV4(structHash);
+    }
+
+    function _hashBatch(uint256 batchNonce) internal view returns (bytes32) {
+        bytes32 structHash = keccak256(abi.encode(BATCH_TYPEHASH, batchNonce));
+        return _hashTypedDataV4(structHash);
+    }
+
+    function _hashTypedDataV4(bytes32 structHash) internal view returns (bytes32) {
+        return keccak256(abi.encodePacked("\x19\x01", boosting.domainSeparator(), structHash));
+    }
+
     function _signUserSig(
         uint256 privateKey,
         Boosting.BoostRecord memory record,
         uint256 userNonce
     ) internal view returns (bytes memory) {
         address user = vm.addr(privateKey);
-        bytes32 recordHash = boosting.hashBoostRecord(record);
-        bytes32 digest = boosting.hashUserSigPreview(
-            user,
-            userNonce,
-            recordHash
-        );
+        bytes32 recordHash = _hashBoostRecord(record);
+        bytes32 digest = _hashUserSig(user, userNonce, recordHash);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
         return abi.encodePacked(r, s, v);
@@ -85,7 +116,7 @@ contract BoostingTest is Test {
         uint256 privateKey,
         uint256 batchNonce
     ) internal view returns (bytes memory) {
-        bytes32 digest = boosting.hashBatchPreview(batchNonce);
+        bytes32 digest = _hashBatch(batchNonce);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
         return abi.encodePacked(r, s, v);
@@ -354,7 +385,7 @@ contract BoostingTest is Test {
     // View 함수 테스트
     // ========================================
 
-    function test_GetArtistTotalAmt() public {
+    function test_ArtistTotalAmt() public {
         Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](3);
         batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0);
         batches[1] = _createUserBoostBatch(user2PrivateKey, user2, "user2", 1, 2, 1, 1, 200, 0);
@@ -363,23 +394,22 @@ contract BoostingTest is Test {
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
         boosting.submitBoostBatch(batches, 0, executorSig);
 
-        // 아티스트별 총 amt 확인
-        assertEq(boosting.getArtistTotalAmt(1, 1), 300); // user1 + user2
-        assertEq(boosting.getArtistTotalAmt(1, 2), 150); // user3
+        // 아티스트별 총 amt 확인 (public 매핑 직접 접근)
+        assertEq(boosting.artistTotalAmt(1, 1), 300); // user1 + user2
+        assertEq(boosting.artistTotalAmt(1, 2), 150); // user3
     }
 
-    function test_GetArtistInfo() public {
+    function test_ArtistInfo() public {
         Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
         batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0);
 
         bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
         boosting.submitBoostBatch(batches, 0, executorSig);
 
-        // 아티스트 정보 조회
-        Boosting.ArtistInfo memory info = boosting.getArtistInfo(1, 1);
-        assertEq(info.artistName, "Artist1");
-        assertTrue(info.allowed);
-        assertEq(info.totalAmt, 100);
+        // 아티스트 정보 조회 (public 매핑 직접 접근)
+        assertEq(boosting.artistName(1, 1), "Artist1");
+        assertTrue(boosting.allowedArtist(1, 1));
+        assertEq(boosting.artistTotalAmt(1, 1), 100);
     }
 
     function test_GetBoostSummariesByBoostingId() public {
@@ -404,6 +434,24 @@ contract BoostingTest is Test {
     function test_DomainSeparator() public view {
         bytes32 separator = boosting.domainSeparator();
         assertTrue(separator != bytes32(0));
+    }
+
+    function test_GetBoostAggregates() public {
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](3);
+        // BP 타입 부스팅 (boostingWith = 0)
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0);
+        batches[1] = _createUserBoostBatch(user2PrivateKey, user2, "user2", 1, 2, 1, 0, 200, 0);
+        // CELB 타입 부스팅 (boostingWith = 1)
+        batches[2] = _createUserBoostBatch(user3PrivateKey, user3, "user3", 1, 3, 1, 1, 150, 0);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+
+        // 집계 확인
+        (uint256 bpAmt, uint256 celbAmt, uint256 total) = boosting.getBoostAggregates(1, 1);
+        assertEq(bpAmt, 300); // user1 + user2
+        assertEq(celbAmt, 150); // user3
+        assertEq(total, 450);
     }
 
     // ========================================
@@ -575,7 +623,7 @@ contract BoostingTest is Test {
             user2PrivateKey, user2, "user2", 1, 2, 2, 0, 200, 0
         );
 
-        bytes32 digest2 = boosting.hashBatchPreview(0);
+        bytes32 digest2 = _hashBatch(0);
         (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(newExecutorPrivateKey, digest2);
         bytes memory newExecutorSig = abi.encodePacked(r2, s2, v2);
 

@@ -380,10 +380,10 @@ export class Step7Submit {
 
       // Step 9로 이벤트 전달 (자동 파싱)
       if (this.onEventsReceived && receipt) {
-        this.setLoadingState(true, 'UserVoteResult 이벤트 파싱 중...');
+        this.setLoadingState(true, 'UserMissionResult 이벤트 파싱 중...');
         try {
           this.onEventsReceived(receipt, tx.hash);
-          console.log('[EVENT] UserVoteResult events sent to Step 9');
+          console.log('[EVENT] UserMissionResult events sent to Step 9');
         } catch (eventError) {
           console.warn('[EVENT] Event parsing warning:', eventError);
         }

@@ -69,6 +69,27 @@ export class Step0Setup {
     if (registerOptionBtn) {
       registerOptionBtn.addEventListener('click', () => this.registerOption());
     }
+
+    // 다운로드 버튼들
+    const downloadAbiBtn = document.getElementById('downloadAbiBtn');
+    if (downloadAbiBtn) {
+      downloadAbiBtn.addEventListener('click', () => this.downloadAbi());
+    }
+
+    const downloadBytecodeBtn = document.getElementById('downloadBytecodeBtn');
+    if (downloadBytecodeBtn) {
+      downloadBytecodeBtn.addEventListener('click', () => this.downloadBytecode());
+    }
+
+    const downloadStandardJsonBtn = document.getElementById('downloadStandardJsonBtn');
+    if (downloadStandardJsonBtn) {
+      downloadStandardJsonBtn.addEventListener('click', () => this.downloadStandardJsonInput());
+    }
+
+    const downloadConstructorArgsBtn = document.getElementById('downloadConstructorArgsBtn');
+    if (downloadConstructorArgsBtn) {
+      downloadConstructorArgsBtn.addEventListener('click', () => this.downloadConstructorArgs());
+    }
   }
 
   // ========================================
@@ -390,5 +411,86 @@ export class Step0Setup {
     element.style.whiteSpace = 'pre-line';
     element.textContent = message;
     element.classList.remove('hidden');
+  }
+
+  /**
+   * ABI JSON 다운로드
+   */
+  downloadAbi() {
+    const abi = CONFIG.ABI;
+    const blob = new Blob([JSON.stringify(abi, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'SubVoting-abi.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Bytecode 다운로드
+   */
+  downloadBytecode() {
+    const blob = new Blob([SUBVOTING_BYTECODE], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'SubVoting-bytecode.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Standard JSON Input 다운로드 (Etherscan 검증용)
+   */
+  async downloadStandardJsonInput() {
+    try {
+      const response = await fetch('./standard-json-input.json');
+      if (!response.ok) throw new Error('파일을 찾을 수 없습니다');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'standard-json-input.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Standard JSON Input 다운로드 실패:', error);
+      alert('Standard JSON Input 파일을 다운로드할 수 없습니다.\n로컬 서버에서 실행 중인지 확인하세요.');
+    }
+  }
+
+  /**
+   * Constructor Args 다운로드 (Etherscan 검증용)
+   * constructor(address initialOwner) 형식의 ABI-encoded 인자
+   */
+  downloadConstructorArgs() {
+    // 배포자 주소 가져오기
+    let ownerAddress = this.state.deployerWallet?.address;
+
+    if (!ownerAddress) {
+      alert('배포자 지갑 주소가 필요합니다.\n배포자 비밀키를 먼저 입력하세요.');
+      return;
+    }
+
+    // ABI-encode address (32 bytes, left-padded with zeros)
+    const addressWithoutPrefix = ownerAddress.toLowerCase().replace('0x', '');
+    const encodedArgs = '0x' + addressWithoutPrefix.padStart(64, '0');
+
+    const blob = new Blob([encodedArgs], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'constructor-args.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 }
