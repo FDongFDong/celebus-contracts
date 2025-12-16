@@ -72,17 +72,17 @@ export function calculateDigest(domainSeparator, structHash) {
  * @param {Object} record - Boost record 객체
  * @returns {string} Record hash
  */
-export function hashBoostRecord(record) {
+export function hashBoostRecord(record, user) {
   // BOOST_RECORD_TYPEHASH (userId 제거 - 프론트엔드에서 userId를 모르는 상태로 서명)
   const BOOST_RECORD_TYPEHASH = ethers.keccak256(
     ethers.toUtf8Bytes(
-      'BoostRecord(uint256 timestamp,uint256 missionId,uint256 boostingId,uint256 optionId,uint8 boostingWith,uint256 amt)'
+      'BoostRecord(uint256 timestamp,uint256 missionId,uint256 boostingId,uint256 optionId,uint8 boostingWith,uint256 amt,address user)'
     )
   );
 
   // Record 데이터 인코딩 (userId 제외, optionId = artistId)
   const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
-    ['bytes32', 'uint256', 'uint256', 'uint256', 'uint256', 'uint8', 'uint256'],
+    ['bytes32', 'uint256', 'uint256', 'uint256', 'uint256', 'uint8', 'uint256', 'address'],
     [
       BOOST_RECORD_TYPEHASH,
       record.timestamp,
@@ -90,7 +90,8 @@ export function hashBoostRecord(record) {
       record.boostingId,
       record.artistId, // optionId
       record.boostingWith, // uint8 타입 (0=BP, 1=CELB)
-      record.amt
+      record.amt,
+      user
     ]
   );
 

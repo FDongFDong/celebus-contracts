@@ -816,37 +816,6 @@
   },
   {
     "type": "event",
-    "name": "BoostSkipped",
-    "inputs": [
-      {
-        "name": "user",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "boostingId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "recordId",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "reason",
-        "type": "uint8",
-        "indexed": false,
-        "internalType": "uint8"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "BoostingTypeSet",
     "inputs": [
       {
@@ -1074,6 +1043,11 @@
   },
   {
     "type": "error",
+    "name": "EmptyText",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidBoostType",
     "inputs": [
       {
@@ -1082,6 +1056,22 @@
         "internalType": "uint8"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidOptionId",
+    "inputs": [
+      {
+        "name": "optionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidRecordIndices",
+    "inputs": []
   },
   {
     "type": "error",

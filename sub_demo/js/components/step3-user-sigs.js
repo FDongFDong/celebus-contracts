@@ -3,8 +3,8 @@
  * SubVoting N:1 구조: 유저당 1개의 서명으로 여러 레코드 처리
  */
 
-import { CONFIG } from '../config.js?v=3';
-import { hashVoteRecord, hashRecordsArray } from '../utils/eip712.js';
+import { CONFIG } from '../config.js?v=4';
+import { hashVoteRecord, hashRecordsArray } from '../utils/eip712.js?v=4';
 
 export class Step3UserSigs {
   constructor(state) {

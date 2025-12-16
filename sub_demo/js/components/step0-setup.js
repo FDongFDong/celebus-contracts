@@ -3,7 +3,7 @@
  * 컨트랙트 배포, Executor 등록, 질문/답변 등록
  */
 
-import { CONFIG, loadABI, SUBVOTING_BYTECODE } from '../config.js?v=3';
+import { CONFIG, loadABI, SUBVOTING_BYTECODE } from '../config.js?v=4';
 
 export class Step0Setup {
   constructor(state) {

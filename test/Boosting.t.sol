@@ -20,7 +20,7 @@ contract BoostingTest is Test {
 
     // EIP-712 해시 계산용 상수 (컨트랙트에서 제거된 프리뷰 함수 대체)
     bytes32 private constant BOOST_RECORD_TYPEHASH =
-        keccak256("BoostRecord(uint256 timestamp,uint256 missionId,uint256 boostingId,uint256 optionId,uint8 boostingWith,uint256 amt)");
+        keccak256("BoostRecord(uint256 timestamp,uint256 missionId,uint256 boostingId,uint256 optionId,uint8 boostingWith,uint256 amt,address user)");
     bytes32 private constant USER_SIG_TYPEHASH =
         keccak256("UserSig(address user,uint256 userNonce,bytes32 recordHash)");
     bytes32 private constant BATCH_TYPEHASH =
@@ -73,7 +73,7 @@ contract BoostingTest is Test {
     }
 
     // 테스트용 해시 함수들 (컨트랙트에서 제거된 프리뷰 함수 대체)
-    function _hashBoostRecord(Boosting.BoostRecord memory record) internal pure returns (bytes32) {
+    function _hashBoostRecord(Boosting.BoostRecord memory record, address user) internal pure returns (bytes32) {
         return keccak256(abi.encode(
             BOOST_RECORD_TYPEHASH,
             record.timestamp,
@@ -81,7 +81,8 @@ contract BoostingTest is Test {
             record.boostingId,
             record.optionId,
             record.boostingWith,
-            record.amt
+            record.amt,
+            user
         ));
     }
 
@@ -105,7 +106,7 @@ contract BoostingTest is Test {
         uint256 userNonce
     ) internal view returns (bytes memory) {
         address user = vm.addr(privateKey);
-        bytes32 recordHash = _hashBoostRecord(record);
+        bytes32 recordHash = _hashBoostRecord(record, user);
         bytes32 digest = _hashUserSig(user, userNonce, recordHash);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
@@ -238,6 +239,24 @@ contract BoostingTest is Test {
         assertEq(boosting.artistTotalAmt(1, 3), 150);
     }
 
+    function test_NonceNotConsumedWhenRecordFailsButOthersSucceed() public {
+        // user1: amt=0 이라 저장 실패, user2: 정상 저장
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](2);
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 1, 1, 0, 0, 0);
+        batches[1] = _createUserBoostBatch(user2PrivateKey, user2, "user2", 1, 2, 2, 0, 200, 0);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+
+        // user1은 저장 실패했으므로 nonce 미소비, user2만 nonce 소비
+        assertFalse(boosting.usedUserNonces(user1, 0));
+        assertTrue(boosting.usedUserNonces(user2, 0));
+
+        // 집계는 user2만 반영
+        assertEq(boosting.artistTotalAmt(1, 1), 0);
+        assertEq(boosting.artistTotalAmt(1, 2), 200);
+    }
+
     function test_SubmitMixedUsersAndBoosts() public {
         // 실제 시나리오: 다양한 사용자의 다양한 부스팅
         Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](5);
@@ -359,6 +378,22 @@ contract BoostingTest is Test {
         // Soft-fail: per-record 검증 실패 → 해당 레코드만 실패 → 모든 유저 실패 시 NoSuccessfulUser
         vm.expectRevert(Boosting.NoSuccessfulUser.selector);
         boosting.submitBoostBatch(batches, 0, executorSig);
+    }
+
+    function test_TwoUsersSameRecordHash_BothStored() public {
+        // recordHash가 user를 포함하므로, 두 유저가 동일한 입력값을 제출해도 둘 다 저장되어야 한다.
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](2);
+
+        // 동일한 timestamp를 만들기 위해 같은 블록 타임에서 생성
+        batches[0] = _createUserBoostBatch(user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0);
+        batches[1] = _createUserBoostBatch(user2PrivateKey, user2, "user2", 1, 1, 1, 0, 100, 0);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+
+        // 둘 다 반영되어 총 200
+        assertEq(boosting.artistTotalAmt(1, 1), 200);
+        assertEq(boosting.boostCountByMission(1), 2);
     }
 
     // LengthMismatch 테스트 제거 - 새로운 구조에서는 record와 userSig가 구조체로 묶여있어 불일치 불가능
@@ -659,6 +694,23 @@ contract BoostingTest is Test {
         // 중복 nonce 사용 시 모든 유저 실패 → NoSuccessfulUser
         vm.expectRevert(Boosting.NoSuccessfulUser.selector);
         boosting.submitBoostBatch(batches2, 1, executorSig2);
+    }
+
+    function test_RevertWhen_SetArtistInvalidId() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(Boosting.InvalidOptionId.selector, 0)
+        );
+        boosting.setArtist(1, 0, "Invalid", true);
+    }
+
+    function test_RevertWhen_SetArtistEmptyName() public {
+        vm.expectRevert(Boosting.EmptyText.selector);
+        boosting.setArtist(1, 1, "", true);
+    }
+
+    function test_RevertWhen_SetBoostingTypeNameEmptyName() public {
+        vm.expectRevert(Boosting.EmptyText.selector);
+        boosting.setBoostingTypeName(0, "");
     }
 
 }

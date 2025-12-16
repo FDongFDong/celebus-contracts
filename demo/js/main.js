@@ -203,7 +203,9 @@ class MainVotingApp {
       domainSeparatorCalcBtn.addEventListener('click', () => {
         setTimeout(() => {
           if (this.state.domainSeparator) {
-            this.steps.step6.loadPreviousResults();
+            if (typeof this.steps.step6?.loadPreviousResults === 'function') {
+              this.steps.step6.loadPreviousResults();
+            }
           }
         }, 100);
       });
@@ -215,7 +217,9 @@ class MainVotingApp {
       structHashCalcBtn.addEventListener('click', () => {
         setTimeout(() => {
           if (this.state.structHash) {
-            this.steps.step6.loadPreviousResults();
+            if (typeof this.steps.step6?.loadPreviousResults === 'function') {
+              this.steps.step6.loadPreviousResults();
+            }
           }
         }, 100);
       });

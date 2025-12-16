@@ -90,7 +90,7 @@ contract Boosting is Ownable2Step, EIP712 {
      */
     bytes32 private constant BOOST_RECORD_TYPEHASH =
         keccak256(
-            "BoostRecord(uint256 timestamp,uint256 missionId,uint256 boostingId,uint256 optionId,uint8 boostingWith,uint256 amt)"
+            "BoostRecord(uint256 timestamp,uint256 missionId,uint256 boostingId,uint256 optionId,uint8 boostingWith,uint256 amt,address user)"
         );
 
     /**
@@ -142,8 +142,17 @@ contract Boosting is Ownable2Step, EIP712 {
     /// @dev 배열 길이가 맞지 않음
     error LengthMismatch();
 
+    /// @dev 입력 레코드/배치가 비어있음
+    error InvalidRecordIndices();
+
     /// @dev 호출자가 owner도 executorSigner도 아님
     error NotOwnerOrExecutor();
+
+    /// @dev 빈 문자열 입력
+    error EmptyText();
+
+    /// @dev optionId가 0일 때
+    error InvalidOptionId(uint256 optionId);
 
     /// @dev 해당 missionId/optionId의 아티스트가 허용되지 않음
     error ArtistNotAllowed(uint256 missionId, uint256 optionId);
@@ -245,6 +254,8 @@ contract Boosting is Ownable2Step, EIP712 {
      *
      * 구조: recordDigest => consumed
      */
+    /// @dev 중복 레코드 방지 (recordDigest => consumed)
+    ///      recordDigest(recordHash)는 EIP-712 BoostRecord 해시이며 user를 포함합니다.
     mapping(bytes32 => bool) public consumed;
 
     /**
@@ -386,15 +397,6 @@ contract Boosting is Ownable2Step, EIP712 {
      */
     event BoostingTypeSet(uint8 indexed typeId, string name);
 
-    /// @notice 부스팅 스킵 이벤트 (중복 또는 0 수량)
-    /// @param reason 1=duplicate, 2=zeroAmount
-    event BoostSkipped(
-        address indexed user,
-        uint256 indexed boostingId,
-        uint256 recordId,
-        uint8 reason
-    );
-
     /**
      * @dev boostingId별 부스팅 결과 이벤트
      *      MainVoting/SubVoting의 UserVoteResult와 일관성 유지
@@ -459,6 +461,8 @@ contract Boosting is Ownable2Step, EIP712 {
         string calldata name,
         bool allowed_
     ) external onlyOwner {
+        if (optionId == 0) revert InvalidOptionId(optionId);
+        if (bytes(name).length == 0) revert EmptyText();
         artistName[missionId][optionId] = name;
         allowedArtist[missionId][optionId] = allowed_;
         emit ArtistSet(missionId, optionId, name, allowed_);
@@ -478,6 +482,7 @@ contract Boosting is Ownable2Step, EIP712 {
         string calldata name
     ) external onlyOwner {
         if (typeId > MAX_BOOST_TYPE) revert InvalidBoostType(typeId);
+        if (bytes(name).length == 0) revert EmptyText();
         boostingTypeName[typeId] = name;
         emit BoostingTypeSet(typeId, name);
     }
@@ -496,7 +501,8 @@ contract Boosting is Ownable2Step, EIP712 {
      *   백엔드가 나중에 userId를 주입합니다.
      */
     function _hashBoostRecord(
-        BoostRecord calldata record
+        BoostRecord calldata record,
+        address user
     ) internal pure returns (bytes32) {
         return
             keccak256(
@@ -507,7 +513,8 @@ contract Boosting is Ownable2Step, EIP712 {
                     record.boostingId,
                     record.optionId,
                     record.boostingWith,
-                    record.amt
+                    record.amt,
+                    user
                 )
             );
     }
@@ -623,9 +630,10 @@ contract Boosting is Ownable2Step, EIP712 {
      * @return recordDigest 레코드의 해시
      */
     function _buildRecordDigest(
-        BoostRecord calldata record
+        BoostRecord calldata record,
+        address user
     ) internal pure returns (bytes32 recordDigest) {
-        recordDigest = _hashBoostRecord(record);
+        recordDigest = _hashBoostRecord(record, user);
     }
 
     // ========================================
@@ -666,33 +674,8 @@ contract Boosting is Ownable2Step, EIP712 {
             emit UserBoostFailed(batchDigest, user, nonce_, reasonCode);
             return (false, reasonCode);
         }
-
-        // Nonce 사용 처리
-        usedUserNonces[user][nonce_] = true;
-
-        emit UserBoostProcessed(batchDigest, user, nonce_);
         return (true, 0);
     }
-
-    /**
-     * @dev 배치 서명 검증
-     * @param batchNonce 배치 nonce
-     * @param executorSig 실행자 서명
-     * @return batchDigest 배치 다이제스트
-     */
-    function _verifyBatchSignature(
-        uint256 batchNonce,
-        bytes calldata executorSig
-    ) internal returns (bytes32 batchDigest) {
-        batchDigest = _hashBatch(batchNonce);
-        if (!_isValidSig(executorSigner, batchDigest, executorSig)) {
-            revert InvalidSignature();
-        }
-
-        _consumeBatchNonce(executorSigner, batchNonce);
-    }
-
-
 
     // ========================================
     // 내부 함수: 저장 로직 (Internal: Storage)
@@ -703,7 +686,7 @@ contract Boosting is Ownable2Step, EIP712 {
      *      MainVoting/SubVoting과 동일한 패턴: 유저 배치당 1개의 UserMissionResult 이벤트
      *
      * @param batches 배치 배열
-     * @param recordDigests 레코드 해시 배열
+     * @param recordHashes 레코드 해시 배열
      * @param userOk 유저별 검증 통과 여부
      * @param userReason 유저별 실패 사유 코드 (검증 통과 시 추가 검증에서 사용)
      * @param batchDigest 배치 다이제스트 (이벤트용)
@@ -715,11 +698,11 @@ contract Boosting is Ownable2Step, EIP712 {
      */
     function _storeBoostRecords(
         UserBoostBatch[] calldata batches,
-        bytes32[] memory recordDigests,
+        bytes32[] memory recordHashes,
         bool[] memory userOk,
         uint8[] memory userReason,
         bytes32 batchDigest
-    ) internal returns (uint256 storedCount) {
+    ) internal returns (uint256 storedCount, uint256 successfulUserCount) {
         uint256 len = batches.length;
 
         for (uint256 i; i < len; ) {
@@ -741,30 +724,32 @@ contract Boosting is Ownable2Step, EIP712 {
             // per-record 검증 및 저장 (Boosting은 1:1이므로 레코드 1개)
             bool recordFailed;
             uint8 localReason;
+            bytes32 recordDigest = recordHashes[i];
 
+            // 중복 레코드 검증
+            if (consumed[recordDigest]) {
+                recordFailed = true;
+                localReason = REASON_DUPLICATE_HASH;
+            }
             // 0포인트 부스팅 검증
-            if (record.amt == 0) {
-                emit BoostSkipped(user, record.boostingId, record.recordId, 2);
+            else if (record.amt == 0) {
                 recordFailed = true;
                 localReason = REASON_ZERO_AMT;
             }
             // boostingWith 타입 검증
             else if (record.boostingWith > MAX_BOOST_TYPE) {
-                emit UserBoostFailed(batchDigest, user, nonce_, REASON_INVALID_BOOST_TYPE);
                 recordFailed = true;
                 localReason = REASON_INVALID_BOOST_TYPE;
             }
             // 아티스트 허용 여부 검증
             else if (!allowedArtist[record.missionId][record.optionId]) {
-                emit UserBoostFailed(batchDigest, user, nonce_, REASON_ARTIST_NOT_ALLOWED);
                 recordFailed = true;
                 localReason = REASON_ARTIST_NOT_ALLOWED;
             }
-            // 중복 레코드 검증
-            else if (consumed[recordDigests[i]]) {
-                emit BoostSkipped(user, record.boostingId, record.recordId, 1);
+            // nonce 중복(같은 트랜잭션 내에서 선행 저장으로 인해 사용 처리된 경우 포함)
+            else if (usedUserNonces[user][nonce_]) {
                 recordFailed = true;
-                localReason = REASON_DUPLICATE_HASH;
+                localReason = REASON_USER_NONCE_INVALID;
             }
 
             // 검증 실패 시 → UserMissionResult(false) 1개 발생
@@ -778,8 +763,10 @@ contract Boosting is Ownable2Step, EIP712 {
                 continue;
             }
 
-            // 여기까지 왔다면 검증 통과 → 저장
-            bytes32 recordDigest = recordDigests[i];
+            // 여기까지 왔다면 최종 검증 통과 → nonce 소비 + 저장
+            usedUserNonces[user][nonce_] = true;
+            emit UserBoostProcessed(batchDigest, user, nonce_);
+
             consumed[recordDigest] = true;
             boosts[recordDigest] = record;
 
@@ -804,6 +791,7 @@ contract Boosting is Ownable2Step, EIP712 {
 
             unchecked {
                 ++storedCount;
+                ++successfulUserCount;
                 ++i;
             }
         }
@@ -842,16 +830,20 @@ contract Boosting is Ownable2Step, EIP712 {
     ) external {
         // === 1. 입력 검증 ===
         uint256 userCount = batches.length;
-        if (userCount == 0) revert BatchTooLarge();
+        if (userCount == 0) revert InvalidRecordIndices();
         if (userCount > MAX_RECORDS_PER_BATCH) revert BatchTooLarge();
         if (executorSigner == address(0)) revert ZeroAddress();
         if (block.chainid != CHAIN_ID) revert BadChain();
 
         // === 2. Executor 서명 & Nonce 검증 ===
-        bytes32 batchDigest = _verifyBatchSignature(batchNonce_, executorSig);
+        bytes32 batchDigest = _hashBatch(batchNonce_);
+        if (!_isValidSig(executorSigner, batchDigest, executorSig)) {
+            revert InvalidSignature();
+        }
+        _consumeBatchNonce(executorSigner, batchNonce_);
 
         // === 3. 각 유저별 Soft-fail 검증 (문자열 검증 포함) ===
-        bytes32[] memory recordDigests = new bytes32[](userCount);
+        bytes32[] memory recordHashes = new bytes32[](userCount);
         bool[] memory userOk = new bool[](userCount);
         uint8[] memory userReason = new uint8[](userCount);
         uint256 successUserCount;
@@ -865,7 +857,7 @@ contract Boosting is Ownable2Step, EIP712 {
                 userOk[i] = false;
                 userReason[i] = REASON_STRING_TOO_LONG;
                 emit UserBoostFailed(batchDigest, user, nonce_, REASON_STRING_TOO_LONG);
-                recordDigests[i] = bytes32(0);
+                recordHashes[i] = bytes32(0);
                 unchecked {
                     ++i;
                 }
@@ -873,11 +865,11 @@ contract Boosting is Ownable2Step, EIP712 {
             }
 
             // 레코드 해시 생성
-            recordDigests[i] = _buildRecordDigest(batches[i].record);
+            recordHashes[i] = _buildRecordDigest(batches[i].record, user);
 
             (bool ok, uint8 reason) = _verifyUserSignatureSoft(
                 batches[i].userSig,
-                recordDigests[i],
+                recordHashes[i],
                 batchDigest
             );
 
@@ -897,9 +889,9 @@ contract Boosting is Ownable2Step, EIP712 {
         if (successUserCount == 0) revert NoSuccessfulUser();
 
         // === 5. 레코드 저장 ===
-        uint256 stored = _storeBoostRecords(
+        (uint256 stored, uint256 successfulUsers) = _storeBoostRecords(
             batches,
-            recordDigests,
+            recordHashes,
             userOk,
             userReason,
             batchDigest
@@ -912,7 +904,7 @@ contract Boosting is Ownable2Step, EIP712 {
             batchNonce_,
             stored,
             userCount,
-            userCount - successUserCount
+            userCount - successfulUsers
         );
     }
 

@@ -153,7 +153,7 @@ export class Step3UserSigs {
         const record = userRecords[i];
 
         // 레코드 해시 계산
-        const recordHash = hashBoostRecord(record);
+        const recordHash = hashBoostRecord(record, wallet.address);
 
         // EIP-712 서명 (컨트랙트 규격: UserSig(address user,uint256 userNonce,bytes32 recordHash))
         const value = {

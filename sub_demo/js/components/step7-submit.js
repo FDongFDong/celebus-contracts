@@ -3,7 +3,7 @@
  * SubVoting N:1 구조: 유저당 { records: [...], userBatchSig: {...} }
  */
 
-import { CONFIG, getContractInstance } from '../config.js?v=3';
+import { CONFIG, getContractInstance } from '../config.js?v=4';
 
 export class Step7Submit {
   constructor(state) {

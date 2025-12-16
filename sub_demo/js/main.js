@@ -3,16 +3,16 @@
  * 모든 Step 컴포넌트를 통합하고 애플리케이션을 초기화합니다
  */
 
-import { Step0Setup } from './components/step0-setup.js?v=3';
-import { Step1Executor } from './components/step1-executor.js?v=3';
-import { Step2Records } from './components/step2-records.js?v=3';
-import { Step3UserSigs } from './components/step3-user-sigs.js?v=3';
-import { Step4Domain } from './components/step4-domain.js?v=3';
-import { Step5Struct } from './components/step5-struct.js?v=3';
-import { Step6Digest } from './components/step6-digest.js?v=3';
-import { Step7Submit } from './components/step7-submit.js?v=3';
-import { Step8Query } from './components/step8-query.js?v=3';
-import { Step9Events } from './components/step9-events.js?v=3';
+import { Step0Setup } from './components/step0-setup.js?v=4';
+import { Step1Executor } from './components/step1-executor.js?v=4';
+import { Step2Records } from './components/step2-records.js?v=4';
+import { Step3UserSigs } from './components/step3-user-sigs.js?v=4';
+import { Step4Domain } from './components/step4-domain.js?v=4';
+import { Step5Struct } from './components/step5-struct.js?v=4';
+import { Step6Digest } from './components/step6-digest.js?v=4';
+import { Step7Submit } from './components/step7-submit.js?v=4';
+import { Step8Query } from './components/step8-query.js?v=4';
+import { Step9Events } from './components/step9-events.js?v=4';
 
 class SubVotingApp {
   constructor() {
@@ -203,7 +203,9 @@ class SubVotingApp {
       domainSeparatorCalcBtn.addEventListener('click', () => {
         setTimeout(() => {
           if (this.state.domainSeparator) {
-            this.steps.step6.loadPreviousResults();
+            if (typeof this.steps.step6?.loadPreviousResults === 'function') {
+              this.steps.step6.loadPreviousResults();
+            }
           }
         }, 100);
       });
@@ -215,7 +217,9 @@ class SubVotingApp {
       structHashCalcBtn.addEventListener('click', () => {
         setTimeout(() => {
           if (this.state.structHash) {
-            this.steps.step6.loadPreviousResults();
+            if (typeof this.steps.step6?.loadPreviousResults === 'function') {
+              this.steps.step6.loadPreviousResults();
+            }
           }
         }, 100);
       });

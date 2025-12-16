@@ -3,7 +3,7 @@
  * SubVoting N:1 구조: 유저당 최대 5개 레코드 = 1개 서명
  */
 
-import { CONFIG } from '../config.js?v=3';
+import { CONFIG } from '../config.js?v=4';
 
 export class Step2Records {
   constructor(state) {
