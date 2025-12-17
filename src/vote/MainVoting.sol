@@ -45,16 +45,16 @@ contract MainVoting is Ownable2Step, EIP712 {
     uint8 public constant VOTE_TYPE_REMEMBER = 1;
 
     // UserBatchFailed / UserMissionResult 이벤트용 실패 사유 코드
-    uint8 private constant REASON_USER_BATCH_TOO_LARGE = 1;      // 유저 배치 크기 초과 (레코드 0개 또는 MAX_RECORDS_PER_USER_BATCH 초과)
-    uint8 private constant REASON_INVALID_USER_SIGNATURE = 2;    // 유저 서명 검증 실패 (EIP-712 서명 불일치)
-    uint8 private constant REASON_USER_NONCE_INVALID = 3;        // 유저 nonce 중복 사용 (이미 사용된 nonce)
-    uint8 private constant REASON_INVALID_VOTE_TYPE = 4;         // 잘못된 투표 타입 (0 또는 MAX_VOTE_TYPE 초과)
-    uint8 private constant REASON_ARTIST_NOT_ALLOWED = 5;        // 허용되지 않은 아티스트 (비활성화된 아티스트에 투표 시도)
-    uint8 private constant REASON_STRING_TOO_LONG = 6;           // 문자열 길이 초과 (userId > 100자)
-    uint8 private constant REASON_DUPLICATE_RECORD = 7;          // 중복 레코드 (이미 저장된 레코드 또는 배치 내 중복)
-    uint8 private constant REASON_ZERO_AMOUNT = 8;               // votingAmt = 0
-    uint8 private constant REASON_VOTING_ID_MISMATCH = 9;         // 유저 배치 내 votingId 불일치
-    uint8 private constant REASON_INVALID_OPTION_ID = 10;         // 잘못된 optionId (0)
+    uint8 private constant REASON_USER_BATCH_TOO_LARGE = 1; // 유저 배치 크기 초과 (레코드 0개 또는 MAX_RECORDS_PER_USER_BATCH 초과)
+    uint8 private constant REASON_INVALID_USER_SIGNATURE = 2; // 유저 서명 검증 실패 (EIP-712 서명 불일치)
+    uint8 private constant REASON_USER_NONCE_INVALID = 3; // 유저 nonce 중복 사용 (이미 사용된 nonce)
+    uint8 private constant REASON_INVALID_VOTE_TYPE = 4; // 잘못된 투표 타입 (0 또는 MAX_VOTE_TYPE 초과)
+    uint8 private constant REASON_ARTIST_NOT_ALLOWED = 5; // 허용되지 않은 아티스트 (비활성화된 아티스트에 투표 시도)
+    uint8 private constant REASON_STRING_TOO_LONG = 6; // 문자열 길이 초과 (userId > 100자)
+    uint8 private constant REASON_DUPLICATE_RECORD = 7; // 중복 레코드 (이미 저장된 레코드 또는 배치 내 중복)
+    uint8 private constant REASON_ZERO_AMOUNT = 8; // votingAmt = 0
+    uint8 private constant REASON_VOTING_ID_MISMATCH = 9; // 유저 배치 내 votingId 불일치
+    uint8 private constant REASON_INVALID_OPTION_ID = 10; // 잘못된 optionId (0)
 
     // EIP-712 TypeHash: 서명 검증용 구조체 해시
     // recordId는 서명 데이터에 포함되지 않음 (백엔드 생성, 온체인 식별용)
@@ -309,7 +309,8 @@ contract MainVoting is Ownable2Step, EIP712 {
             mstore(add(ptr, 0xa0), voteType_)
             mstore(add(ptr, 0xc0), votingAmt_)
             mstore(add(ptr, 0xe0), user)
-            result := keccak256(ptr, 0x100)
+            // assembly 레벨에서는 KECCAK256(offset, lenght)
+            result := keccak256(ptr, 0x100) // 256bytes
         }
     }
 
@@ -351,7 +352,9 @@ contract MainVoting is Ownable2Step, EIP712 {
     }
 
     /// @dev 문자열 검증 (soft-fail 버전) - 모든 레코드의 userId 길이 검증
-    function _validateStringsSoft(VoteRecord[] calldata records) internal pure returns (bool) {
+    function _validateStringsSoft(
+        VoteRecord[] calldata records
+    ) internal pure returns (bool) {
         uint256 len = records.length;
         for (uint256 j; j < len; ) {
             if (bytes(records[j].userId).length > MAX_STRING_LENGTH) {
@@ -567,7 +570,12 @@ contract MainVoting is Ownable2Step, EIP712 {
             );
             if (fail) {
                 if (userRecordLen > 0) {
-                    emit UserMissionResult(votingId, false, allRecordIds, failReason);
+                    emit UserMissionResult(
+                        votingId,
+                        false,
+                        allRecordIds,
+                        failReason
+                    );
                 }
                 unchecked {
                     ++i;
@@ -671,7 +679,12 @@ contract MainVoting is Ownable2Step, EIP712 {
             if (!_validateStringsSoft(batches[i].records)) {
                 userOk[i] = false;
                 userReason[i] = REASON_STRING_TOO_LONG;
-                emit UserBatchFailed(batchDigest, user, nonce_, REASON_STRING_TOO_LONG);
+                emit UserBatchFailed(
+                    batchDigest,
+                    user,
+                    nonce_,
+                    REASON_STRING_TOO_LONG
+                );
                 recordDigests[i] = new bytes32[](0);
                 unchecked {
                     ++i;
