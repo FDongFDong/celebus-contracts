@@ -241,3 +241,120 @@ details[open] summary {
 .no-data {
   @apply text-center text-gray-500 py-4;
 }
+
+/* 도트 네비게이션 */
+.dot-navigation {
+  position: fixed;
+  right: 2rem;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.dot-nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.dot-nav-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #d1d5db;
+  border: 2px solid #9ca3af;
+  transition: all 0.3s ease;
+  position: relative;
+  z-index: 2;
+}
+
+.dot-nav-item:hover .dot-nav-dot {
+  width: 14px;
+  height: 14px;
+  border-width: 3px;
+}
+
+.dot-nav-item.active .dot-nav-dot {
+  width: 16px;
+  height: 16px;
+  border-width: 3px;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+}
+
+/* 섹션별 색상 */
+.dot-nav-item.deploy .dot-nav-dot { background: #a855f7; border-color: #7e22ce; }
+.dot-nav-item.deploy.active .dot-nav-dot { background: #9333ea; border-color: #6b21a8; }
+
+.dot-nav-item.step0 .dot-nav-dot { background: #6b7280; border-color: #4b5563; }
+.dot-nav-item.step0.active .dot-nav-dot { background: #4b5563; border-color: #374151; }
+
+.dot-nav-item.step1 .dot-nav-dot { background: #fbbf24; border-color: #f59e0b; }
+.dot-nav-item.step1.active .dot-nav-dot { background: #f59e0b; border-color: #d97706; }
+
+.dot-nav-item.step2 .dot-nav-dot { background: #60a5fa; border-color: #3b82f6; }
+.dot-nav-item.step2.active .dot-nav-dot { background: #3b82f6; border-color: #2563eb; }
+
+.dot-nav-item.step3 .dot-nav-dot { background: #34d399; border-color: #10b981; }
+.dot-nav-item.step3.active .dot-nav-dot { background: #10b981; border-color: #059669; }
+
+.dot-nav-item.step4 .dot-nav-dot { background: #f472b6; border-color: #ec4899; }
+.dot-nav-item.step4.active .dot-nav-dot { background: #ec4899; border-color: #db2777; }
+
+.dot-nav-item.step5 .dot-nav-dot { background: #fb923c; border-color: #f97316; }
+.dot-nav-item.step5.active .dot-nav-dot { background: #f97316; border-color: #ea580c; }
+
+.dot-nav-item.step6 .dot-nav-dot { background: #a78bfa; border-color: #8b5cf6; }
+.dot-nav-item.step6.active .dot-nav-dot { background: #8b5cf6; border-color: #7c3aed; }
+
+.dot-nav-item.step7 .dot-nav-dot { background: #ef4444; border-color: #dc2626; }
+.dot-nav-item.step7.active .dot-nav-dot { background: #dc2626; border-color: #b91c1c; }
+
+.dot-nav-item.step8 .dot-nav-dot { background: #06b6d4; border-color: #0891b2; }
+.dot-nav-item.step8.active .dot-nav-dot { background: #0891b2; border-color: #0e7490; }
+
+.dot-nav-item.step9 .dot-nav-dot { background: #c084fc; border-color: #a855f7; }
+.dot-nav-item.step9.active .dot-nav-dot { background: #a855f7; border-color: #9333ea; }
+
+.dot-nav-item.step10 .dot-nav-dot { background: #14b8a6; border-color: #0d9488; }
+.dot-nav-item.step10.active .dot-nav-dot { background: #0d9488; border-color: #0f766e; }
+
+/* 라벨 - 항상 표시 */
+.dot-nav-label {
+  margin-right: 10px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #374151;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: all 0.3s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e5e7eb;
+}
+
+.dot-nav-item:hover .dot-nav-label {
+  background: #1f2937;
+  color: white;
+  border-color: #1f2937;
+}
+
+.dot-nav-item.active .dot-nav-label {
+  background: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+  font-weight: 600;
+}
+
+/* 모바일에서 숨김 */
+@media (max-width: 768px) {
+  .dot-navigation {
+    display: none;
+  }
+}

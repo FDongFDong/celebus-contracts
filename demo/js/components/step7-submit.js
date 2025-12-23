@@ -33,7 +33,7 @@ export class Step7Submit {
 
   render() {
     return `
-      <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-red-500">
+      <div id="step7" class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-red-500">
         <h2 class="text-xl font-semibold mb-4">
           <span class="step-badge bg-red-500">STEP 7</span>
           <i data-lucide="rocket" class="w-5 h-5 inline"></i> 컨트랙트 제출(Backend)

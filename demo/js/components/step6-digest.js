@@ -12,7 +12,7 @@ export class Step6Digest {
 
   render() {
     return `
-      <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-green-500">
+      <div id="step6" class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-green-500">
         <h2 class="text-xl font-semibold mb-4">
           <span class="step-badge bg-green-500">STEP 6</span>
           <i data-lucide="shield" class="w-5 h-5 inline"></i> Final Digest 및 Executor 서명

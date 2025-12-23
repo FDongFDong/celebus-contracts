@@ -13,7 +13,7 @@ export class Step8Query {
 
   render() {
     return `
-      <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-purple-500">
+      <div id="step8" class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-purple-500">
         <h2 class="text-xl font-semibold mb-4">
           <span class="step-badge bg-purple-500">STEP 8</span>
           <i data-lucide="search" class="w-5 h-5 inline"></i> 컨트랙트 조회

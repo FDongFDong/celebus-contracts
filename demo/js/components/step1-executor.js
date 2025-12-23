@@ -14,7 +14,7 @@ export class Step1Executor {
 
   render() {
     return `
-      <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-yellow-500">
+      <div id="step1" class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-yellow-500">
         <h2 class="text-xl font-semibold mb-4">
           <span class="step-badge bg-yellow-500">STEP 1</span>
           <i data-lucide="zap" class="w-5 h-5 inline"></i> Executor 지갑 초기화

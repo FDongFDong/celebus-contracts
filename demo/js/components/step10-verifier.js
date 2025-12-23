@@ -10,7 +10,7 @@ export class Step10Verifier {
 
   render() {
     return `
-      <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-pink-500">
+      <div id="step10" class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-pink-500">
         <h2 class="text-xl font-semibold mb-4">
           <span class="step-badge bg-pink-500">STEP 10</span>
           <i data-lucide="shield-check" class="w-5 h-5 inline"></i> 서명 검증 유틸리티

@@ -12,7 +12,7 @@ export class Step5Struct {
 
   render() {
     return `
-      <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-yellow-500">
+      <div id="step5" class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-yellow-500">
         <h2 class="text-xl font-semibold mb-4">
           <span class="step-badge bg-yellow-500">STEP 5</span>
           <i data-lucide="bar-chart-2" class="w-5 h-5 inline"></i> Struct Hash 계산

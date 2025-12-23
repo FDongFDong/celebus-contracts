@@ -76,6 +76,7 @@ class MainVotingApp {
     this.attachEventListeners();
     this.setupInterStepCommunication();
     this.setupContractAddressSync();
+    this.setupDotNavigation();
 
     // STEP 0 초기화 (배포 기능 포함 - async)
     if (this.steps.step0) {
@@ -293,11 +294,103 @@ class MainVotingApp {
   }
 
   /**
+   * 도트 네비게이션 설정
+   */
+  setupDotNavigation() {
+    const sections = [
+      { id: 'step-deploy', label: '배포', className: 'deploy' },
+      { id: 'step0', label: '초기 설정', className: 'step0' },
+      { id: 'step1', label: '지갑 초기화', className: 'step1' },
+      { id: 'step2', label: '레코드 생성', className: 'step2' },
+      { id: 'step3', label: '유저 서명', className: 'step3' },
+      { id: 'step4', label: 'Domain', className: 'step4' },
+      { id: 'step5', label: 'Struct Hash', className: 'step5' },
+      { id: 'step6', label: 'Executor 서명', className: 'step6' },
+      { id: 'step7', label: '제출', className: 'step7' },
+      { id: 'step8', label: '조회', className: 'step8' },
+      { id: 'step9', label: '이벤트', className: 'step9' },
+      { id: 'step10', label: '검증', className: 'step10' }
+    ];
+
+    const dotNav = document.getElementById('dotNav');
+    if (!dotNav) return;
+
+    // 도트 네비게이션 아이템 생성
+    sections.forEach(section => {
+      const item = document.createElement('div');
+      item.className = `dot-nav-item ${section.className}`;
+      item.innerHTML = `
+        <span class="dot-nav-label">${section.label}</span>
+        <div class="dot-nav-dot"></div>
+      `;
+
+      // 클릭 시 스무스 스크롤
+      item.addEventListener('click', () => {
+        const target = document.getElementById(section.id);
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+
+      dotNav.appendChild(item);
+    });
+
+    // 스크롤 이벤트 감지
+    let ticking = false;
+    window.addEventListener('scroll', () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          this.updateActiveDot(sections);
+          ticking = false;
+        });
+        ticking = true;
+      }
+    });
+
+    // 초기 활성화
+    this.updateActiveDot(sections);
+    console.log('[NAV] Dot navigation setup complete');
+  }
+
+  /**
+   * 현재 스크롤 위치에 따라 활성 도트 업데이트
+   */
+  updateActiveDot(sections) {
+    const scrollPos = window.scrollY + 100; // 헤더 오프셋
+    let activeSection = null;
+
+    // 현재 보이는 섹션 찾기
+    for (const section of sections) {
+      const element = document.getElementById(section.id);
+      if (!element) continue;
+
+      const rect = element.getBoundingClientRect();
+      const elementTop = window.scrollY + rect.top;
+
+      if (scrollPos >= elementTop) {
+        activeSection = section.className;
+      }
+    }
+
+    // 모든 도트에서 active 제거
+    const allDots = document.querySelectorAll('.dot-nav-item');
+    allDots.forEach(dot => dot.classList.remove('active'));
+
+    // 현재 섹션 도트에 active 추가
+    if (activeSection) {
+      const activeDot = document.querySelector(`.dot-nav-item.${activeSection}`);
+      if (activeDot) {
+        activeDot.classList.add('active');
+      }
+    }
+  }
+
+  /**
    * Step 9: UserMissionResult 이벤트 조회 UI 렌더링
    */
   renderStep9() {
     return `
-      <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-purple-500">
+      <div id="step9" class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-purple-500">
         <h2 class="text-xl font-semibold mb-4">
           <span class="step-badge bg-purple-500">STEP 9</span>
           <i data-lucide="bell" class="w-5 h-5 inline"></i> UserMissionResult 이벤트 조회

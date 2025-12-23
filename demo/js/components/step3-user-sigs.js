@@ -13,7 +13,7 @@ export class Step3UserSigs {
 
   render() {
     return `
-      <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-purple-500">
+      <div id="step3" class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-purple-500">
         <h2 class="text-xl font-semibold mb-4">
           <span class="step-badge bg-purple-500">STEP 3</span>
           <i data-lucide="pen-tool" class="w-5 h-5 inline"></i> User Batch Signatures 생성(Frontend)

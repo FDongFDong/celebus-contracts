@@ -12,7 +12,7 @@ export class Step2Records {
 
   render() {
     return `
-      <div class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-blue-500">
+      <div id="step2" class="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-blue-500">
         <h2 class="text-xl font-semibold mb-4">
           <span class="step-badge">STEP 2</span>
           <i data-lucide="file-text" class="w-5 h-5 inline"></i> 투표 레코드 생성(Frontend)
