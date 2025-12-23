@@ -380,15 +380,16 @@ export class Step7Submit {
           .filter(r => r.userAddress === sig.user)
           .map(r => {
             const recordId = generateRecordId(globalIndex++);
+            // 모든 uint256 필드를 BigInt로 변환 (큰 숫자 지원)
             return [
-              recordId,       // recordId: bytes32 (첫 번째 필드)
-              r.timestamp,
-              r.missionId,
-              r.votingId,
-              r.optionId,
-              r.voteType,
-              r.userId,
-              r.votingAmt
+              recordId,                // recordId: bytes32
+              BigInt(r.timestamp),     // timestamp: uint256
+              BigInt(r.missionId),     // missionId: uint256
+              BigInt(r.votingId),      // votingId: uint256
+              BigInt(r.optionId),      // optionId: uint256
+              r.voteType,              // voteType: uint8 (작은 숫자)
+              r.userId,                // userId: string
+              BigInt(r.votingAmt)      // votingAmt: uint256
             ];
           });
 
@@ -396,13 +397,13 @@ export class Step7Submit {
           userRecords,  // records: VoteRecord[]
           [             // userBatchSig: UserBatchSig
             sig.user,
-            sig.userNonce,
+            BigInt(sig.userNonce),  // userNonce: uint256
             sig.signature
           ]
         ];
       });
 
-      const batchNonce = this.state.batchNonce;
+      const batchNonce = BigInt(this.state.batchNonce);  // uint256
       const executorSig = this.state.executorSig;
 
       console.log('[TX] Submitting to contract (UserVoteBatch[]):', {

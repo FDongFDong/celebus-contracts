@@ -22,7 +22,7 @@ export class Step5Struct {
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-700 mb-1">Batch Nonce</label>
           <div class="flex gap-2">
-            <input type="number" id="batchNonce" class="flex-1 px-3 py-2 border rounded-md" value="0" min="0">
+            <input type="text" id="batchNonce" class="flex-1 px-3 py-2 border rounded-md font-mono" value="0" placeholder="숫자 입력">
             <button onclick="step5.checkNonce()"
                     class="bg-purple-500 text-white px-4 py-2 rounded-md hover:bg-purple-600 whitespace-nowrap">
               <i data-lucide="search" class="w-4 h-4 inline"></i> 사용 가능 확인
@@ -31,7 +31,7 @@ export class Step5Struct {
           <p class="text-xs text-gray-500 mt-1">
             배치의 고유 번호 (재전송 방지용) - 중복 체크 방식으로 원하는 숫자 사용 가능
           </p>
-          <div id="nonceCheckResult" class="hidden mt-2"></div>
+          <div id="batchNonceCheckResult" class="hidden mt-2"></div>
         </div>
 
         <!-- 계산 버튼 -->
@@ -85,15 +85,16 @@ export class Step5Struct {
       }
 
       const nonceInput = document.getElementById('batchNonce');
-      const nonceToCheck = parseInt(nonceInput.value);
+      const nonceValue = nonceInput.value.trim();
 
-      if (isNaN(nonceToCheck) || nonceToCheck < 0) {
-        alert('유효한 Nonce 값을 입력해주세요 (0 이상의 정수)');
+      // 숫자 형식 검증 (BigInt 지원)
+      if (!nonceValue || !/^\d+$/.test(nonceValue)) {
+        alert('유효한 Nonce 값을 입력해주세요 (숫자만)');
         return;
       }
 
-      const resultDiv = document.getElementById('nonceCheckResult');
-      resultDiv.innerHTML = '<p class="text-sm text-blue-600"><i data-lucide="search" class="w-4 h-4 inline"></i> Nonce 사용 여부 확인 중...</p>';
+      const resultDiv = document.getElementById('batchNonceCheckResult');
+      resultDiv.innerHTML = '<p class="text-sm text-blue-600"><i data-lucide="search" class="w-4 h-4 inline"></i> Batch Nonce 사용 여부 확인 중...</p>';
       resultDiv.classList.remove('hidden');
 
       const provider = new ethers.JsonRpcProvider('https://opbnb-testnet-rpc.bnbchain.org');
@@ -105,39 +106,50 @@ export class Step5Struct {
 
       const executorAddress = this.state.executorWallet.address;
 
+      // BigInt로 변환하여 큰 숫자 지원
+      const nonceBigInt = BigInt(nonceValue);
+
       // 중복 체크 방식: usedBatchNonces(address, nonce)로 특정 nonce 사용 여부 확인
-      const isUsed = await contract.usedBatchNonces(executorAddress, nonceToCheck);
+      const isUsed = await contract.usedBatchNonces(executorAddress, nonceBigInt);
 
       if (isUsed) {
-        resultDiv.innerHTML = `<p class="text-sm text-red-600"><i data-lucide="x-circle" class="w-4 h-4 inline"></i> Nonce ${nonceToCheck}은(는) 이미 사용되었습니다. 다른 값을 사용하세요.</p>`;
-        console.log('[INFO] Nonce', nonceToCheck, 'is already used');
+        resultDiv.innerHTML = `<p class="text-sm text-red-600"><i data-lucide="x-circle" class="w-4 h-4 inline"></i> Nonce ${nonceValue}은(는) 이미 사용되었습니다. 다른 값을 사용하세요.</p>`;
+        console.log('[INFO] Nonce', nonceValue, 'is already used');
       } else {
-        resultDiv.innerHTML = `<p class="text-sm text-green-600"><i data-lucide="check-circle" class="w-4 h-4 inline"></i> Nonce ${nonceToCheck}은(는) 사용 가능합니다!</p>`;
-        console.log('[SUCCESS] Nonce', nonceToCheck, 'is available');
+        resultDiv.innerHTML = `<p class="text-sm text-green-600"><i data-lucide="check-circle" class="w-4 h-4 inline"></i> Nonce ${nonceValue}은(는) 사용 가능합니다!</p>`;
+        console.log('[SUCCESS] Nonce', nonceValue, 'is available');
       }
 
     } catch (error) {
-      console.error('[ERROR] Nonce check failed:', error);
-      document.getElementById('nonceCheckResult').innerHTML =
+      console.error('[ERROR] Batch Nonce check failed:', error);
+      const resultDiv = document.getElementById('batchNonceCheckResult');
+      resultDiv.classList.remove('hidden');
+      resultDiv.innerHTML =
         `<p class="text-sm text-red-600"><i data-lucide="x-circle" class="w-4 h-4 inline"></i> 조회 실패: ${error.message}</p>`;
     }
   }
 
   calculate() {
     try {
-      // Batch Nonce 가져오기
-      const batchNonce = parseInt(document.getElementById('batchNonce').value);
+      // Batch Nonce 가져오기 (문자열로 저장, eip712.js에서 BigInt 변환)
+      const batchNonceValue = document.getElementById('batchNonce').value.trim();
+
+      // 숫자 형식 검증
+      if (!batchNonceValue || !/^\d+$/.test(batchNonceValue)) {
+        alert('유효한 Batch Nonce 값을 입력해주세요 (숫자만)');
+        return;
+      }
 
       // Batch TypeHash 계산
       const batchTypeHash = ethers.keccak256(
         ethers.toUtf8Bytes('Batch(uint256 batchNonce)')
       );
 
-      // Struct Hash 계산
-      const structHash = calculateStructHash(batchNonce);
+      // Struct Hash 계산 (문자열 전달, calculateStructHash에서 BigInt 변환)
+      const structHash = calculateStructHash(batchNonceValue);
 
-      // State에 저장
-      this.state.batchNonce = batchNonce;
+      // State에 저장 (문자열로 저장)
+      this.state.batchNonce = batchNonceValue;
       this.state.batchTypeHash = batchTypeHash;
       this.state.structHash = structHash;
 
@@ -147,11 +159,11 @@ export class Step5Struct {
       document.getElementById('structHashResult').classList.remove('hidden');
 
       // 계산 과정 설명 생성
-      const explanation = generateExplanation('struct', { batchNonce });
+      const explanation = generateExplanation('struct', { batchNonce: batchNonceValue });
       document.getElementById('structExplanation').innerHTML = explanation;
 
       console.log('[SUCCESS] Struct Hash calculated:', {
-        batchNonce,
+        batchNonce: batchNonceValue,
         batchTypeHash,
         structHash
       });

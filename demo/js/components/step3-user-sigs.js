@@ -20,7 +20,7 @@ export class Step3UserSigs {
         </h2>
         <p class="text-sm text-gray-600 mb-4">각 사용자가 자신의 레코드에 서명합니다</p>
 
-        <div class="grid grid-cols-2 gap-4 mb-4">
+        <div class="grid grid-cols-3 gap-4 mb-4">
           <!-- User 1 서명 -->
           <div class="bg-blue-50 rounded-lg border border-blue-200 p-4">
             <h3 class="text-lg font-semibold text-blue-800 mb-3"><i data-lucide="user" class="w-4 h-4 inline"></i> User 1 서명</h3>
@@ -54,6 +54,23 @@ export class Step3UserSigs {
               <p class="text-xs font-mono bg-white p-2 rounded mt-1 break-all" id="user2Signature">-</p>
             </div>
           </div>
+
+          <!-- Custom 사용자 서명 -->
+          <div class="bg-purple-50 rounded-lg border border-purple-200 p-4">
+            <h3 class="text-lg font-semibold text-purple-800 mb-3"><i data-lucide="key" class="w-4 h-4 inline"></i> Custom 서명</h3>
+            <div class="flex gap-2">
+              <button onclick="step3.signUserBatch(99)" class="bg-purple-500 text-white px-4 py-2 rounded-md hover:bg-purple-600 flex-1">
+                <i data-lucide="lock" class="w-4 h-4 inline"></i> Custom 서명 생성
+              </button>
+              <button onclick="step3.clearUserBatch(99)" id="customClearBtn" class="bg-red-500 text-white px-3 py-2 rounded-md hover:bg-red-600 hidden">
+                <i data-lucide="trash-2" class="w-4 h-4 inline"></i>
+              </button>
+            </div>
+            <div id="customSigResult" class="mt-3 hidden">
+              <p class="text-xs text-gray-600">서명:</p>
+              <p class="text-xs font-mono bg-white p-2 rounded mt-1 break-all" id="customSignature">-</p>
+            </div>
+          </div>
         </div>
 
         <div id="batchSigSummary" class="mt-4 hidden">
@@ -73,7 +90,7 @@ export class Step3UserSigs {
               <strong><i data-lucide="alert-triangle" class="w-4 h-4 inline"></i> 실제 프로덕션:</strong> 각 사용자는 <strong>자신의 기기</strong>에서 별도로 백엔드 API에 전송합니다
             </p>
 
-            <div class="grid grid-cols-2 gap-4" id="backendDataGrid">
+            <div class="grid grid-cols-3 gap-4" id="backendDataGrid">
               <!-- User 1 전송 데이터 -->
               <div class="bg-blue-50 border-2 border-blue-300 rounded-lg p-4">
                 <div class="flex items-center mb-3">
@@ -107,6 +124,23 @@ export class Step3UserSigs {
                   <pre class="text-xs font-mono" id="user2BackendData">-</pre>
                 </div>
               </div>
+
+              <!-- Custom 사용자 전송 데이터 -->
+              <div class="bg-purple-50 border-2 border-purple-300 rounded-lg p-4">
+                <div class="flex items-center mb-3">
+                  <i data-lucide="key" class="w-8 h-8 mr-2 text-purple-600"></i>
+                  <div>
+                    <h4 class="font-bold text-purple-900">Custom 기기</h4>
+                    <p class="text-xs text-purple-700">직접 입력한 Private Key</p>
+                  </div>
+                </div>
+                <div class="mb-2">
+                  <code class="text-xs text-purple-800 font-semibold">POST /api/vote/submit</code>
+                </div>
+                <div class="bg-white rounded border border-purple-200 p-3 max-h-96 overflow-y-auto">
+                  <pre class="text-xs font-mono" id="customBackendData">-</pre>
+                </div>
+              </div>
             </div>
 
             <!-- 백엔드 배치 처리 설명 -->
@@ -126,19 +160,40 @@ export class Step3UserSigs {
       // 해당 사용자의 레코드만 필터링
       const userRecords = this.state.records.filter(r => r.userIndex === userIndex);
 
+      const userName = userIndex === 0 ? 'User 1' : (userIndex === 1 ? 'User 2' : 'Custom');
       if (userRecords.length === 0) {
-        alert(`User ${userIndex + 1}의 레코드가 없습니다. Step 2에서 레코드를 추가해주세요.`);
+        alert(`${userName}의 레코드가 없습니다. Step 2에서 레코드를 추가해주세요.`);
         return;
       }
 
-      const wallet = userIndex === 0 ? this.state.user1Wallet : this.state.user2Wallet;
+      // 지갑 선택: User 1, User 2, 또는 Custom
+      let wallet;
+      if (userIndex === 0) {
+        wallet = this.state.user1Wallet;
+      } else if (userIndex === 1) {
+        wallet = this.state.user2Wallet;
+      } else {
+        wallet = this.state.customWallet;
+      }
+
       if (!wallet) {
-        alert('지갑이 초기화되지 않았습니다!');
+        if (userIndex === 99) {
+          alert('Custom 지갑이 설정되지 않았습니다. Step 2에서 Private Key를 입력해주세요!');
+        } else {
+          alert('지갑이 초기화되지 않았습니다!');
+        }
         return;
       }
 
       // User nonce 가져오기 - STEP 2에서 설정한 값 사용
-      const userNonce = userIndex === 0 ? (this.state.user1Nonce || 0) : (this.state.user2Nonce || 0);
+      let userNonce;
+      if (userIndex === 0) {
+        userNonce = this.state.user1Nonce || '0';
+      } else if (userIndex === 1) {
+        userNonce = this.state.user2Nonce || '0';
+      } else {
+        userNonce = this.state.customNonce || '0';
+      }
 
       // EIP-712 서명 (컨트랙트 규격: UserBatch(address user,uint256 userNonce,bytes32 recordsHash))
       const domain = getDomain(this.state.contractAddress);
@@ -155,7 +210,7 @@ export class Step3UserSigs {
       const recordsHash = ethers.keccak256(ethers.concat(recordHashes));
 
       // 디버그: 서명에 사용되는 모든 값 출력
-      console.log(`\n========== User ${userIndex + 1} 서명 디버그 ==========`);
+      console.log(`\n========== ${userName} 서명 디버그 ==========`);
       console.log('Contract Address:', this.state.contractAddress);
       console.log('Domain:', JSON.stringify(domain));
       console.log('User Address:', wallet.address);
@@ -178,7 +233,7 @@ export class Step3UserSigs {
 
       const value = {
         user: wallet.address,
-        userNonce,
+        userNonce: BigInt(userNonce),  // BigInt로 변환하여 큰 숫자 지원
         recordsHash
       };
 
@@ -201,17 +256,24 @@ export class Step3UserSigs {
 
       this.state.userBatchSigs = this.userBatchSigs;
 
-      // UI 업데이트
-      const sigId = `user${userIndex + 1}Signature`;
-      const resultId = `user${userIndex + 1}SigResult`;
-      const clearBtnId = `user${userIndex + 1}ClearBtn`;
+      // UI 업데이트 - Custom 사용자는 별도 ID 사용
+      let sigId, resultId, clearBtnId;
+      if (userIndex === 99) {
+        sigId = 'customSignature';
+        resultId = 'customSigResult';
+        clearBtnId = 'customClearBtn';
+      } else {
+        sigId = `user${userIndex + 1}Signature`;
+        resultId = `user${userIndex + 1}SigResult`;
+        clearBtnId = `user${userIndex + 1}ClearBtn`;
+      }
       document.getElementById(sigId).textContent = signature;
       document.getElementById(resultId).classList.remove('hidden');
       document.getElementById(clearBtnId).classList.remove('hidden');
 
       this.updateSummary();
 
-      console.log(`[SUCCESS] User ${userIndex + 1} batch signature created:`, {
+      console.log(`[SUCCESS] ${userName} batch signature created:`, {
         user: wallet.address,
         recordCount: userRecords.length,
         signature
@@ -225,17 +287,19 @@ export class Step3UserSigs {
 
   updateSummary() {
     if (this.userBatchSigs.length > 0) {
-      const summary = this.userBatchSigs.map((sig, idx) =>
-        `User ${idx + 1}: ${sig.signature.slice(0, 20)}...`
-      ).join(', ');
-
       document.getElementById('sigSummaryText').textContent =
         `${this.userBatchSigs.length}명의 사용자 서명 완료`;
       document.getElementById('batchSigSummary').classList.remove('hidden');
 
       // 각 사용자별로 백엔드 전송 데이터 생성
-      this.userBatchSigs.forEach((sig, index) => {
-        const userRecords = this.state.records.filter(r => r.userIndex === index);
+      this.userBatchSigs.forEach((sig) => {
+        // 해당 서명의 user 주소와 매칭되는 레코드 찾기
+        const userRecords = this.state.records.filter(r =>
+          r.userAddress && r.userAddress.toLowerCase() === sig.user.toLowerCase()
+        );
+
+        // userIndex 찾기 (레코드에서)
+        const userIndex = userRecords.length > 0 ? userRecords[0].userIndex : -1;
 
         // 컨트랙트 규격: UserVoteBatch { records, userBatchSig }
         // user 주소는 userBatchSig.user에만 포함 (중복 제거)
@@ -257,8 +321,16 @@ export class Step3UserSigs {
           }
         };
 
-        // User 1 또는 User 2 데이터 표시
-        const elementId = index === 0 ? 'user1BackendData' : 'user2BackendData';
+        // User 1, User 2, 또는 Custom 데이터 표시
+        let elementId;
+        if (userIndex === 0) {
+          elementId = 'user1BackendData';
+        } else if (userIndex === 1) {
+          elementId = 'user2BackendData';
+        } else {
+          elementId = 'customBackendData';
+        }
+
         const element = document.getElementById(elementId);
         if (element) {
           element.textContent = JSON.stringify(userBackendData, null, 2);
@@ -280,7 +352,15 @@ export class Step3UserSigs {
   }
 
   clearUserBatch(userIndex) {
-    const wallet = userIndex === 0 ? this.state.user1Wallet : this.state.user2Wallet;
+    // 지갑 선택: User 1, User 2, 또는 Custom
+    let wallet;
+    if (userIndex === 0) {
+      wallet = this.state.user1Wallet;
+    } else if (userIndex === 1) {
+      wallet = this.state.user2Wallet;
+    } else {
+      wallet = this.state.customWallet;
+    }
     if (!wallet) return;
 
     // 해당 사용자의 서명 제거
@@ -291,11 +371,19 @@ export class Step3UserSigs {
 
     this.state.userBatchSigs = this.userBatchSigs;
 
-    // UI 초기화
-    const sigId = `user${userIndex + 1}Signature`;
-    const resultId = `user${userIndex + 1}SigResult`;
-    const clearBtnId = `user${userIndex + 1}ClearBtn`;
-    const backendDataId = `user${userIndex + 1}BackendData`;
+    // UI 초기화 - Custom 사용자는 별도 ID 사용
+    let sigId, resultId, clearBtnId, backendDataId;
+    if (userIndex === 99) {
+      sigId = 'customSignature';
+      resultId = 'customSigResult';
+      clearBtnId = 'customClearBtn';
+      backendDataId = 'customBackendData';
+    } else {
+      sigId = `user${userIndex + 1}Signature`;
+      resultId = `user${userIndex + 1}SigResult`;
+      clearBtnId = `user${userIndex + 1}ClearBtn`;
+      backendDataId = `user${userIndex + 1}BackendData`;
+    }
 
     document.getElementById(sigId).textContent = '-';
     document.getElementById(resultId).classList.add('hidden');
@@ -306,6 +394,8 @@ export class Step3UserSigs {
       backendDataEl.textContent = '-';
     }
 
+    const userName = userIndex === 0 ? 'User 1' : (userIndex === 1 ? 'User 2' : 'Custom');
+
     // 서명이 모두 없어지면 요약 및 백엔드 데이터 섹션 숨기기
     if (this.userBatchSigs.length === 0) {
       document.getElementById('batchSigSummary').classList.add('hidden');
@@ -315,6 +405,6 @@ export class Step3UserSigs {
       this.updateSummary();
     }
 
-    console.log(`[INFO] User ${userIndex + 1} 서명이 삭제되었습니다.`);
+    console.log(`[INFO] ${userName} 서명이 삭제되었습니다.`);
   }
 }

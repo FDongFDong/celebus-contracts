@@ -17,13 +17,14 @@ export function calculateDomainSeparator(domain) {
   );
 
   // Domain 데이터 인코딩
+  // chainId를 BigInt로 변환하여 JavaScript 정밀도 문제 방지
   const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
     ['bytes32', 'bytes32', 'bytes32', 'uint256', 'address'],
     [
       typeHash,
       ethers.keccak256(ethers.toUtf8Bytes(domain.name)),
       ethers.keccak256(ethers.toUtf8Bytes(domain.version)),
-      domain.chainId,
+      BigInt(domain.chainId),
       domain.verifyingContract
     ]
   );
@@ -43,9 +44,10 @@ export function calculateStructHash(batchNonce) {
   );
 
   // Batch 데이터 인코딩
+  // batchNonce를 BigInt로 변환하여 JavaScript 정밀도 문제 방지
   const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
     ['bytes32', 'uint256'],
-    [typeHash, batchNonce]
+    [typeHash, BigInt(batchNonce)]
   );
 
   return ethers.keccak256(encoded);
@@ -86,16 +88,17 @@ export function hashVoteRecord(record, userAddress) {
   );
 
   // Record 데이터 인코딩 (user address 포함, userId 제외)
+  // 모든 uint256 값은 BigInt로 변환하여 JavaScript 정밀도 문제 방지
   const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
     ['bytes32', 'uint256', 'uint256', 'uint256', 'uint256', 'uint8', 'uint256', 'address'],
     [
       VOTE_RECORD_TYPEHASH,
-      record.timestamp,
-      record.missionId,
-      record.votingId,
-      record.optionId,
+      BigInt(record.timestamp),
+      BigInt(record.missionId),
+      BigInt(record.votingId),
+      BigInt(record.optionId),
       record.voteType,
-      record.votingAmt,
+      BigInt(record.votingAmt),
       userAddress
     ]
   );

@@ -13,6 +13,7 @@ import { Step6Digest } from './components/step6-digest.js';
 import { Step7Submit } from './components/step7-submit.js';
 import { Step8Query } from './components/step8-query.js';
 import { Step9Events } from './components/step9-events.js';
+import { Step10Verifier } from './components/step10-verifier.js';
 
 class MainVotingApp {
   constructor() {
@@ -40,7 +41,7 @@ class MainVotingApp {
       executorSig: null,
 
       // Contract
-      contractAddress: 'NEW_CONTRACT_ADDRESS',
+      contractAddress: '',
 
       // Provider
       provider: new ethers.JsonRpcProvider('https://opbnb-testnet-rpc.bnbchain.org')
@@ -57,7 +58,8 @@ class MainVotingApp {
       step6: new Step6Digest(this.state),
       step7: new Step7Submit(this.state),
       step8: new Step8Query(this.state),
-      step9: new Step9Events(this.state)
+      step9: new Step9Events(this.state),
+      step10: new Step10Verifier(this.state)
     };
 
     // Step 7 → Step 9 연동 (자동 이벤트 파싱)
@@ -101,6 +103,12 @@ class MainVotingApp {
           const verifyingContractInput = document.getElementById('verifyingContract');
           if (verifyingContractInput) {
             verifyingContractInput.value = newAddress;
+          }
+
+          // STEP 10의 Contract Address 필드 업데이트
+          const step10ContractInput = document.getElementById('verifyContractAddress');
+          if (step10ContractInput) {
+            step10ContractInput.value = newAddress;
           }
 
           // 주소가 실제로 변경된 경우 기존 서명 무효화
@@ -148,11 +156,16 @@ class MainVotingApp {
         ${this.steps.step7.render()}
         ${this.steps.step8.render()}
         ${this.renderStep9()}
+        ${this.steps.step10.render()}
       </div>
     `;
     // Step 9 초기화
     if (this.steps.step9) {
       this.steps.step9.init();
+    }
+    // Step 10 초기화
+    if (this.steps.step10) {
+      this.steps.step10.init();
     }
     // 동적으로 생성된 아이콘 초기화
     if (typeof lucide !== 'undefined') {
@@ -172,6 +185,7 @@ class MainVotingApp {
     window.step7 = this.steps.step7;
     window.step8 = this.steps.step8;
     window.step9 = this.steps.step9;
+    window.step10 = this.steps.step10;
 
     // State 변경 감지 (디버깅용)
     console.log('[EVENT] Event Listeners Attached');

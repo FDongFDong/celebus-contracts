@@ -30,11 +30,11 @@ export class Step1Executor {
               <input
                 type="text"
                 id="executorPrivateKey"
-                class="w-full px-3 py-2 border rounded-md text-xs"
+                class="w-full px-3 py-2 border rounded-md text-xs font-mono"
                 value="${CONFIG.DEFAULT_VALUES.executorPrivateKey}"
               >
               <p class="text-xs text-gray-500 mt-1">
-                주소: <span id="executorAddress" class="font-mono">-</span>
+                주소: <span id="executorAddress" class="font-mono text-xs break-all block">-</span>
               </p>
             </div>
           </div>
@@ -47,11 +47,11 @@ export class Step1Executor {
               <input
                 type="text"
                 id="user1PrivateKey"
-                class="w-full px-3 py-2 border rounded-md text-xs"
+                class="w-full px-3 py-2 border rounded-md text-xs font-mono"
                 value="${CONFIG.DEFAULT_VALUES.user1PrivateKey}"
               >
               <p class="text-xs text-gray-500 mt-1">
-                주소: <span id="user1Address" class="font-mono">-</span>
+                주소: <span id="user1Address" class="font-mono text-xs break-all block">-</span>
               </p>
             </div>
           </div>
@@ -64,11 +64,11 @@ export class Step1Executor {
               <input
                 type="text"
                 id="user2PrivateKey"
-                class="w-full px-3 py-2 border rounded-md text-xs"
+                class="w-full px-3 py-2 border rounded-md text-xs font-mono"
                 value="${CONFIG.DEFAULT_VALUES.user2PrivateKey}"
               >
               <p class="text-xs text-gray-500 mt-1">
-                주소: <span id="user2Address" class="font-mono">-</span>
+                주소: <span id="user2Address" class="font-mono text-xs break-all block">-</span>
               </p>
             </div>
           </div>
