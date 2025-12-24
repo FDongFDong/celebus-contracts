@@ -282,6 +282,100 @@ forge test --match-contract MainVotingTest
 forge test --gas-report
 ```
 
+---
+
+## 테스트 시나리오
+
+### MainVoting.t.sol (53개)
+
+| 카테고리 | 시나리오 |
+|----------|----------|
+| **배포** | 초기 상태 검증, DomainSeparator 확인 |
+| **설정** | ExecutorSigner 설정, Artist 등록, VoteType 설정 |
+| **투표 제출** | 단일 사용자, 다중 사용자, 다중 레코드, 혼합 VoteType |
+| **서명 검증** | Executor 서명 실패, User 서명 실패 (Soft-fail) |
+| **Nonce 관리** | userNonce 무효, batchNonce 중복, 순차 배치 |
+| **Soft-fail** | 문자열 초과, Artist 비허용, VoteType 무효, 배치 크기 초과 |
+| **부분 성공** | 일부 서명 무효, 일부 VoteType 무효, 일부 Artist 비허용 |
+| **이벤트** | UserBatchProcessed, BatchProcessed, UserBatchFailed |
+| **ERC-1271** | 스마트 지갑 서명 성공/실패 |
+| **제한값** | 2000 레코드 배치, 20 레코드/사용자, 초과 시 revert |
+| **Ownable2Step** | 소유권 이전, pendingOwner 검증 |
+| **중복 방지** | 동일 recordDigest 중복 처리 방지 |
+
+### SubVoting.t.sol (51개)
+
+| 카테고리 | 시나리오 |
+|----------|----------|
+| **배포** | 초기 상태, DomainSeparator |
+| **설정** | ExecutorSigner, Question 등록, Option 등록 |
+| **투표 제출** | 단일 사용자, 다중 사용자, 다중 레코드/사용자 |
+| **검증 실패** | Executor 서명, User 서명, Nonce 무효, 배치 중복 |
+| **Soft-fail** | Question 비허용, Option 비허용, OptionId 무효 |
+| **원자성** | Nonce 소비 시점, VotingId 불일치 전체 실패 |
+| **ERC-1271** | 스마트 지갑 서명 |
+| **제한값** | 배치 2000개, 사용자별 20개, 21개 초과 Soft-fail |
+| **이벤트** | UserMissionResult 성공/실패 |
+
+### Boosting.t.sol (48개)
+
+| 카테고리 | 시나리오 |
+|----------|----------|
+| **배포** | 초기 상태 검증 |
+| **설정** | ExecutorSigner, Artist, BoostingType |
+| **부스팅 제출** | 단일 사용자, 다중 사용자, 혼합 부스트 |
+| **검증 실패** | Executor/User 서명 무효, Nonce 중복 |
+| **Soft-fail** | Artist 비허용, BoostType 무효, 문자열 초과 |
+| **통계** | ArtistTotalAmt, ArtistInfo, BoostAggregates |
+| **ERC-1271** | 스마트 지갑 서명 |
+| **제한값** | 2000 사용자 배치, 초과 시 revert |
+| **중복 방지** | 동일 recordHash 스킵, 0 amount 스킵 |
+| **Artist 상태** | 비활성화 후 Soft-fail, 재활성화 |
+
+### CelebusNFT.t.sol (101개)
+
+| 카테고리 | 시나리오 |
+|----------|----------|
+| **발행** | safeMint, batchMint, 자동 ID 증가 |
+| **URI** | baseURI 설정, tokenURI 조회 |
+| **잠금** | lockToken, unlockToken, batchLock/Unlock |
+| **전송** | 잠금 시 전송 제한, Owner 예외, Approval 동작 |
+| **소각** | burn, 잠금 토큰 소각, 권한 검증 |
+| **일시정지** | pause/unpause, 기능별 차단/허용 |
+| **가스 벤치마크** | batchMint 10/100개, batchLock/Unlock 10개 |
+| **ERC721Receiver** | 수신자 컨트랙트 검증 |
+| **제한값** | 최대 배치 크기 초과 시 revert |
+
+### CelbTokenPermit.t.sol (13개)
+
+| 카테고리 | 시나리오 |
+|----------|----------|
+| **Permit 성공** | 정상 permit, Approval 이벤트 |
+| **Permit 실패** | 만료, 잘못된 nonce, 서명 무효, owner 불일치 |
+| **변조 탐지** | spender 변조, value 변조, verifyingContract 변조 |
+| **TransferFrom** | allowance 부족, 정상 전송 |
+| **Frontrun** | permit frontrun 시나리오 |
+
+### UserVoteResultEvent.t.sol (8개)
+
+| 카테고리 | 시나리오 |
+|----------|----------|
+| **성공 이벤트** | 단일 사용자, 다중 사용자 |
+| **실패 이벤트** | 서명 무효, Artist 비허용, VoteType 무효, Nonce 중복 |
+| **혼합** | 부분 성공/실패 |
+
+### HashDebug.t.sol (2개)
+
+| 카테고리 | 시나리오 |
+|----------|----------|
+| **디버깅** | 해시값 검증, Free Memory Pointer 확인 |
+
+### Invariant 테스트 (9개)
+
+| 파일 | 시나리오 |
+|------|----------|
+| **CelebusNFT.invariant.t.sol** | 토큰 소유자 검증, 소각 토큰 존재 불가, 잠금 일관성, 잠금 수 제한, Pause 동작, 토큰 ID 유효성, 총 잔액 일치 |
+
 ### 배포 (opBNB Testnet)
 
 ```bash
@@ -446,7 +540,7 @@ TOTAL_VOTES=130 USER_COUNT=130 scripts/run-stress.sh
 
 ## 보안
 
-- **테스트 커버리지**: MainVoting 61개 테스트 (보안 테스트 7개 포함)
+- **테스트 커버리지**: 총 285개 테스트 (Unit 276개 + Invariant 9개)
 - **보안 점수**: 99.5%+ 프로덕션 준비도
 - **취약점**: Critical 0개, High 0개
 - **감사 문서**: 내부 보안 감사 보고서 (필요 시 별도 공유)
