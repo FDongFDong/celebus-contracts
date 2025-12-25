@@ -796,4 +796,391 @@ contract SubVotingTest is Test {
 
         voting.submitMultiUserBatch(batches, 0, executorSig);
     }
+
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║              ERC-1271 스마트 컨트랙트 지갑 서명 테스트                         ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
+
+    function test_ERC1271_SmartWalletSignature_Success() public {
+        // ERC1271Mock 배포 (user1을 signer로 설정)
+        ERC1271Mock smartWallet = new ERC1271Mock(user1);
+
+        SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](1);
+        records[0] = _createVoteRecord(1, "smartWalletUser", 1, 1, 1, 1, 100);
+
+        // 스마트 지갑 주소로 해시 계산 (기존 헬퍼 사용)
+        bytes32[] memory recordDigests = new bytes32[](records.length);
+        for (uint256 i = 0; i < records.length; i++) {
+            recordDigests[i] = _hashVoteRecord(records[i], address(smartWallet));
+        }
+        bytes32 recordsHash = keccak256(abi.encodePacked(recordDigests));
+
+        bytes32 structHash = keccak256(
+            abi.encode(USER_BATCH_TYPEHASH, address(smartWallet), 0, recordsHash)
+        );
+        bytes32 digest = keccak256(
+            abi.encodePacked("\x19\x01", voting.domainSeparator(), structHash)
+        );
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(user1PrivateKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](1);
+        batches[0] = SubVoting.UserVoteBatch({
+            records: records,
+            userBatchSig: SubVoting.UserBatchSig({
+                user: address(smartWallet),
+                userNonce: 0,
+                signature: signature
+            })
+        });
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        assertTrue(voting.usedUserNonces(address(smartWallet), 0));
+        assertEq(voting.getOptionVotes(1, 1, 1), 100);
+    }
+
+    function test_ERC1271_SmartWalletSignature_Invalid_Fail() public {
+        ERC1271Mock smartWallet = new ERC1271Mock(user1);
+        smartWallet.setReturnValid(false);
+
+        SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](1);
+        records[0] = _createVoteRecord(1, "smartWalletUser", 1, 1, 1, 1, 100);
+
+        // 유효한 유저도 추가 (NoSuccessfulUser 방지)
+        SubVoting.VoteRecord[] memory records2 = new SubVoting.VoteRecord[](1);
+        records2[0] = _createVoteRecord(2, "user2", 1, 2, 1, 1, 200);
+
+        // 기존 헬퍼 사용
+        bytes32[] memory recordDigests = new bytes32[](records.length);
+        for (uint256 i = 0; i < records.length; i++) {
+            recordDigests[i] = _hashVoteRecord(records[i], address(smartWallet));
+        }
+        bytes32 recordsHash = keccak256(abi.encodePacked(recordDigests));
+        bytes32 structHash = keccak256(
+            abi.encode(USER_BATCH_TYPEHASH, address(smartWallet), 0, recordsHash)
+        );
+        bytes32 digest = keccak256(
+            abi.encodePacked("\x19\x01", voting.domainSeparator(), structHash)
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(user1PrivateKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](2);
+        batches[0] = SubVoting.UserVoteBatch({
+            records: records,
+            userBatchSig: SubVoting.UserBatchSig({
+                user: address(smartWallet),
+                userNonce: 0,
+                signature: signature
+            })
+        });
+        batches[1] = _createSingleRecordBatch(records2[0], user2, 0, user2PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        assertFalse(voting.usedUserNonces(address(smartWallet), 0));
+        assertTrue(voting.usedUserNonces(user2, 0));
+    }
+
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║              MAX_RECORDS_PER_BATCH (2000) 경계값 테스트                      ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
+
+    function test_BatchExact2000Records_Success() public {
+        uint256 userCount = 100;
+        uint256 recordsPerUser = 20;
+
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](userCount);
+
+        for (uint256 u = 0; u < userCount; u++) {
+            uint256 userPrivateKey = 0x10000 + u;
+            address userAddr = vm.addr(userPrivateKey);
+
+            SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](recordsPerUser);
+
+            uint256 userVotingId = u + 1; // same votingId for all records in user batch
+
+            for (uint256 r = 0; r < recordsPerUser; r++) {
+                vm.warp(block.timestamp + 1);
+                records[r] = _createVoteRecord(
+                    u * recordsPerUser + r + 1,
+                    string(abi.encodePacked("user", vm.toString(u))),
+                    1,
+                    userVotingId, // all records in a user batch must have same votingId
+                    1,
+                    1,
+                    (r + 1) * 10 // 레코드마다 다른 votingAmt로 고유성 보장
+                );
+            }
+
+            batches[u] = _createBatch(records, userAddr, 0, userPrivateKey);
+        }
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        // 100유저 × (10+20+30+...+200) = 100 × 2100 = 210000 포인트
+        assertEq(voting.getQuestionTotalVotes(1, 1), 210000);
+    }
+
+    function test_RevertWhen_BatchExceeds2000Records() public {
+        uint256 userCount = 101;
+        uint256 recordsPerUser = 20;
+
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](userCount);
+
+        for (uint256 u = 0; u < userCount - 1; u++) {
+            uint256 userPrivateKey = 0x10000 + u;
+            address userAddr = vm.addr(userPrivateKey);
+
+            SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](recordsPerUser);
+
+            for (uint256 r = 0; r < recordsPerUser; r++) {
+                vm.warp(block.timestamp + 1);
+                records[r] = _createVoteRecord(
+                    u * recordsPerUser + r + 1,
+                    string(abi.encodePacked("user", vm.toString(u))),
+                    1,
+                    u * recordsPerUser + r + 1,
+                    1,
+                    1,
+                    10
+                );
+            }
+
+            batches[u] = _createBatch(records, userAddr, 0, userPrivateKey);
+        }
+
+        // 마지막 유저: 1개 레코드 (총 2001개)
+        uint256 lastUserPrivateKey = 0x10000 + userCount - 1;
+        address lastUserAddr = vm.addr(lastUserPrivateKey);
+        SubVoting.VoteRecord[] memory lastRecords = new SubVoting.VoteRecord[](1);
+        lastRecords[0] = _createVoteRecord(9999, "lastUser", 1, 9999, 1, 1, 10);
+        batches[userCount - 1] = _createBatch(lastRecords, lastUserAddr, 0, lastUserPrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+
+        vm.expectRevert(SubVoting.BatchTooLarge.selector);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+    }
+
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║              MAX_RECORDS_PER_USER_BATCH (20) 경계값 테스트                   ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
+
+    function test_UserBatchExact20Records_Success() public {
+        SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](20);
+
+        for (uint256 r = 0; r < 20; r++) {
+            vm.warp(block.timestamp + 1);
+            // 모든 레코드는 동일한 votingId(1)를 사용, votingAmt로 고유성 보장
+            records[r] = _createVoteRecord(r + 1, "user1", 1, 1, 1, 1, (r + 1) * 10);
+        }
+
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](1);
+        batches[0] = _createBatch(records, user1, 0, user1PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        // (10+20+30+...+200) = 2100 포인트
+        assertEq(voting.getQuestionTotalVotes(1, 1), 2100);
+    }
+
+    function test_UserBatch21Records_SoftFail() public {
+        SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](21);
+
+        for (uint256 r = 0; r < 21; r++) {
+            vm.warp(block.timestamp + 1);
+            records[r] = _createVoteRecord(r + 1, "user1", 1, r + 1, 1, 1, 10);
+        }
+
+        // 유효한 유저도 추가
+        SubVoting.VoteRecord[] memory records2 = new SubVoting.VoteRecord[](1);
+        records2[0] = _createVoteRecord(100, "user2", 1, 100, 1, 1, 200);
+
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](2);
+        batches[0] = _createBatch(records, user1, 0, user1PrivateKey);
+        batches[1] = _createSingleRecordBatch(records2[0], user2, 0, user2PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        // user1 soft-fail, user2 성공
+        assertFalse(voting.usedUserNonces(user1, 0));
+        assertTrue(voting.usedUserNonces(user2, 0));
+        assertEq(voting.getQuestionTotalVotes(1, 1), 200);
+    }
+
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║              크로스체인 리플레이 공격 방지 테스트 (BadChain)                   ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
+
+    function test_RevertWhen_ChainIdMismatch_BadChain() public {
+        vm.chainId(999);
+
+        SubVoting.VoteRecord memory record = _createVoteRecord(1, "user1", 1, 1, 1, 1, 100);
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](1);
+        batches[0] = _createSingleRecordBatch(record, user1, 0, user1PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+
+        vm.expectRevert(SubVoting.BadChain.selector);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+    }
+
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║              Ownable2Step 2단계 소유권 이전 테스트                            ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
+
+    function test_Ownable2Step_TransferOwnership() public {
+        address newOwner = address(0x9999);
+
+        voting.transferOwnership(newOwner);
+        assertEq(voting.owner(), owner);
+        assertEq(voting.pendingOwner(), newOwner);
+
+        vm.prank(newOwner);
+        voting.acceptOwnership();
+
+        assertEq(voting.owner(), newOwner);
+        assertEq(voting.pendingOwner(), address(0));
+    }
+
+    function test_Ownable2Step_PendingOwnerCannotCallOnlyOwner() public {
+        address newOwner = address(0x9999);
+        voting.transferOwnership(newOwner);
+
+        vm.prank(newOwner);
+        vm.expectRevert();
+        voting.setExecutorSigner(address(0x8888));
+    }
+
+    function test_Ownable2Step_OnlyPendingOwnerCanAccept() public {
+        address newOwner = address(0x9999);
+        voting.transferOwnership(newOwner);
+
+        vm.prank(user1);
+        vm.expectRevert();
+        voting.acceptOwnership();
+    }
+
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║              배치 내 중복 recordDigest 테스트                                 ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
+
+    function test_DuplicateRecordDigestInSameBatch_Fails() public {
+        SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](2);
+
+        // 동일한 레코드 2개 (중복 digest)
+        records[0] = SubVoting.VoteRecord({
+            recordId: 1,
+            timestamp: block.timestamp,
+            missionId: 1,
+            votingId: 1,
+            userId: "user1",
+            questionId: 1,
+            optionId: 1,
+            votingAmt: 100
+        });
+        records[1] = SubVoting.VoteRecord({
+            recordId: 2,
+            timestamp: block.timestamp,
+            missionId: 1,
+            votingId: 1,
+            userId: "user1",
+            questionId: 1,
+            optionId: 1,
+            votingAmt: 100
+        });
+
+        // 유효한 유저도 추가
+        SubVoting.VoteRecord[] memory records2 = new SubVoting.VoteRecord[](1);
+        records2[0] = _createVoteRecord(3, "user2", 1, 2, 1, 1, 200);
+
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](2);
+        batches[0] = _createBatch(records, user1, 0, user1PrivateKey);
+        batches[1] = _createSingleRecordBatch(records2[0], user2, 0, user2PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        // user1은 중복으로 실패 (nonce는 검증 통과 시 사용됨)
+        assertTrue(voting.usedUserNonces(user1, 0));
+        assertTrue(voting.usedUserNonces(user2, 0));
+
+        // user1 집계 없음 (all-or-nothing)
+        assertEq(voting.getOptionVotes(1, 1, 1), 200); // user2만
+    }
+
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║              optionId = 0 검증 테스트                                        ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
+
+    function test_RevertWhen_SetOption_OptionIdZero() public {
+        vm.expectRevert(abi.encodeWithSelector(SubVoting.InvalidOptionId.selector, 0));
+        voting.setOption(1, 1, 0, "InvalidOption", true);
+    }
+
+    function test_SoftFail_OptionIdZero_InRecord() public {
+        SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](1);
+        records[0] = SubVoting.VoteRecord({
+            recordId: 1,
+            timestamp: block.timestamp,
+            missionId: 1,
+            votingId: 1,
+            userId: "user1",
+            questionId: 1,
+            optionId: 0,  // invalid
+            votingAmt: 100
+        });
+
+        // 유효한 유저도 추가
+        SubVoting.VoteRecord[] memory records2 = new SubVoting.VoteRecord[](1);
+        records2[0] = _createVoteRecord(2, "user2", 1, 2, 1, 1, 200);
+
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](2);
+        batches[0] = _createBatch(records, user1, 0, user1PrivateKey);
+        batches[1] = _createSingleRecordBatch(records2[0], user2, 0, user2PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        assertTrue(voting.usedUserNonces(user1, 0));
+        assertTrue(voting.usedUserNonces(user2, 0));
+        assertEq(voting.getOptionVotes(1, 1, 1), 200); // user2만
+    }
+
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║              votingId 불일치 테스트                                          ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
+
+    function test_VotingIdMismatch_AllOrNothing() public {
+        SubVoting.VoteRecord[] memory records = new SubVoting.VoteRecord[](2);
+        records[0] = _createVoteRecord(1, "user1", 1, 1, 1, 1, 100);
+        records[1] = _createVoteRecord(2, "user1", 1, 2, 1, 1, 100); // votingId 불일치
+
+        // 유효한 유저도 추가
+        SubVoting.VoteRecord[] memory records2 = new SubVoting.VoteRecord[](1);
+        records2[0] = _createVoteRecord(3, "user2", 1, 3, 1, 1, 200);
+
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](2);
+        batches[0] = _createBatch(records, user1, 0, user1PrivateKey);
+        batches[1] = _createSingleRecordBatch(records2[0], user2, 0, user2PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        // user1은 votingId 불일치로 전체 실패
+        assertTrue(voting.usedUserNonces(user1, 0));
+        assertTrue(voting.usedUserNonces(user2, 0));
+        assertEq(voting.getOptionVotes(1, 1, 1), 200); // user2만
+    }
 }
+
+// ERC1271Mock import for tests
+import {ERC1271Mock} from "./mocks/ERC1271Mock.sol";

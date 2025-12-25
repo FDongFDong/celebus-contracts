@@ -713,4 +713,373 @@ contract BoostingTest is Test {
         boosting.setBoostingTypeName(0, "");
     }
 
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║              ERC-1271 스마트 컨트랙트 지갑 서명 테스트                         ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
+
+    function test_ERC1271_SmartWalletSignature_Success() public {
+        // ERC1271Mock 배포 (user1을 signer로 설정)
+        ERC1271Mock smartWallet = new ERC1271Mock(user1);
+
+        Boosting.BoostRecord memory record = _createBoostRecord(
+            "smartWalletUser", 1, 1, 1, 0, 100
+        );
+
+        // 스마트 지갑 주소로 해시 계산 (기존 헬퍼 함수 사용)
+        bytes32 recordHash = _hashBoostRecord(record, address(smartWallet));
+        bytes32 digest = _hashUserSig(address(smartWallet), 0, recordHash);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(user1PrivateKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = Boosting.UserBoostBatch({
+            record: record,
+            userSig: Boosting.UserSig({
+                user: address(smartWallet),
+                userNonce: 0,
+                signature: signature
+            })
+        });
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+
+        assertTrue(boosting.usedUserNonces(address(smartWallet), 0));
+        assertEq(boosting.artistTotalAmt(1, 1), 100);
+    }
+
+    function test_ERC1271_SmartWalletSignature_Invalid_Fail() public {
+        ERC1271Mock smartWallet = new ERC1271Mock(user1);
+        smartWallet.setReturnValid(false);
+
+        Boosting.BoostRecord memory record = _createBoostRecord(
+            "smartWalletUser", 1, 1, 1, 0, 100
+        );
+
+        // 스마트 지갑 주소로 해시 계산 (기존 헬퍼 함수 사용)
+        bytes32 recordHash = _hashBoostRecord(record, address(smartWallet));
+        bytes32 digest = _hashUserSig(address(smartWallet), 0, recordHash);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(user1PrivateKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        // 유효한 유저도 추가 (NoSuccessfulUser 방지)
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](2);
+        batches[0] = Boosting.UserBoostBatch({
+            record: record,
+            userSig: Boosting.UserSig({
+                user: address(smartWallet),
+                userNonce: 0,
+                signature: signature
+            })
+        });
+        batches[1] = _createUserBoostBatch(
+            user2PrivateKey, user2, "user2", 1, 2, 2, 1, 200, 0
+        );
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+
+        assertFalse(boosting.usedUserNonces(address(smartWallet), 0));
+        assertTrue(boosting.usedUserNonces(user2, 0));
+    }
+
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║              MAX_RECORDS_PER_BATCH (2000) 경계값 테스트                      ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
+
+    function test_BatchExact2000Users_Success() public {
+        // Boosting은 1:1 방식이므로 유저 수 = 레코드 수
+        uint256 userCount = 2000;
+
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](userCount);
+
+        for (uint256 u = 0; u < userCount; u++) {
+            uint256 userPrivateKey = 0x10000 + u;
+            address userAddr = vm.addr(userPrivateKey);
+
+            vm.warp(block.timestamp + 1);
+
+            Boosting.BoostRecord memory record = Boosting.BoostRecord({
+                recordId: u + 1,
+                timestamp: block.timestamp,
+                missionId: 1,
+                boostingId: u + 1,
+                userId: string(abi.encodePacked("user", vm.toString(u))),
+                optionId: 1,
+                boostingWith: 0,
+                amt: 10
+            });
+
+            bytes32 recordHash = _hashBoostRecord(record, userAddr);
+            bytes32 userSigDigest = _hashUserSig(userAddr, 0, recordHash);
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(userPrivateKey, userSigDigest);
+            bytes memory signature = abi.encodePacked(r, s, v);
+
+            batches[u] = Boosting.UserBoostBatch({
+                record: record,
+                userSig: Boosting.UserSig({
+                    user: userAddr,
+                    userNonce: 0,
+                    signature: signature
+                })
+            });
+        }
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+
+        // 집계 확인: 2000 * 10 = 20000
+        assertEq(boosting.artistTotalAmt(1, 1), 20000);
+    }
+
+    function test_RevertWhen_BatchExceeds2000Users() public {
+        uint256 userCount = 2001;
+
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](userCount);
+
+        for (uint256 u = 0; u < userCount; u++) {
+            uint256 userPrivateKey = 0x10000 + u;
+            address userAddr = vm.addr(userPrivateKey);
+
+            vm.warp(block.timestamp + 1);
+
+            Boosting.BoostRecord memory record = Boosting.BoostRecord({
+                recordId: u + 1,
+                timestamp: block.timestamp,
+                missionId: 1,
+                boostingId: u + 1,
+                userId: string(abi.encodePacked("user", vm.toString(u))),
+                optionId: 1,
+                boostingWith: 0,
+                amt: 10
+            });
+
+            bytes32 recordHash = _hashBoostRecord(record, userAddr);
+            bytes32 userSigDigest = _hashUserSig(userAddr, 0, recordHash);
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(userPrivateKey, userSigDigest);
+            bytes memory signature = abi.encodePacked(r, s, v);
+
+            batches[u] = Boosting.UserBoostBatch({
+                record: record,
+                userSig: Boosting.UserSig({
+                    user: userAddr,
+                    userNonce: 0,
+                    signature: signature
+                })
+            });
+        }
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+
+        vm.expectRevert(Boosting.BatchTooLarge.selector);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+    }
+
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║              크로스체인 리플레이 공격 방지 테스트 (BadChain)                   ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
+
+    function test_RevertWhen_ChainIdMismatch_BadChain() public {
+        vm.chainId(999);
+
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = _createUserBoostBatch(
+            user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0
+        );
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+
+        vm.expectRevert(Boosting.BadChain.selector);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+    }
+
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║              Ownable2Step 2단계 소유권 이전 테스트                            ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
+
+    function test_Ownable2Step_TransferOwnership() public {
+        address newOwner = address(0x9999);
+
+        boosting.transferOwnership(newOwner);
+        assertEq(boosting.owner(), owner);
+        assertEq(boosting.pendingOwner(), newOwner);
+
+        vm.prank(newOwner);
+        boosting.acceptOwnership();
+
+        assertEq(boosting.owner(), newOwner);
+        assertEq(boosting.pendingOwner(), address(0));
+    }
+
+    function test_Ownable2Step_PendingOwnerCannotCallOnlyOwner() public {
+        address newOwner = address(0x9999);
+        boosting.transferOwnership(newOwner);
+
+        vm.prank(newOwner);
+        vm.expectRevert();
+        boosting.setExecutorSigner(address(0x8888));
+    }
+
+    function test_Ownable2Step_OnlyPendingOwnerCanAccept() public {
+        address newOwner = address(0x9999);
+        boosting.transferOwnership(newOwner);
+
+        vm.prank(user1);
+        vm.expectRevert();
+        boosting.acceptOwnership();
+    }
+
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║              중복 레코드 해시 테스트                                          ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
+
+    function test_DuplicateRecordHashInSameBatch_SecondFails() public {
+        // 동일한 recordHash를 두 번 제출 (두 번째는 실패)
+        vm.warp(1000);
+
+        // 동일한 레코드를 두 번 만들려면 timestamp와 기타 필드가 동일해야 함
+        // 하지만 서로 다른 유저가 제출하면 recordHash는 다름 (user가 포함되므로)
+        // 같은 유저가 같은 레코드를 배치 내에서 두 번 제출하는 케이스는
+        // Boosting에서 1:1 방식이므로 배치당 한 레코드만 가능
+
+        // 대신 같은 유저가 동일한 recordHash를 다른 배치에서 제출하는 경우 테스트
+        Boosting.UserBoostBatch[] memory batches1 = new Boosting.UserBoostBatch[](1);
+        batches1[0] = _createUserBoostBatch(
+            user1PrivateKey, user1, "user1", 1, 1, 1, 0, 100, 0
+        );
+
+        bytes memory executorSig1 = _signBatchSig(executorPrivateKey, 0);
+        boosting.submitBoostBatch(batches1, 0, executorSig1);
+
+        // 같은 레코드 해시로 다시 제출 시도 (nonce는 다름)
+        Boosting.BoostRecord memory sameRecord = _createBoostRecord(
+            "user1", 1, 1, 1, 0, 100
+        );
+        vm.warp(1000); // timestamp 동일하게
+
+        // 다른 유저 추가해서 NoSuccessfulUser 방지
+        Boosting.UserBoostBatch[] memory batches2 = new Boosting.UserBoostBatch[](2);
+        batches2[0] = Boosting.UserBoostBatch({
+            record: sameRecord,
+            userSig: Boosting.UserSig({
+                user: user1,
+                userNonce: 1,
+                signature: _signUserSig(user1PrivateKey, sameRecord, 1)
+            })
+        });
+        batches2[1] = _createUserBoostBatch(
+            user2PrivateKey, user2, "user2", 1, 2, 2, 1, 200, 0
+        );
+
+        bytes memory executorSig2 = _signBatchSig(executorPrivateKey, 1);
+        boosting.submitBoostBatch(batches2, 1, executorSig2);
+
+        // user1의 중복 레코드는 실패, user2는 성공
+        assertFalse(boosting.usedUserNonces(user1, 1)); // nonce는 소비되지 않음 (검증 실패로 soft-fail)
+        assertTrue(boosting.usedUserNonces(user2, 0));
+
+        // 집계: user1 첫 번째(100) + user2(200) = 300
+        // user1의 두 번째는 중복으로 실패
+        assertEq(boosting.artistTotalAmt(1, 1), 100);
+        assertEq(boosting.artistTotalAmt(1, 2), 200);
+    }
+
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║              InvalidBoostType 테스트                                        ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
+
+    function test_RevertWhen_SetBoostingTypeNameInvalidType() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(Boosting.InvalidBoostType.selector, 2)
+        );
+        boosting.setBoostingTypeName(2, "Invalid");
+    }
+
+    function test_SoftFail_InvalidBoostType_InRecord() public {
+        Boosting.BoostRecord memory invalidRecord = Boosting.BoostRecord({
+            recordId: 1,
+            timestamp: block.timestamp,
+            missionId: 1,
+            boostingId: 1,
+            userId: "user1",
+            optionId: 1,
+            boostingWith: 2, // invalid (max is 1)
+            amt: 100
+        });
+
+        bytes32 recordHash = _hashBoostRecord(invalidRecord, user1);
+        bytes32 userSigDigest = _hashUserSig(user1, 0, recordHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(user1PrivateKey, userSigDigest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        // 유효한 유저도 추가
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](2);
+        batches[0] = Boosting.UserBoostBatch({
+            record: invalidRecord,
+            userSig: Boosting.UserSig({
+                user: user1,
+                userNonce: 0,
+                signature: signature
+            })
+        });
+        batches[1] = _createUserBoostBatch(
+            user2PrivateKey, user2, "user2", 1, 2, 2, 1, 200, 0
+        );
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+
+        // user1 실패, user2 성공
+        assertFalse(boosting.usedUserNonces(user1, 0));
+        assertTrue(boosting.usedUserNonces(user2, 0));
+        assertEq(boosting.artistTotalAmt(1, 2), 200);
+    }
+
+    // ╔═══════════════════════════════════════════════════════════════════════════╗
+    // ║              Zero Amount 테스트                                             ║
+    // ╚═══════════════════════════════════════════════════════════════════════════╝
+
+    function test_SoftFail_ZeroAmount_InRecord() public {
+        Boosting.BoostRecord memory zeroRecord = Boosting.BoostRecord({
+            recordId: 1,
+            timestamp: block.timestamp,
+            missionId: 1,
+            boostingId: 1,
+            userId: "user1",
+            optionId: 1,
+            boostingWith: 0,
+            amt: 0 // zero amount
+        });
+
+        bytes32 recordHash = _hashBoostRecord(zeroRecord, user1);
+        bytes32 userSigDigest = _hashUserSig(user1, 0, recordHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(user1PrivateKey, userSigDigest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        // 유효한 유저도 추가
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](2);
+        batches[0] = Boosting.UserBoostBatch({
+            record: zeroRecord,
+            userSig: Boosting.UserSig({
+                user: user1,
+                userNonce: 0,
+                signature: signature
+            })
+        });
+        batches[1] = _createUserBoostBatch(
+            user2PrivateKey, user2, "user2", 1, 2, 2, 1, 200, 0
+        );
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+
+        // user1 실패 (zero amt), user2 성공
+        assertFalse(boosting.usedUserNonces(user1, 0));
+        assertTrue(boosting.usedUserNonces(user2, 0));
+    }
 }
+
+// ERC1271Mock import for tests
+import {ERC1271Mock} from "./mocks/ERC1271Mock.sol";
