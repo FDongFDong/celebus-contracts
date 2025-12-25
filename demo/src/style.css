@@ -1,0 +1,94 @@
+/**
+ * Demo Application Styles
+ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #f5f5f5;
+  color: #333;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+header {
+  text-align: center;
+  padding: 20px 0;
+  background: white;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+/* Tab Navigation */
+.tab-nav {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  background: white;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 12px 24px;
+  border: 2px solid #e0e0e0;
+  background: white;
+  color: #666;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab-btn:hover {
+  border-color: #4a90e2;
+  color: #4a90e2;
+}
+
+.tab-btn.active {
+  background: #4a90e2;
+  border-color: #4a90e2;
+  color: white;
+}
+
+/* Tab Content */
+#tab-content {
+  background: white;
+  padding: 24px;
+  border-radius: 8px;
+  min-height: 400px;
+}
+
+.demo-view {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.demo-view h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #1a1a1a;
+}
+
+.demo-view p {
+  color: #666;
+  font-size: 14px;
+}

@@ -1,0 +1,25 @@
+import BoostingABI from '@contracts/Boosting.sol/Boosting.json';
+import { getContract } from 'viem';
+import type { PublicClient, WalletClient, Address } from 'viem';
+
+// ABI 추출 - Foundry JSON에서 abi 배열 가져오기
+export const boostingAbi = BoostingABI.abi;
+
+/**
+ * Boosting 컨트랙트 인스턴스 생성
+ * @param address - 컨트랙트 주소
+ * @param publicClient - viem PublicClient
+ * @param walletClient - viem WalletClient (optional, read-only인 경우 생략 가능)
+ * @returns Boosting 컨트랙트 인스턴스
+ */
+export function getBoostingContract(
+  address: Address,
+  publicClient: PublicClient,
+  walletClient?: WalletClient
+) {
+  return getContract({
+    address,
+    abi: boostingAbi,
+    client: { public: publicClient, wallet: walletClient },
+  });
+}
