@@ -370,7 +370,8 @@ contract SubVoting is Ownable2Step, EIP712 {
                 sig
             )
         );
-        return ok && ret.length == 4 && bytes4(ret) == ERC1271_MAGICVALUE;
+        // ABI 인코딩된 bytes4 반환값은 32바이트로 패딩됨
+        return ok && ret.length >= 32 && bytes4(ret) == ERC1271_MAGICVALUE;
     }
 
     /// @dev 문자열 검증 (soft-fail 버전) - 모든 레코드의 userId 길이 검증

@@ -592,7 +592,8 @@ contract Boosting is Ownable2Step, EIP712 {
                 sig
             )
         );
-        return ok && ret.length == 4 && bytes4(ret) == ERC1271_MAGICVALUE;
+        // ABI 인코딩된 bytes4 반환값은 32바이트로 패딩됨
+        return ok && ret.length >= 32 && bytes4(ret) == ERC1271_MAGICVALUE;
     }
 
     // ========================================
