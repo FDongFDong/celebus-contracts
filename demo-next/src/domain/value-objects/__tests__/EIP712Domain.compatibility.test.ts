@@ -5,7 +5,7 @@ import { type Address } from 'viem';
 /**
  * 기존 ethers.js 코드와의 호환성 검증 테스트
  *
- * 참조: demo-legacy/js/utils/eip712.js의 calculateDomainSeparator()
+ * 참조: ethers.js 기준 calculateDomainSeparator 구현
  */
 describe('EIP712Domain - 기존 로직 호환성', () => {
   it('Hardhat 로컬 네트워크 설정과 동일한 결과를 생성한다', () => {

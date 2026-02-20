@@ -547,8 +547,6 @@ contracts/
 │       ├── app/                 # App Router
 │       ├── components/          # UI 컴포넌트
 │       └── lib/                 # 유틸리티
-├── sub_demo/                    # SubVoting 데모 (레거시)
-├── nft_demo/                    # NFT 데모 (레거시)
 └── lib/                         # 외부 라이브러리 (forge-std, openzeppelin)
 ```
 

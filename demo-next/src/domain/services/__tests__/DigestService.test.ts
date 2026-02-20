@@ -48,11 +48,11 @@ describe('DigestService', () => {
       expect(hash1).not.toBe(hash2);
     });
 
-    it('should match legacy ethers.js implementation', () => {
+    it('should match ethers.js reference implementation', () => {
       // Given: batchNonce = 1
       const batchNonce = 1n;
 
-      // Legacy ethers.js 예상 결과 (demo-legacy/js/utils/eip712.js)
+      // ethers.js 기준 구현의 예상 결과
       // BATCH_TYPEHASH = keccak256("Batch(uint256 batchNonce)")
       // structHash = keccak256(abi.encode(BATCH_TYPEHASH, batchNonce))
 
