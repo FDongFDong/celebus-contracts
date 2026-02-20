@@ -2,11 +2,11 @@
 pragma solidity ^0.8.27;
 
 import {Script, console} from "forge-std/Script.sol";
-import {CelebusNFT} from "../src/nft/CelebusNFT.sol";
+import {VIBENFT} from "../src/nft/VIBENFT.sol";
 
 /**
  * @title DeployNFT
- * @notice Deploy CelebusNFT contract to any network
+ * @notice Deploy VIBENFT contract to any network
  * @dev Usage:
  *   forge script script/DeployNFT.s.sol:DeployNFT \
  *     --rpc-url $RPC_URL \
@@ -16,7 +16,8 @@ import {CelebusNFT} from "../src/nft/CelebusNFT.sol";
  *
  * Notes:
  *   - Private key is passed via --private-key flag
- *   - The deployer address becomes the NFT contract owner
+ *   - NFT_NAME, NFT_SYMBOL, NFT_BASE_URI env로 초기값을 덮어쓸 수 있음
+ *   - OWNER_ADDRESS env가 없으면 deployer 주소를 owner로 사용
  *
  * Networks:
  *   - Local: http://localhost:8545 (anvil)
@@ -25,22 +26,30 @@ import {CelebusNFT} from "../src/nft/CelebusNFT.sol";
 contract DeployNFT is Script {
     function run() external {
         // msg.sender는 --private-key로 전달된 주소
-        address owner = msg.sender;
+        address deployer = msg.sender;
+        address owner = vm.envOr("OWNER_ADDRESS", deployer);
+        string memory tokenName = vm.envOr("NFT_NAME", string("VIBENFT"));
+        string memory tokenSymbol = vm.envOr("NFT_SYMBOL", string("VIBE"));
+        string memory initialBaseURI = vm.envOr("NFT_BASE_URI", string(""));
 
-        console.log("=== CelebusNFT Deployment ===");
-        console.log("Deployer:", owner);
+        console.log("=== VIBENFT Deployment ===");
+        console.log("Deployer:", deployer);
+        console.log("Owner:", owner);
+        console.log("Name:", tokenName);
+        console.log("Symbol:", tokenSymbol);
+        console.log("Base URI:", initialBaseURI);
         console.log("Chain ID:", block.chainid);
         console.log("=============================\n");
 
         vm.startBroadcast();
 
-        // Deploy CelebusNFT
-        CelebusNFT nft = new CelebusNFT(owner);
+        // Deploy VIBENFT
+        VIBENFT nft = new VIBENFT(tokenName, tokenSymbol, initialBaseURI, owner);
 
         vm.stopBroadcast();
 
         console.log("\n=== Deployment Successful ===");
-        console.log("CelebusNFT Address:", address(nft));
+        console.log("VIBENFT Address:", address(nft));
         console.log("Owner:", nft.owner());
         console.log("Name:", nft.name());
         console.log("Symbol:", nft.symbol());
