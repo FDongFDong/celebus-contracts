@@ -390,7 +390,7 @@ Main Voting과 유사하되, 1:1 구조 반영
 | 4-1 | `useNftStore` 분리 + setInterval 폴링 제거 | NFT | 중간 |
 | 4-2 | NFT 일반 모드 뷰 (2-Section) | NFT | 중간 |
 | 4-3 | NFT Admin 영역 분리 | NFT | 낮음 |
-| 4-4 | 레거시 `useAppStore` 제거 (모든 import 교체) | 전체 | 중간 |
+| 4-4 | 기존 `useAppStore` 제거 (모든 import 교체) | 전체 | 중간 |
 | 4-5 | 모바일 반응형 개선 | 전체 | 중간 |
 | 4-6 | 접근성 보강 (aria-label, focus-visible) | 전체 | 낮음 |
 | 4-7 | TX 시뮬레이션 표시 (`simulateContract`) | 전체 | 중간 |

@@ -19,11 +19,11 @@ export function useVotingPhase({
   tab,
   storageKey,
   defaultPhase = DEFAULT_VIEW_PHASE,
-  legacyKeys,
+  fallbackKeys,
   onBeforeChange,
 }: UseVotingPhaseArgs) {
   const [phase, setPersistedPhase] = usePersistedPhase(storageKey, defaultPhase, {
-    legacyKeys,
+    fallbackKeys,
   });
 
   useEffect(() => {

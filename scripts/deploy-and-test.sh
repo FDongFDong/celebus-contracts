@@ -81,7 +81,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --count N              개별 민팅 횟수 (기본: 10)"
             echo "  --batch-size K         배치당 민팅 개수 (기본: 100)"
             echo "  --repeat N             배치 반복 횟수 (기본: 5)"
-            echo "  --start-id N           레거시 옵션 (자동 토큰 ID 모드에서는 무시)"
+            echo "  --start-id N           호환 옵션 (자동 토큰 ID 모드에서는 무시)"
             echo "  --deploy-only          배포만 실행"
             echo "  --help                 도움말 표시"
             exit 0
@@ -342,7 +342,7 @@ test_single_mint() {
     echo "╚════════════════════════════════════════╝"
     echo -e "${NC}"
     echo -e "${YELLOW}민팅 횟수: $MINT_COUNT${NC}"
-    echo -e "${YELLOW}토큰 ID 정책: 자동 증가 (start-id 옵션은 레거시)${NC}"
+    echo -e "${YELLOW}토큰 ID 정책: 자동 증가 (start-id 옵션은 호환용)${NC}"
     echo ""
 
     TOTAL_GAS_USED=0
@@ -446,7 +446,7 @@ test_batch_mint() {
     echo -e "${YELLOW}배치 크기: $BATCH_SIZE${NC}"
     echo -e "${YELLOW}반복 횟수: $REPEAT_COUNT${NC}"
     echo -e "${YELLOW}총 민팅: $(($BATCH_SIZE * $REPEAT_COUNT))개${NC}"
-    echo -e "${YELLOW}토큰 ID 정책: 자동 증가 (start-id 옵션은 레거시)${NC}"
+    echo -e "${YELLOW}토큰 ID 정책: 자동 증가 (start-id 옵션은 호환용)${NC}"
     echo ""
 
     TOTAL_GAS_USED=0

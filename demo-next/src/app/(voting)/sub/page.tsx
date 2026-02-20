@@ -9,7 +9,7 @@ export default function SubVotingPage() {
   const [phase, setPhase] = useVotingPhase({
     tab: 'sub',
     storageKey: 'vibe:sub:phase:v1',
-    legacyKeys: ['celebus:sub:phase:v1', 'celebus:sub:mode:v2'],
+    fallbackKeys: ['celebus:sub:phase:v1', 'celebus:sub:mode:v2'],
   });
 
   return (

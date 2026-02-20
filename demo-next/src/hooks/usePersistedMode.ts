@@ -8,10 +8,10 @@ import {
 } from '@/lib/view-phase';
 
 export type ViewMode = ViewPhase;
-export type LegacyViewMode = 'simple' | 'developer';
+export type CompatViewMode = 'simple' | 'developer';
 
 export interface UsePersistedPhaseOptions {
-  legacyKeys?: string[];
+  fallbackKeys?: string[];
 }
 
 const PHASE_CHANGE_EVENT = 'vibe:phase-change';
@@ -23,7 +23,7 @@ export function usePersistedPhase(
 ) {
   const subscribe = useCallback(
     (callback: () => void) => {
-      const watchedKeys = [storageKey, ...(options.legacyKeys ?? [])];
+      const watchedKeys = [storageKey, ...(options.fallbackKeys ?? [])];
 
       const onStorage = (event: StorageEvent) => {
         if (event.key && watchedKeys.includes(event.key)) callback();
@@ -41,7 +41,7 @@ export function usePersistedPhase(
         window.removeEventListener(PHASE_CHANGE_EVENT, onPhaseChange);
       };
     },
-    [options.legacyKeys, storageKey]
+    [options.fallbackKeys, storageKey]
   );
 
   const getSnapshot = useCallback((): ViewPhase => {
@@ -51,11 +51,11 @@ export function usePersistedPhase(
         return normalizeStoredViewPhase(stored, defaultPhase);
       }
 
-      const legacyKeys = options.legacyKeys ?? [];
-      for (const legacyKey of legacyKeys) {
-        const legacy = window.localStorage.getItem(legacyKey);
-        if (legacy !== null) {
-          return normalizeStoredViewPhase(legacy, defaultPhase);
+      const fallbackKeys = options.fallbackKeys ?? [];
+      for (const fallbackKey of fallbackKeys) {
+        const fallback = window.localStorage.getItem(fallbackKey);
+        if (fallback !== null) {
+          return normalizeStoredViewPhase(fallback, defaultPhase);
         }
       }
 
@@ -63,7 +63,7 @@ export function usePersistedPhase(
     } catch {
       return defaultPhase;
     }
-  }, [defaultPhase, options.legacyKeys, storageKey]);
+  }, [defaultPhase, options.fallbackKeys, storageKey]);
 
   const getServerSnapshot = useCallback(
     (): ViewPhase => defaultPhase,
@@ -76,9 +76,9 @@ export function usePersistedPhase(
     (nextPhase: ViewPhase) => {
       try {
         window.localStorage.setItem(storageKey, nextPhase);
-        const legacyKeys = options.legacyKeys ?? [];
-        for (const legacyKey of legacyKeys) {
-          window.localStorage.removeItem(legacyKey);
+        const fallbackKeys = options.fallbackKeys ?? [];
+        for (const fallbackKey of fallbackKeys) {
+          window.localStorage.removeItem(fallbackKey);
         }
         window.dispatchEvent(
           new CustomEvent(PHASE_CHANGE_EVENT, {
@@ -89,7 +89,7 @@ export function usePersistedPhase(
         // localStorage 저장 실패 시 메모리 상태만 유지
       }
     },
-    [options.legacyKeys, storageKey]
+    [options.fallbackKeys, storageKey]
   );
 
   return [phase, setPersistedPhase] as const;

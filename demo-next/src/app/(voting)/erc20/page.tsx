@@ -9,7 +9,7 @@ export default function Erc20Page() {
   const [phase, setPhase] = useVotingPhase({
     tab: 'erc20',
     storageKey: 'vibe:erc20:phase:v1',
-    legacyKeys: ['vibe:permit:phase:v2', 'celebus:permit:phase:v2'],
+    fallbackKeys: ['vibe:permit:phase:v2', 'celebus:permit:phase:v2'],
   });
 
   return (

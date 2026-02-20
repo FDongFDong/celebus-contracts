@@ -34,7 +34,7 @@ export default function NFTPage() {
   const [phase, setPhase] = useVotingPhase({
     tab: 'nft',
     storageKey: 'vibe:nft:phase:v1',
-    legacyKeys: ['celebus:nft:phase:v1', 'celebus:nft:mode:v2'],
+    fallbackKeys: ['celebus:nft:phase:v1', 'celebus:nft:mode:v2'],
   });
 
   return (

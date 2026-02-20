@@ -1,6 +1,6 @@
 export type ViewPhase = 'deploy' | 'interact';
 
-export type LegacyViewMode = 'simple' | 'developer';
+export type CompatViewMode = 'simple' | 'developer';
 
 export const DEFAULT_VIEW_PHASE: ViewPhase = 'deploy';
 

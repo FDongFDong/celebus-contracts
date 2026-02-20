@@ -327,7 +327,7 @@ async function main() {
   } catch (err) {
     // EIP-1559 미지원 RPC의 경우 fallback 처리
     // ------------------------------------------------------------
-    // getGasPrice() → legacy 방식의 단일 gasPrice 반환
+    // getGasPrice() → 단일 gasPrice 방식 반환
     // 이 방식에서는:
     //   maxFeePerGas = gasPrice
     //   maxPriorityFeePerGas = gasPrice

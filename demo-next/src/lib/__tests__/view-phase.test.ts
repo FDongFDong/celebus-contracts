@@ -14,7 +14,7 @@ describe('view-phase helpers', () => {
     expect(isViewPhase(null)).toBe(false);
   });
 
-  it('normalizes legacy simple/developer values', () => {
+  it('normalizes previous simple/developer values', () => {
     expect(normalizeStoredViewPhase('simple')).toBe('deploy');
     expect(normalizeStoredViewPhase('developer')).toBe('interact');
   });

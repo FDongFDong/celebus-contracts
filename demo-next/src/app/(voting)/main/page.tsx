@@ -9,7 +9,7 @@ export default function MainVotingPage() {
   const [phase, setPhase] = useVotingPhase({
     tab: 'main',
     storageKey: 'vibe:main:phase:v1',
-    legacyKeys: ['celebus:main:phase:v1', 'celebus:main:mode:v2'],
+    fallbackKeys: ['celebus:main:phase:v1', 'celebus:main:mode:v2'],
   });
 
   return (

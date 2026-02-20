@@ -9,7 +9,7 @@ export default function BoostingPage() {
   const [phase, setPhase] = useVotingPhase({
     tab: 'boost',
     storageKey: 'vibe:boost:phase:v1',
-    legacyKeys: ['celebus:boost:phase:v1', 'celebus:boost:mode:v2'],
+    fallbackKeys: ['celebus:boost:phase:v1', 'celebus:boost:mode:v2'],
   });
 
   return (

@@ -14,7 +14,7 @@ import {VIBENFT} from "../src/nft/VIBENFT.sol";
  *   - PRIVATE_KEY: Broadcaster private key
  *   - BATCH_SIZE: (Optional) NFTs per tx (default: 100, max: 1500)
  *   - REPEAT_COUNT: (Optional) Number of batch txs (default: 5)
- *   - START_TOKEN_ID: (Optional) legacy input, ignored (auto-increment contract)
+ *   - START_TOKEN_ID: (Optional) compatibility input, ignored (auto-increment contract)
  */
 contract TestBatchMint is Script {
     function run() external {
@@ -24,7 +24,7 @@ contract TestBatchMint is Script {
 
         uint256 batchSize = vm.envOr("BATCH_SIZE", uint256(100));
         uint256 repeatCount = vm.envOr("REPEAT_COUNT", uint256(5));
-        uint256 legacyStartTokenId = vm.envOr("START_TOKEN_ID", uint256(0));
+        uint256 compatibilityStartTokenId = vm.envOr("START_TOKEN_ID", uint256(0));
 
         require(batchSize > 0 && batchSize <= 1500, "BATCH_SIZE must be 1-1500");
         require(repeatCount > 0, "REPEAT_COUNT must be > 0");
@@ -36,7 +36,7 @@ contract TestBatchMint is Script {
         console.log("Recipient:", recipient);
         console.log("Batch Size:", batchSize);
         console.log("Repeat Count:", repeatCount);
-        if (legacyStartTokenId != 0) {
+        if (compatibilityStartTokenId != 0) {
             console.log("Note: START_TOKEN_ID is ignored (VIBENFT uses auto-increment tokenId)");
         }
         console.log("=======================");

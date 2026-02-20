@@ -46,7 +46,7 @@ echo -e "${GREEN}수령자: $RECIPIENT${NC}"
 echo -e "${YELLOW}배치 크기: $BATCH_SIZE${NC}"
 echo -e "${YELLOW}반복 횟수: $REPEAT_COUNT${NC}"
 echo -e "${YELLOW}총 민팅: $((BATCH_SIZE * REPEAT_COUNT))개${NC}"
-echo -e "${YELLOW}토큰 ID 정책: 자동 증가 (START_TOKEN_ID는 레거시)${NC}"
+echo -e "${YELLOW}토큰 ID 정책: 자동 증가 (START_TOKEN_ID는 호환용)${NC}"
 echo ""
 
 export NFT_ADDRESS
