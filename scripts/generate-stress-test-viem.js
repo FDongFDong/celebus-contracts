@@ -230,7 +230,7 @@ async function generateStressTest() {
   // NOTE: Replace with your own private key for production use
   // -------------------------------------------------------------------------
   const executorAccount = privateKeyToAccount(
-    '0x94d26f9b25e16734a747e9f789d71082cb80155d11810ba99a12f9fd163397ef'
+    process.env.PRIVATE_KEY || (() => { throw new Error('PRIVATE_KEY required'); })()
   );
   console.log(`[OK] Executor: ${executorAccount.address}`);
 
@@ -383,7 +383,7 @@ async function generateStressTest() {
   console.log(`  export STRESS_FILE=stress-artifacts/stress-test-nested.json`);
   console.log(`  export VOTING_ADDRESS=${CONFIG.votingAddress}`);
   console.log(
-    `  export PRIVATE_KEY=0x94d26f9b25e16734a747e9f789d71082cb80155d11810ba99a12f9fd163397ef`
+    `  export PRIVATE_KEY=<YOUR_PRIVATE_KEY>`
   );
   console.log(`  node scripts/submit-stress-viem.mjs`);
 }

@@ -1,18 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-
-/// @dev ERC-1271: 스마트 컨트랙트 지갑의 서명 검증 표준
-interface IERC1271 {
-    function isValidSignature(
-        bytes32 hash,
-        bytes calldata signature
-    ) external view returns (bytes4);
-}
+import {SignatureVerifier} from "./lib/SignatureVerifier.sol";
 
 /**
  * @title MainVoting
@@ -29,8 +21,6 @@ contract MainVoting is Ownable2Step, EIP712 {
     // ============================================================
     //                         상수 (Constants)
     // ============================================================
-
-    bytes4 private constant ERC1271_MAGICVALUE = 0x1626ba7e;
 
     /// @notice 배치당 최대 투표 레코드 수
     uint256 public constant MAX_RECORDS_PER_BATCH = 2000;
@@ -333,25 +323,6 @@ contract MainVoting is Ownable2Step, EIP712 {
         return _hashTypedDataV4(keccak256(abi.encode(BATCH_TYPEHASH, nonce)));
     }
 
-    /// @dev 서명 검증 (EOA: ECDSA, 컨트랙트: ERC-1271)
-    function _isValidSig(
-        address signer,
-        bytes32 digest,
-        bytes calldata sig
-    ) internal view returns (bool) {
-        if (signer.code.length == 0)
-            return ECDSA.recover(digest, sig) == signer;
-        (bool ok, bytes memory ret) = signer.staticcall(
-            abi.encodeWithSelector(
-                IERC1271.isValidSignature.selector,
-                digest,
-                sig
-            )
-        );
-        // ABI 인코딩된 bytes4 반환값은 32바이트로 패딩됨
-        return ok && ret.length >= 32 && bytes4(ret) == ERC1271_MAGICVALUE;
-    }
-
     /// @dev 문자열 검증 (soft-fail 버전) - 모든 레코드의 userId 길이 검증
     function _validateStringsSoft(
         VoteRecord[] calldata records
@@ -427,7 +398,7 @@ contract MainVoting is Ownable2Step, EIP712 {
         }
         bytes32 userBatchDigest = _hashUserBatch(user, nonce_, recordsHash);
 
-        if (!_isValidSig(user, userBatchDigest, userSig.signature)) {
+        if (!SignatureVerifier.isValidSignature(user, userBatchDigest, userSig.signature)) {
             reasonCode = REASON_INVALID_USER_SIGNATURE;
             emit UserBatchFailed(batchDigest, user, nonce_, reasonCode);
             return (false, reasonCode);
@@ -662,7 +633,13 @@ contract MainVoting is Ownable2Step, EIP712 {
 
         // === 2. Executor 서명 & Nonce 검증 ===
         bytes32 batchDigest = _hashBatch(batchNonce_);
-        if (!_isValidSig(executorSigner, batchDigest, executorSig))
+        if (
+            !SignatureVerifier.isValidSignature(
+                executorSigner,
+                batchDigest,
+                executorSig
+            )
+        )
             revert InvalidSignature();
         _consumeBatchNonce(executorSigner, batchNonce_);
 

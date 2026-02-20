@@ -102,21 +102,17 @@ if [ "$REPEAT" -lt 1 ] || [ "$REPEAT" -gt 100 ]; then
   exit 1
 fi
 
-# 현재 총 발행량 확인 (다음 토큰 ID 결정)
-echo "Checking current total supply..."
-CURRENT_BALANCE=$(cast call $NFT_ADDRESS "balanceOf(address)" $RECIPIENT --rpc-url $RPC_URL)
-NEXT_TOKEN_ID=$((16#${CURRENT_BALANCE#0x} + 1))
+# 컨트랙트 접근 확인
+echo "Checking contract connectivity..."
+cast call $NFT_ADDRESS "balanceOf(address)(uint256)" $RECIPIENT --rpc-url $RPC_URL >/dev/null
 
 echo "=== Stress Batch Mint Configuration ==="
 echo "NFT Address: $NFT_ADDRESS"
 echo "Recipient: $RECIPIENT"
 echo "RPC URL: $RPC_URL"
-echo "Current Balance: $((NEXT_TOKEN_ID - 1))"
-echo "Next Token ID: $NEXT_TOKEN_ID"
 echo "Batch Size: $BATCH_SIZE"
 echo "Repeat Count: $REPEAT"
 echo "Total NFTs to Mint: $((BATCH_SIZE * REPEAT))"
-echo "Final Token ID: $((NEXT_TOKEN_ID + BATCH_SIZE * REPEAT - 1))"
 echo "========================================"
 echo ""
 
@@ -125,10 +121,7 @@ SUCCESS_COUNT=0
 FAIL_COUNT=0
 
 for i in $(seq 1 $REPEAT); do
-  EXPECTED_START_ID=$(( NEXT_TOKEN_ID + (i - 1) * BATCH_SIZE ))
-  EXPECTED_END_ID=$(( EXPECTED_START_ID + BATCH_SIZE - 1 ))
-
-  echo "Batch $i: Minting $BATCH_SIZE tokens (expected IDs: $EXPECTED_START_ID - $EXPECTED_END_ID)..."
+  echo "Batch $i: Minting $BATCH_SIZE tokens..."
 
   if cast send $NFT_ADDRESS \
     "batchMint(address,uint256)" \

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {Script, console} from "forge-std/Script.sol";
-import {CelebusNFT} from "../src/nft/CelebusNFT.sol";
+import {VIBENFT} from "../src/nft/VIBENFT.sol";
 
 /**
  * @title MintBatch
@@ -14,11 +14,10 @@ import {CelebusNFT} from "../src/nft/CelebusNFT.sol";
  *     --private-key $PRIVATE_KEY
  *
  * Environment variables:
- *   - NFT_ADDRESS: Deployed CelebusNFT contract address
+ *   - NFT_ADDRESS: Deployed VIBENFT contract address
  *   - RECIPIENT: Address to receive the NFTs
  *   - BATCH_SIZE: (Optional) Number of NFTs per batch (default: 500, max: 500)
  *   - TOTAL_COUNT: (Optional) Total NFTs to mint (default: 10000)
- *   - START_TOKEN_ID: (Optional) Starting token ID (default: 1)
  */
 contract MintBatch is Script {
     function run() external {
@@ -30,26 +29,23 @@ contract MintBatch is Script {
         // Optional parameters with defaults
         uint256 batchSize = vm.envOr("BATCH_SIZE", uint256(500));
         uint256 totalCount = vm.envOr("TOTAL_COUNT", uint256(10000));
-        uint256 startTokenId = vm.envOr("START_TOKEN_ID", uint256(1));
 
         // Validate parameters
         require(batchSize > 0 && batchSize <= 500, "Batch size must be 1-500");
         require(totalCount > 0, "Total count must be greater than 0");
 
-        CelebusNFT nft = CelebusNFT(nftAddress);
+        VIBENFT nft = VIBENFT(nftAddress);
 
         console.log("=== Batch Minting Configuration ===");
         console.log("NFT Contract:", nftAddress);
         console.log("Recipient:", recipient);
         console.log("Batch Size:", batchSize);
         console.log("Total Count:", totalCount);
-        console.log("Start Token ID:", startTokenId);
         console.log("===================================\n");
 
         vm.startBroadcast(privateKey);
 
         uint256 numBatches = (totalCount + batchSize - 1) / batchSize;
-        uint256 currentTokenId = startTokenId;
         uint256 mintedCount = 0;
 
         console.log("Starting batch minting...");
@@ -63,15 +59,18 @@ contract MintBatch is Script {
                 : batchSize;
 
             console.log("Batch", i + 1, "/", numBatches);
-            console.log("  Starting Token ID:", currentTokenId);
 
             // Mint batch (auto increment)
-            uint256 startTokenId = nft.batchMint(recipient, currentBatchSize);
+            uint256 mintedStartTokenId = nft.batchMint(recipient, currentBatchSize);
 
-            console.log("  Token IDs:", startTokenId, "-", startTokenId + currentBatchSize - 1);
+            console.log(
+                "  Token IDs:",
+                mintedStartTokenId,
+                "-",
+                mintedStartTokenId + currentBatchSize - 1
+            );
 
             mintedCount += currentBatchSize;
-            currentTokenId = startTokenId + currentBatchSize;
 
             console.log("  Minted:", currentBatchSize, "NFTs");
             console.log("  Total minted:", mintedCount, "/", totalCount);
@@ -83,7 +82,6 @@ contract MintBatch is Script {
 
         console.log("=== Minting Complete ===");
         console.log("Total NFTs minted:", mintedCount);
-        console.log("Final Token ID:", currentTokenId - 1);
         console.log("========================\n");
     }
 }

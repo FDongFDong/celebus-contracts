@@ -1371,11 +1371,11 @@ export const CONFIG = {
 
   // Default Values for Testing
   DEFAULT_VALUES: {
-    // User Private Keys (테스트용 - 각각 다른 비밀키 사용)
-    user1PrivateKey: '0x94d26f9b25e16734a747e9f789d71082cb80155d11810ba99a12f9fd163397ef',
-    user2PrivateKey: '0xb43112fd82593f95dea3ba1a25eed28a6a75d6763677a42560b5d7815fea7977',
+    // User Private Keys (테스트용 - 실제 사용 시 환경변수로 설정)
+    user1PrivateKey: '',
+    user2PrivateKey: '',
     // Executor는 0x240eCdd1C5a7C30149D43987ce5A3Eb4e9E97897 (컨트랙트에 등록됨)
-    executorPrivateKey: '0x94d26f9b25e16734a747e9f789d71082cb80155d11810ba99a12f9fd163397ef',
+    executorPrivateKey: '',
 
     // User IDs (데모용 - 실제로는 백엔드가 DB에서 조회)
     user1Id: '사용자A',

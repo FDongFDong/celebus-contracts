@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {Script, console} from "forge-std/Script.sol";
-import {CelebusNFT} from "../src/nft/CelebusNFT.sol";
+import {VIBENFT} from "../src/nft/VIBENFT.sol";
 
 /**
  * @title StressBatchMint
@@ -34,11 +34,11 @@ contract StressBatchMint is Script {
 
         // 입력값 검증
         require(recipient != address(0), "Invalid recipient address");
-        require(batchSize > 0 && batchSize <= 1000, "Batch size must be 1-1000");
+        require(batchSize > 0 && batchSize <= 1500, "Batch size must be 1-1500");
         require(repeat > 0 && repeat <= 100, "Repeat must be 1-100");
         require(nftAddress != address(0), "Invalid NFT address");
 
-        CelebusNFT nft = CelebusNFT(nftAddress);
+        VIBENFT nft = VIBENFT(nftAddress);
 
         console.log("=== Stress Batch Mint Configuration ===");
         console.log("NFT Address:", nftAddress);

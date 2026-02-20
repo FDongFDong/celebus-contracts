@@ -6,7 +6,7 @@
 
 ```bash
 # Private key 설정
-export PRIVATE_KEY=0x94d26f9b25e16734a747e9f789d71082cb80155d11810ba99a12f9fd163397ef
+export PRIVATE_KEY=<YOUR_PRIVATE_KEY>
 
 # 배포 및 설정 실행 (한 번에)
 ./scripts/deploy-and-setup.sh

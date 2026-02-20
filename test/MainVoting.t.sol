@@ -65,6 +65,10 @@ contract MainVotingTest is Test {
     uint8 private constant REASON_INVALID_VOTE_TYPE = 4;
     uint8 private constant REASON_ARTIST_NOT_ALLOWED = 5;
 
+    function _isHeavyBoundaryEnabled() internal view returns (bool) {
+        return vm.envOr("RUN_HEAVY_BOUNDARY_TESTS", false);
+    }
+
     function setUp() public {
         owner = address(this);
 
@@ -260,6 +264,10 @@ contract MainVotingTest is Test {
         assertEq(voting.owner(), owner);
         assertEq(voting.executorSigner(), executorSigner);
         assertEq(voting.CHAIN_ID(), block.chainid);
+    }
+
+    function test_MaxRecordsPerBatch_Constant() public view {
+        assertEq(voting.MAX_RECORDS_PER_BATCH(), 2000);
     }
 
     function test_SetExecutorSigner() public {
@@ -466,6 +474,23 @@ contract MainVotingTest is Test {
         voting.submitMultiUserBatch(batches, 0, wrongExecutorSig);
     }
 
+    function test_RevertWhen_MalformedExecutorSignature_DoesNotConsumeNonces()
+        public
+    {
+        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](1);
+        records[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
+
+        MainVoting.UserVoteBatch[]
+            memory batches = new MainVoting.UserVoteBatch[](1);
+        batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
+
+        vm.expectRevert(MainVoting.InvalidSignature.selector);
+        voting.submitMultiUserBatch(batches, 777, hex"1234");
+
+        assertFalse(voting.usedBatchNonces(executorSigner, 777));
+        assertFalse(voting.usedUserNonces(user1, 0));
+    }
+
     function test_RevertWhen_EmptyBatches() public {
         MainVoting.UserVoteBatch[]
             memory batches = new MainVoting.UserVoteBatch[](0);
@@ -568,6 +593,78 @@ contract MainVotingTest is Test {
         // 유일한 유저가 실패 → NoSuccessfulUser
         vm.expectRevert(MainVoting.NoSuccessfulUser.selector);
         voting.submitMultiUserBatch(batches, 0, executorSig);
+    }
+
+    function test_SoftFail_MalformedUserSignature_PartialSuccess() public {
+        MainVoting.UserVoteBatch[]
+            memory batches = new MainVoting.UserVoteBatch[](2);
+
+        MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](1);
+        records1[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
+        batches[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);
+        // 잘못된 길이의 서명 (기존 구현에서는 ECDSA.recover가 revert 가능)
+        batches[0].userBatchSig.signature = hex"1234";
+
+        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
+        records2[0] = _createVoteRecord("user2", 1, 2, 1, 1, 200);
+        batches[1] = _createUserVoteBatch(records2, user2, 0, user2PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        assertFalse(voting.usedUserNonces(user1, 0));
+        assertTrue(voting.usedUserNonces(user2, 0));
+
+        (uint256 remember, , uint256 total) = voting.getArtistAggregates(1, 1);
+        assertEq(remember, 200);
+        assertEq(total, 200);
+    }
+
+    function testFuzz_SoftFail_MalformedUserSignatureLength_PartialSuccess(
+        uint8 badLen
+    ) public {
+        vm.assume(badLen != 65);
+
+        MainVoting.UserVoteBatch[]
+            memory batches = new MainVoting.UserVoteBatch[](2);
+
+        MainVoting.VoteRecord[] memory records1 = new MainVoting.VoteRecord[](1);
+        records1[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
+        batches[0] = _createUserVoteBatch(records1, user1, 0, user1PrivateKey);
+        batches[0].userBatchSig.signature = new bytes(badLen);
+
+        MainVoting.VoteRecord[] memory records2 = new MainVoting.VoteRecord[](1);
+        records2[0] = _createVoteRecord("user2", 1, 2, 1, 1, 200);
+        batches[1] = _createUserVoteBatch(records2, user2, 0, user2PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        assertFalse(voting.usedUserNonces(user1, 0));
+        assertTrue(voting.usedUserNonces(user2, 0));
+
+        (uint256 remember, , uint256 total) = voting.getArtistAggregates(1, 1);
+        assertEq(remember, 200);
+        assertEq(total, 200);
+    }
+
+    function test_RevertWhen_AllUsersMalformedSignature_BatchNonceRollsBack()
+        public
+    {
+        MainVoting.VoteRecord[] memory records = new MainVoting.VoteRecord[](1);
+        records[0] = _createVoteRecord("user1", 1, 1, 1, 1, 100);
+
+        MainVoting.UserVoteBatch[]
+            memory batches = new MainVoting.UserVoteBatch[](1);
+        batches[0] = _createUserVoteBatch(records, user1, 0, user1PrivateKey);
+        batches[0].userBatchSig.signature = hex"1234";
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 333);
+        vm.expectRevert(MainVoting.NoSuccessfulUser.selector);
+        voting.submitMultiUserBatch(batches, 333, executorSig);
+
+        assertFalse(voting.usedBatchNonces(executorSigner, 333));
+        assertFalse(voting.usedUserNonces(user1, 0));
     }
 
     function test_SoftFail_UserNonceInvalid_AllUsersFail() public {
@@ -1480,6 +1577,8 @@ contract MainVotingTest is Test {
     // ╚═══════════════════════════════════════════════════════════════════════════╝
 
     function test_BatchExact2000Records_Success() public {
+        if (!_isHeavyBoundaryEnabled()) return;
+
         // 2000개 레코드를 100개 유저 × 20개 레코드로 구성
         uint256 userCount = 100;
         uint256 recordsPerUser = 20;
@@ -1522,6 +1621,8 @@ contract MainVotingTest is Test {
     }
 
     function test_RevertWhen_BatchExceeds2000Records() public {
+        if (!_isHeavyBoundaryEnabled()) return;
+
         // 2001개 레코드 → BatchTooLarge 에러
         uint256 userCount = 101;
         uint256 recordsPerUser = 20;

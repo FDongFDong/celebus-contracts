@@ -1,6 +1,16 @@
-# MainVoting Contract
+# VIBE Utility Contracts
 
-EIP-712 기반 배치 투표 시스템. 다중 사용자의 Off-chain 서명을 수집하여 단일 트랜잭션으로 처리하는 가스 최적화 스마트 컨트랙트.
+EIP-712 기반 배치 투표/부스팅 시스템. 다중 사용자의 Off-chain 서명을 수집하여 단일 트랜잭션으로 처리하는 가스 최적화 스마트 컨트랙트 모음.
+
+## 컨트랙트 개요
+
+| 컨트랙트 | 설명 |
+|----------|------|
+| **MainVoting** | 아티스트 대상 Remember/Forget 투표 |
+| **SubVoting** | 질문-옵션 기반 서브 투표 |
+| **Boosting** | 아티스트 부스팅 (토큰 기반) |
+| **VIBENFT** | ERC721 기반 NFT (잠금/일시정지 기능) |
+| **CelebToken** | ERC20 토큰 (Permit 지원) |
 
 ---
 
@@ -22,7 +32,7 @@ MainVoting은 대규모 투표 시스템에서 발생하는 가스 비용 문제
 | submitMultiUserBatch | 다수 사용자의 투표를 단일 트랜잭션으로 처리 |
 | 2단계 서명 검증 | Executor 서명 + 개별 User 서명 |
 | Soft-fail 처리 | 일부 사용자 검증 실패 시에도 나머지 처리 진행 |
-| Nonce 기반 순서 보장 | batchNonce(Executor), userNonce(사용자) |
+| Nonce 기반 중복 방지 | batchNonce(Executor), userNonce(사용자) - 임의값 사용 |
 | 아티스트별 통계 집계 | Remember/Forget 투표량 실시간 집계 |
 
 ---
@@ -33,9 +43,11 @@ MainVoting은 대규모 투표 시스템에서 발생하는 가스 비용 문제
 
 ```
 1. CHAIN_ID: 배포 시점의 체인 ID를 immutable로 저장하여 크로스체인 리플레이 차단
-2. batchNonce: Executor별 순차 카운터로 배치 중복 제출 방지
-3. userNonce: 사용자별 순차 카운터로 동일 서명 재사용 차단
+2. batchNonce: Executor별 임의 nonce로 배치 중복 제출 방지 (usedBatchNonces 매핑)
+3. userNonce: 사용자별 임의 nonce로 동일 서명 재사용 차단 (usedUserNonces 매핑)
 4. consumed 매핑: (user, recordDigest) => bool로 개별 레코드 중복 처리 방지
+
+※ Nonce는 순차 증가가 아닌 임의 값 사용 (병렬 처리 지원)
 ```
 
 ### 2단계 서명 검증 구조
@@ -92,10 +104,10 @@ submitMultiUserBatch() 호출
 [1] Executor 서명 검증 (batchDigest)
     |
     v
-[2] batchNonce 소비 (순차 증가)
+[2] batchNonce 소비 (중복 사용 방지)
     |
     v
-[3] 각 사용자별 루프
+[3] 각 사용자별 루프 (Soft-fail)
     |-- recordDigests 재계산
     |-- recordsHash 계산
     |-- userBatchDigest 계산
@@ -103,7 +115,7 @@ submitMultiUserBatch() 호출
     |-- userNonce 검증 및 소비
     |
     v
-[4] 검증 통과한 레코드 저장
+[4] 검증 통과한 레코드 저장 + 통계 업데이트
 ```
 
 ---
@@ -145,11 +157,16 @@ UserBatchSig {
 한 사용자의 검증이 실패해도 전체 트랜잭션이 revert되지 않는다. 실패 사유별 이벤트 코드:
 
 ```
-REASON_USER_BATCH_TOO_LARGE = 1
-REASON_INVALID_USER_SIGNATURE = 2
-REASON_USER_NONCE_INVALID = 3
-REASON_INVALID_VOTE_TYPE = 5
-REASON_ARTIST_NOT_ALLOWED = 6
+REASON_USER_BATCH_TOO_LARGE = 1      // 유저 배치 크기 초과
+REASON_INVALID_USER_SIGNATURE = 2    // 유저 서명 검증 실패
+REASON_USER_NONCE_INVALID = 3        // 유저 nonce 중복 사용
+REASON_INVALID_VOTE_TYPE = 4         // 잘못된 투표 타입
+REASON_ARTIST_NOT_ALLOWED = 5        // 허용되지 않은 아티스트
+REASON_STRING_TOO_LONG = 6           // 문자열 길이 초과
+REASON_DUPLICATE_RECORD = 7          // 중복 레코드
+REASON_ZERO_AMOUNT = 8               // votingAmt = 0
+REASON_VOTING_ID_MISMATCH = 9        // votingId 불일치
+REASON_INVALID_OPTION_ID = 10        // 잘못된 optionId
 ```
 
 ---
@@ -213,7 +230,8 @@ if (record.votingAmt == 0 || consumed[user][recordDigest]) continue;
 ### 역할 분담
 
 **Frontend:**
-- 컨트랙트에서 userNonce(address) 직접 조회
+- 임의의 userNonce 생성 (예: timestamp, random)
+- usedUserNonces로 중복 확인 (선택적)
 - EIP-712 서명 데이터 구성 및 사용자 서명 요청
 - 서명 결과를 백엔드 API로 전송
 
@@ -226,11 +244,12 @@ if (record.votingAmt == 0 || consumed[user][recordDigest]) continue;
 ### 주요 View 함수
 
 ```solidity
-// 사용자 Nonce 조회 (Frontend에서 직접 호출)
-function userNonce(address user) external view returns (uint256);
+// 사용자 Nonce 사용 여부 조회 (Frontend/Backend에서 호출)
+// nonce는 임의의 uint256 사용 가능 (순차 증가 아님)
+function usedUserNonces(address user, uint256 nonce) external view returns (bool);
 
-// Executor Nonce 조회 (Backend에서 호출)
-function batchNonce(address executor) external view returns (uint256);
+// Executor Nonce 사용 여부 조회 (Backend에서 호출)
+function usedBatchNonces(address executor, uint256 nonce) external view returns (bool);
 
 // EIP-712 도메인 정보
 function domainSeparator() external view returns (bytes32);
@@ -238,6 +257,10 @@ function domainSeparator() external view returns (bytes32);
 // 투표 결과 조회
 function getArtistAggregates(uint256 missionId, uint256 optionId)
     external view returns (uint256 remember, uint256 forget, uint256 total);
+
+// 투표 기록 조회
+function getVoteSummariesByMissionVotingId(uint256 missionId, uint256 votingId)
+    external view returns (VoteRecordSummary[] memory);
 ```
 
 ---
@@ -332,7 +355,7 @@ forge test --gas-report
 | **중복 방지** | 동일 recordHash 스킵, 0 amount 스킵 |
 | **Artist 상태** | 비활성화 후 Soft-fail, 재활성화 |
 
-### CelebusNFT.t.sol (101개)
+### VIBENFT.t.sol (101개)
 
 | 카테고리 | 시나리오 |
 |----------|----------|
@@ -346,7 +369,7 @@ forge test --gas-report
 | **ERC721Receiver** | 수신자 컨트랙트 검증 |
 | **제한값** | 최대 배치 크기 초과 시 revert |
 
-### CelbTokenPermit.t.sol (13개)
+### CelebTokenPermit.t.sol (13개)
 
 | 카테고리 | 시나리오 |
 |----------|----------|
@@ -374,7 +397,7 @@ forge test --gas-report
 
 | 파일 | 시나리오 |
 |------|----------|
-| **CelebusNFT.invariant.t.sol** | 토큰 소유자 검증, 소각 토큰 존재 불가, 잠금 일관성, 잠금 수 제한, Pause 동작, 토큰 ID 유효성, 총 잔액 일치 |
+| **VIBENFT.invariant.t.sol** | 토큰 소유자 검증, 소각 토큰 존재 불가, 잠금 일관성, 잠금 수 제한, Pause 동작, 토큰 ID 유효성, 총 잔액 일치 |
 
 ### 배포 (opBNB Testnet)
 
@@ -408,39 +431,49 @@ forge script script/DeployNFT.s.sol:DeployNFT \
     --broadcast
 ```
 
-### ABI 생성
+### ABI 참조
+
+Foundry 빌드 결과물(`out/`)에서 ABI를 추출하여 사용합니다:
 
 ```bash
-# 먼저 빌드 실행
+# 컨트랙트 빌드 (ABI 생성)
 forge build
 
-# MainVoting ABI
-jq '.abi' out/MainVoting.sol/MainVoting.json > ./demo/MainVoting-abi.json
+# 개별 ABI 추출이 필요한 경우
+jq '.abi' out/MainVoting.sol/MainVoting.json > MainVoting-abi.json
+jq '.abi' out/SubVoting.sol/SubVoting.json > SubVoting-abi.json
+jq '.abi' out/Boosting.sol/Boosting.json > Boosting-abi.json
+jq '.abi' out/VIBENFT.sol/VIBENFT.json > VIBENFT-abi.json
+jq '.abi' out/CelebToken.sol/CelebToken.json > CelebToken-abi.json
+```
 
-# SubVoting ABI
-jq '.abi' out/SubVoting.sol/SubVoting.json > ./sub_demo/SubVoting-abi.json
+### 데모 앱 실행 (demo-next)
 
-# Boosting ABI
-jq '.abi' out/Boosting.sol/Boosting.json > ./boosting_demo/Boosting-abi.json
+```bash
+cd demo-next
 
-# NFT ABI
-jq '.abi' out/CelebusNFT.sol/CelebusNFT.json > ./nft_demo/CelebusNFT-abi.json
+# 의존성 설치
+npm install
+
+# 개발 서버 실행
+npm run dev
+
+# 테스트 실행
+npm test
+
+# 빌드
+npm run build
 ```
 
 ### 컨트랙트 검증 (Constructor Args 생성)
 
 ```bash
 # MainVoting constructor args
-cast abi-encode "constructor(address)" 0xYOUR_OWNER_ADDRESS > ./demo/constructor-args.txt
+cast abi-encode "constructor(address)" 0xYOUR_OWNER_ADDRESS > constructor-args.txt
 
-# SubVoting constructor args
-cast abi-encode "constructor(address)" 0xYOUR_OWNER_ADDRESS > ./sub_demo/constructor-args.txt
-
-# Boosting constructor args
-cast abi-encode "constructor(address)" 0xYOUR_OWNER_ADDRESS > ./boosting_demo/constructor-args.txt
-
-# NFT constructor args
-cast abi-encode "constructor(address)" 0xYOUR_OWNER_ADDRESS > ./nft_demo/constructor-args.txt
+# SubVoting constructor args (동일)
+# Boosting constructor args (동일)
+# NFT constructor args (동일)
 ```
 
 ### 컨트랙트 검증 (Standard JSON Input 생성)
@@ -450,25 +483,25 @@ cast abi-encode "constructor(address)" 0xYOUR_OWNER_ADDRESS > ./nft_demo/constru
 forge verify-contract 0xYOUR_MAINVOTING_ADDRESS \
     src/vote/MainVoting.sol:MainVoting \
     --chain opbnb-testnet \
-    --show-standard-json-input > ./demo/standard-json-input.json
+    --show-standard-json-input > MainVoting-standard-json-input.json
 
 # SubVoting 검증용 JSON 생성
 forge verify-contract 0xYOUR_SUBVOTING_ADDRESS \
     src/vote/SubVoting.sol:SubVoting \
     --chain opbnb-testnet \
-    --show-standard-json-input > ./sub_demo/standard-json-input.json
+    --show-standard-json-input > SubVoting-standard-json-input.json
 
 # Boosting 검증용 JSON 생성
 forge verify-contract 0xYOUR_BOOSTING_ADDRESS \
     src/vote/Boosting.sol:Boosting \
     --chain opbnb-testnet \
-    --show-standard-json-input > ./boosting_demo/standard-json-input.json
+    --show-standard-json-input > Boosting-standard-json-input.json
 
 # NFT 검증용 JSON 생성
 forge verify-contract 0xYOUR_NFT_ADDRESS \
-    src/nft/CelebusNFT.sol:CelebusNFT \
+    src/nft/VIBENFT.sol:VIBENFT \
     --chain opbnb-testnet \
-    --show-standard-json-input > ./nft_demo/standard-json-input.json
+    --show-standard-json-input > VIBENFT-standard-json-input.json
 ```
 
 ## 주요 명령어
@@ -495,17 +528,28 @@ cast call <contract> "function()(type)" --rpc-url <rpc>
 ```
 contracts/
 ├── src/
-│   ├── vote/              # 투표 관련 컨트랙트
-│   │   ├── MainVoting.sol
-│   │   ├── SubVoting.sol
-│   │   └── Boosting.sol
+│   ├── vote/                    # 투표/부스팅 컨트랙트
+│   │   ├── MainVoting.sol       # 아티스트 투표
+│   │   ├── SubVoting.sol        # 서브 투표
+│   │   └── Boosting.sol         # 부스팅
 │   ├── nft/
-│   │   └── CelebusNFT.sol
+│   │   └── VIBENFT.sol       # NFT (잠금/일시정지)
 │   └── token/
-│       └── CelbToken.sol
-├── test/                  # 테스트 파일
-├── script/                # 배포 스크립트
-└── lib/                   # 외부 라이브러리
+│       └── CelebToken.sol        # ERC20 토큰
+├── test/
+│   ├── *.t.sol                  # Unit 테스트 (276개)
+│   ├── invariant/               # Invariant 테스트 (9개)
+│   └── mocks/                   # 테스트용 Mock 컨트랙트
+├── script/                      # 배포 스크립트
+├── scripts/                     # 스트레스 테스트 스크립트
+├── demo-next/                   # 데모 앱 (Next.js 16)
+│   └── src/
+│       ├── app/                 # App Router
+│       ├── components/          # UI 컴포넌트
+│       └── lib/                 # 유틸리티
+├── sub_demo/                    # SubVoting 데모 (레거시)
+├── nft_demo/                    # NFT 데모 (레거시)
+└── lib/                         # 외부 라이브러리 (forge-std, openzeppelin)
 ```
 
 ## 스트레스 테스트 스크립트
@@ -515,7 +559,7 @@ contracts/
 ### 1) 동시에 여러 번 제출 (`npm run stress:burst`)
 
 ```bash
-export PRIVATE_KEY=0xb43112fd82593f95dea3ba1a25eed28a6a75d6763677a42560b5d7815fea7977
+export PRIVATE_KEY=<YOUR_PRIVATE_KEY>
 export VOTING_ADDRESS=0x999bbdfc674912ed5b450faea2a5938c5eb39731
 export RPC_URL=https://opbnb-testnet-rpc.bnbchain.org
 
@@ -530,7 +574,7 @@ npm run stress:burst -- --count 10 --totalVotes 140 --userCount 130 --missionId 
 ### 2) 배포→서명→제출까지 한 번에 (`scripts/run-stress.sh`)
 
 ```bash
-export PRIVATE_KEY=0xb43112fd82593f95dea3ba1a25eed28a6a75d6763677a42560b5d7815fea7977
+export PRIVATE_KEY=<YOUR_PRIVATE_KEY>
 TOTAL_VOTES=130 USER_COUNT=130 scripts/run-stress.sh
 ```
 
@@ -538,19 +582,54 @@ TOTAL_VOTES=130 USER_COUNT=130 scripts/run-stress.sh
 - `EXECUTOR_PRIVATE_KEY`, `GAS_LIMIT`, `RPC_URL` 등을 환경변수로 덮어쓸 수 있습니다.
 - 출력 마지막에 컨트랙트 주소, 생성 JSON 경로, 제출 tx hash 를 요약합니다.
 
+## 테스트 현황
+
+### 테스트 커버리지 요약
+
+| 테스트 파일 | 테스트 수 | 상태 |
+|------------|----------|------|
+| MainVoting.t.sol | 53 | ✅ |
+| SubVoting.t.sol | 51 | ✅ |
+| Boosting.t.sol | 48 | ✅ |
+| VIBENFT.t.sol | 101 | ✅ |
+| CelebTokenPermit.t.sol | 13 | ✅ |
+| UserVoteResultEvent.t.sol | 8 | ✅ |
+| HashDebug.t.sol | 2 | ✅ |
+| VIBENFT.invariant.t.sol | 9 | ✅ |
+| **총계** | **285** | ✅ |
+
+### 실행
+
+```bash
+# 전체 테스트
+forge test
+
+# Invariant 테스트
+forge test --match-path "test/invariant/*"
+
+# 가스 리포트
+forge test --gas-report
+```
+
 ## 보안
 
-- **테스트 커버리지**: 총 285개 테스트 (Unit 276개 + Invariant 9개)
-- **보안 점수**: 99.5%+ 프로덕션 준비도
+- **테스트 커버리지**: 총 285개 테스트 (Unit 276개 + Invariant 9개) - 모두 통과
 - **취약점**: Critical 0개, High 0개
 - **감사 문서**: 내부 보안 감사 보고서 (필요 시 별도 공유)
 
 ## 기술 스택
 
+### 스마트 컨트랙트
 - **Framework**: Foundry
-- **Language**: Solidity ^0.8.20
-- **Libraries**: OpenZeppelin Contracts, ERC721A
-- **Standard**: EIP-712 (Typed Structured Data)
+- **Language**: Solidity ^0.8.20 / ^0.8.27
+- **Libraries**: OpenZeppelin Contracts 5.x
+- **Standard**: EIP-712 (Typed Structured Data), ERC-1271 (Smart Wallet)
+
+### 데모 앱 (demo-next)
+- **Framework**: Next.js 16 + TypeScript
+- **Blockchain**: viem (EIP-712 서명, 컨트랙트 연동)
+- **UI**: Tailwind CSS + shadcn/ui
+- **Test**: Vitest
 
 ## 라이센스
 

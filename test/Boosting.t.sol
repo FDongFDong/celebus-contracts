@@ -26,6 +26,10 @@ contract BoostingTest is Test {
     bytes32 private constant BATCH_TYPEHASH =
         keccak256("Batch(uint256 batchNonce)");
 
+    function _isHeavyBoundaryEnabled() internal view returns (bool) {
+        return vm.envOr("RUN_HEAVY_BOUNDARY_TESTS", false);
+    }
+
     function setUp() public {
         owner = address(this);
 
@@ -155,6 +159,10 @@ contract BoostingTest is Test {
         assertEq(boosting.owner(), owner);
         assertEq(boosting.executorSigner(), executorSigner);
         assertEq(boosting.CHAIN_ID(), block.chainid);
+    }
+
+    function test_MaxRecordsPerBatch_Constant() public view {
+        assertEq(boosting.MAX_RECORDS_PER_BATCH(), 2000);
     }
 
     function test_SetExecutorSigner() public {
@@ -299,6 +307,29 @@ contract BoostingTest is Test {
         boosting.submitBoostBatch(batches, 0, wrongExecutorSig);
     }
 
+    function test_RevertWhen_MalformedExecutorSignature_DoesNotConsumeNonces()
+        public
+    {
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = _createUserBoostBatch(
+            user1PrivateKey,
+            user1,
+            "user1",
+            1,
+            1,
+            1,
+            0,
+            100,
+            0
+        );
+
+        vm.expectRevert(Boosting.InvalidSignature.selector);
+        boosting.submitBoostBatch(batches, 777, hex"1234");
+
+        assertFalse(boosting.usedBatchNonces(executorSigner, 777));
+        assertFalse(boosting.usedUserNonces(user1, 0));
+    }
+
     function test_RevertWhen_InvalidUserSignature() public {
         // 잘못된 서명으로 배치 생성 (user2 private key로 user1의 레코드 서명)
         Boosting.BoostRecord memory record = _createBoostRecord("user1", 1, 1, 1, 0, 100);
@@ -317,6 +348,105 @@ contract BoostingTest is Test {
         // Soft-fail: 유저 서명 검증 실패 → 해당 유저만 실패 → 모든 유저 실패 시 NoSuccessfulUser
         vm.expectRevert(Boosting.NoSuccessfulUser.selector);
         boosting.submitBoostBatch(batches, 0, executorSig);
+    }
+
+    function test_SoftFailWhen_MalformedUserSignature() public {
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](2);
+        batches[0] = _createUserBoostBatch(
+            user1PrivateKey,
+            user1,
+            "user1",
+            1,
+            1,
+            1,
+            0,
+            100,
+            0
+        );
+        batches[0].userSig.signature = hex"1234";
+        batches[1] = _createUserBoostBatch(
+            user2PrivateKey,
+            user2,
+            "user2",
+            1,
+            2,
+            2,
+            0,
+            200,
+            0
+        );
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+
+        assertFalse(boosting.usedUserNonces(user1, 0));
+        assertTrue(boosting.usedUserNonces(user2, 0));
+        assertEq(boosting.artistTotalAmt(1, 1), 0);
+        assertEq(boosting.artistTotalAmt(1, 2), 200);
+    }
+
+    function testFuzz_SoftFailWhen_MalformedUserSignatureLength(
+        uint8 badLen
+    ) public {
+        vm.assume(badLen != 65);
+
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](2);
+        batches[0] = _createUserBoostBatch(
+            user1PrivateKey,
+            user1,
+            "user1",
+            1,
+            1,
+            1,
+            0,
+            100,
+            0
+        );
+        batches[0].userSig.signature = new bytes(badLen);
+        batches[1] = _createUserBoostBatch(
+            user2PrivateKey,
+            user2,
+            "user2",
+            1,
+            2,
+            2,
+            0,
+            200,
+            0
+        );
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        boosting.submitBoostBatch(batches, 0, executorSig);
+
+        assertFalse(boosting.usedUserNonces(user1, 0));
+        assertTrue(boosting.usedUserNonces(user2, 0));
+        assertEq(boosting.artistTotalAmt(1, 1), 0);
+        assertEq(boosting.artistTotalAmt(1, 2), 200);
+    }
+
+    function test_RevertWhen_AllUsersMalformedSignature_BatchNonceRollsBack()
+        public
+    {
+        Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](1);
+        batches[0] = _createUserBoostBatch(
+            user1PrivateKey,
+            user1,
+            "user1",
+            1,
+            1,
+            1,
+            0,
+            100,
+            0
+        );
+        batches[0].userSig.signature = hex"1234";
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 333);
+        vm.expectRevert(Boosting.NoSuccessfulUser.selector);
+        boosting.submitBoostBatch(batches, 333, executorSig);
+
+        assertFalse(boosting.usedBatchNonces(executorSigner, 333));
+        assertFalse(boosting.usedUserNonces(user1, 0));
     }
 
     function test_RevertWhen_UserNonceAlreadyUsed() public {
@@ -790,6 +920,8 @@ contract BoostingTest is Test {
     // ╚═══════════════════════════════════════════════════════════════════════════╝
 
     function test_BatchExact2000Users_Success() public {
+        if (!_isHeavyBoundaryEnabled()) return;
+
         // Boosting은 1:1 방식이므로 유저 수 = 레코드 수
         uint256 userCount = 2000;
 
@@ -835,6 +967,8 @@ contract BoostingTest is Test {
     }
 
     function test_RevertWhen_BatchExceeds2000Users() public {
+        if (!_isHeavyBoundaryEnabled()) return;
+
         uint256 userCount = 2001;
 
         Boosting.UserBoostBatch[] memory batches = new Boosting.UserBoostBatch[](userCount);

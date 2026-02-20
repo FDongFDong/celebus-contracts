@@ -12,7 +12,7 @@ if [ $# -lt 4 ]; then
   echo "  0xYourNFTAddress \\"
   echo "  100 \\"
   echo "  https://opbnb-testnet.infura.io/v3/ff3d0a25dafc4bfda7cb700771d89273 \\"
-  echo "  0x94d26f9b25e16734a747e9f789d71082cb80155d11810ba99a12f9fd163397ef"
+  echo "  <YOUR_PRIVATE_KEY>"
   exit 1
 fi
 

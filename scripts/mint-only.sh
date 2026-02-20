@@ -20,6 +20,18 @@ if [ -z "$RECIPIENT" ]; then
     exit 1
 fi
 
+if [ -z "$PRIVATE_KEY" ]; then
+    echo -e "${RED}❌ PRIVATE_KEY가 설정되지 않았습니다${NC}"
+    echo "export PRIVATE_KEY=0xYourPrivateKey"
+    exit 1
+fi
+
+if [ -z "$RPC_URL" ]; then
+    echo -e "${RED}❌ RPC_URL이 설정되지 않았습니다${NC}"
+    echo "export RPC_URL=https://opbnb-testnet-rpc.bnbchain.org"
+    exit 1
+fi
+
 # 기본값
 BATCH_SIZE=${BATCH_SIZE:-200}
 REPEAT_COUNT=${REPEAT_COUNT:-5}
@@ -34,6 +46,7 @@ echo -e "${GREEN}수령자: $RECIPIENT${NC}"
 echo -e "${YELLOW}배치 크기: $BATCH_SIZE${NC}"
 echo -e "${YELLOW}반복 횟수: $REPEAT_COUNT${NC}"
 echo -e "${YELLOW}총 민팅: $((BATCH_SIZE * REPEAT_COUNT))개${NC}"
+echo -e "${YELLOW}토큰 ID 정책: 자동 증가 (START_TOKEN_ID는 레거시)${NC}"
 echo ""
 
 export NFT_ADDRESS

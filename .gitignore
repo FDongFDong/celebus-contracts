@@ -8,6 +8,11 @@ out/
 /broadcast/**/run-*.json
 /broadcast/**/run-latest.json
 
+# Foundry test broadcast logs
+/broadcast/**/Test*.s.sol/
+/broadcast/**/Submit*.s.sol/
+/broadcast/**/Stress*.s.sol/
+
 # Docs
 docs/
 
@@ -46,8 +51,17 @@ boosting_demo/scripts/
 
 node_modules
 
-# Playwright MCP
+# macOS system files
+.DS_Store
+**/.DS_Store
+
+# MCP tool caches
 .playwright-mcp/
+.serena/
+
+# demo-next build artifacts
+demo-next/.next/
+demo-next/node_modules/
 
 # Build output
 bin/

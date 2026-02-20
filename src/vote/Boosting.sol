@@ -1,21 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-
-/**
- * @dev ERC-1271 스마트 컨트랙트 지갑 서명 검증 인터페이스
- *      Safe, Argent 등 스마트 계정에서 서명을 검증할 때 사용됩니다.
- */
-interface IERC1271 {
-    function isValidSignature(
-        bytes32 hash,
-        bytes calldata signature
-    ) external view returns (bytes4);
-}
+import {SignatureVerifier} from "./lib/SignatureVerifier.sol";
 
 /**
  * @title Boosting
@@ -42,12 +31,6 @@ contract Boosting is Ownable2Step, EIP712 {
     // ========================================
     // 상수 (Constants)
     // ========================================
-
-    /**
-     * @dev ERC-1271 서명 검증 성공 시 반환되는 매직 값
-     *      bytes4(keccak256("isValidSignature(bytes32,bytes)"))
-     */
-    bytes4 private constant ERC1271_MAGICVALUE = 0x1626ba7e;
 
     /**
      * @dev 한 트랜잭션에서 처리할 수 있는 최대 부스팅 레코드 수
@@ -561,41 +544,6 @@ contract Boosting is Ownable2Step, EIP712 {
             _hashTypedDataV4(keccak256(abi.encode(BATCH_TYPEHASH, batchNonce)));
     }
 
-    /**
-     * @dev 서명 검증 (EOA + 스마트 컨트랙트 지갑 모두 지원)
-     * @param signer 예상 서명자 주소
-     * @param digest 서명된 메시지 해시
-     * @param sig 서명 데이터
-     * @return 서명이 유효하면 true
-     *
-     * 동작 방식:
-     *   1. signer가 EOA인 경우 (code.length == 0):
-     *      -> ECDSA.recover로 복구한 주소와 비교
-     *   2. signer가 컨트랙트인 경우 (Safe, Argent 등):
-     *      -> ERC-1271의 isValidSignature 호출
-     */
-    function _isValidSig(
-        address signer,
-        bytes32 digest,
-        bytes calldata sig
-    ) internal view returns (bool) {
-        // EOA 지갑인 경우
-        if (signer.code.length == 0) {
-            return ECDSA.recover(digest, sig) == signer;
-        }
-
-        // 스마트 컨트랙트 지갑인 경우 (ERC-1271)
-        (bool ok, bytes memory ret) = signer.staticcall(
-            abi.encodeWithSelector(
-                IERC1271.isValidSignature.selector,
-                digest,
-                sig
-            )
-        );
-        // ABI 인코딩된 bytes4 반환값은 32바이트로 패딩됨
-        return ok && ret.length >= 32 && bytes4(ret) == ERC1271_MAGICVALUE;
-    }
-
     // ========================================
     // 내부 함수: Nonce 관리 (Internal: Nonce Management)
     // ========================================
@@ -671,7 +619,7 @@ contract Boosting is Ownable2Step, EIP712 {
         // 1) 서명 검증
         bytes32 userSigDigest = _hashUserSig(user, nonce_, recordHash);
 
-        if (!_isValidSig(user, userSigDigest, userSig.signature)) {
+        if (!SignatureVerifier.isValidSignature(user, userSigDigest, userSig.signature)) {
             reasonCode = REASON_INVALID_USER_SIGNATURE;
             emit UserBoostFailed(batchDigest, user, nonce_, reasonCode);
             return (false, reasonCode);
@@ -846,7 +794,13 @@ contract Boosting is Ownable2Step, EIP712 {
 
         // === 2. Executor 서명 & Nonce 검증 ===
         bytes32 batchDigest = _hashBatch(batchNonce_);
-        if (!_isValidSig(executorSigner, batchDigest, executorSig)) {
+        if (
+            !SignatureVerifier.isValidSignature(
+                executorSigner,
+                batchDigest,
+                executorSig
+            )
+        ) {
             revert InvalidSignature();
         }
         _consumeBatchNonce(executorSigner, batchNonce_);

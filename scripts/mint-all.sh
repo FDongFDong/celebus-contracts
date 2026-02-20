@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================
-# CelebusNFT 자동 민팅 스크립트
+# VIBENFT 자동 민팅 스크립트
 # ==============================================
 # 10,000개 NFT를 500개씩 20회 배치로 민팅
 #
@@ -9,7 +9,7 @@
 #   chmod +x scripts/mint-all.sh
 #   ./scripts/mint-all.sh
 #
-# 재시작:
+# 재시작 (배치 번호 기준):
 #   START_BATCH=5 ./scripts/mint-all.sh
 # ==============================================
 
@@ -65,18 +65,18 @@ START_BATCH=${START_BATCH:-1}  # 기본값 1, 환경변수로 변경 가능
 # 배치 민팅 함수
 mint_batch() {
     local batch_num=$1
-    local start_token=$(( (batch_num - 1) * BATCH_SIZE + 1 ))
-    local end_token=$(( start_token + BATCH_SIZE - 1 ))
+    local minted_so_far=$(( (batch_num - 1) * BATCH_SIZE ))
 
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${YELLOW}📦 Batch $batch_num/$TOTAL_BATCHES${NC}"
-    echo -e "${BLUE}   Token IDs: $start_token - $end_token${NC}"
+    echo -e "${BLUE}   Batch Mint Count: $BATCH_SIZE${NC}"
+    echo -e "${BLUE}   누적 민팅(예상): $minted_so_far → $(( minted_so_far + BATCH_SIZE ))${NC}"
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
     # Cast 명령어 실행 (출력 숨기기)
     OUTPUT=$(cast send $NFT_ADDRESS \
-        "batchMint(address,uint256,uint256)" \
-        $RECIPIENT $start_token $BATCH_SIZE \
+        "batchMint(address,uint256)" \
+        $RECIPIENT $BATCH_SIZE \
         --rpc-url $RPC_URL \
         --private-key $PRIVATE_KEY \
         --legacy 2>&1)
@@ -111,7 +111,7 @@ main() {
     clear
     echo -e "${BLUE}"
     echo "╔════════════════════════════════════════╗"
-    echo "║   CelebusNFT 자동 민팅 스크립트        ║"
+    echo "║   VIBENFT 자동 민팅 스크립트          ║"
     echo "║   10,000개 NFT (500개씩 20회)         ║"
     echo "╚════════════════════════════════════════╝"
     echo -e "${NC}"

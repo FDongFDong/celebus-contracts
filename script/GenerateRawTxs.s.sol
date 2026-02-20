@@ -2,7 +2,6 @@
 pragma solidity ^0.8.27;
 
 import {Script, console} from "forge-std/Script.sol";
-import {CelebusNFT} from "../src/nft/CelebusNFT.sol";
 
 /**
  * @title GenerateRawTxs
@@ -13,12 +12,11 @@ import {CelebusNFT} from "../src/nft/CelebusNFT.sol";
  *     -vvv
  *
  * Environment variables:
- *   - NFT_ADDRESS: Deployed CelebusNFT contract address
+ *   - NFT_ADDRESS: Deployed VIBENFT contract address
  *   - RECIPIENT: Address to receive the NFTs
  *   - PRIVATE_KEY: Private key for signing
  *   - BATCH_SIZE: (Optional) Number of NFTs per batch (default: 200)
  *   - REPEAT_COUNT: (Optional) Number of batches (default: 5)
- *   - START_TOKEN_ID: (Optional) Starting token ID (default: 1)
  */
 contract GenerateRawTxs is Script {
     function run() external {
@@ -30,20 +28,16 @@ contract GenerateRawTxs is Script {
         // Optional parameters with defaults
         uint256 batchSize = vm.envOr("BATCH_SIZE", uint256(200));
         uint256 repeatCount = vm.envOr("REPEAT_COUNT", uint256(5));
-        uint256 startTokenId = vm.envOr("START_TOKEN_ID", uint256(1));
 
         // Validate parameters
         require(batchSize > 0 && batchSize <= 500, "Batch size must be 1-500");
         require(repeatCount > 0 && repeatCount <= 100, "Repeat count must be 1-100");
-
-        CelebusNFT nft = CelebusNFT(nftAddress);
 
         console.log("=== Raw Transaction Generation ===");
         console.log("NFT Contract:", nftAddress);
         console.log("Recipient:", recipient);
         console.log("Batch Size:", batchSize);
         console.log("Repeat Count:", repeatCount);
-        console.log("Start Token ID:", startTokenId);
         console.log("===================================\n");
 
         // 배포자 주소 (private key로부터)
@@ -71,18 +65,16 @@ contract GenerateRawTxs is Script {
 
         // 각 배치에 대한 raw transaction 생성
         for (uint256 i = 0; i < repeatCount; i++) {
-            uint256 currentStartId = startTokenId + (i * batchSize);
             uint256 txNonce = currentNonce + i;
 
             console.log("Batch", i + 1, "/", repeatCount);
-            console.log("  Token IDs:", currentStartId, "-", currentStartId + batchSize - 1);
+            console.log("  Mint Count:", batchSize);
             console.log("  Nonce:", txNonce);
 
             // calldata 생성
             bytes memory callData = abi.encodeWithSignature(
-                "batchMint(address,uint256,uint256)",
+                "batchMint(address,uint256)",
                 recipient,
-                currentStartId,
                 batchSize
             );
 

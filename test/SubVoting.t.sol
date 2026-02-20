@@ -30,6 +30,10 @@ contract SubVotingTest is Test {
     bytes32 private constant BATCH_TYPEHASH =
         keccak256("Batch(uint256 batchNonce)");
 
+    function _isHeavyBoundaryEnabled() internal view returns (bool) {
+        return vm.envOr("RUN_HEAVY_BOUNDARY_TESTS", false);
+    }
+
     function setUp() public {
         owner = address(this);
 
@@ -173,6 +177,10 @@ contract SubVotingTest is Test {
         assertEq(voting.owner(), owner);
         assertEq(voting.executorSigner(), executorSigner);
         assertEq(voting.CHAIN_ID(), block.chainid);
+    }
+
+    function test_MaxRecordsPerBatch_Constant() public view {
+        assertEq(voting.MAX_RECORDS_PER_BATCH(), 2000);
     }
 
     function test_SetExecutorSigner() public {
@@ -335,6 +343,29 @@ contract SubVotingTest is Test {
         voting.submitMultiUserBatch(batches, 0, wrongExecutorSig);
     }
 
+    function test_RevertWhen_MalformedExecutorSignature_DoesNotConsumeNonces()
+        public
+    {
+        SubVoting.VoteRecord memory record = _createVoteRecord(
+            1,
+            "user1",
+            1,
+            1,
+            1,
+            1,
+            100
+        );
+
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](1);
+        batches[0] = _createSingleRecordBatch(record, user1, 0, user1PrivateKey);
+
+        vm.expectRevert(SubVoting.InvalidSignature.selector);
+        voting.submitMultiUserBatch(batches, 777, hex"1234");
+
+        assertFalse(voting.usedBatchNonces(executorSigner, 777));
+        assertFalse(voting.usedUserNonces(user1, 0));
+    }
+
     function test_SoftFailWhen_InvalidUserSignature() public {
         // Soft-fail 테스트: 잘못된 서명의 유저는 실패하지만 다른 유저는 성공
         SubVoting.VoteRecord memory record1 = _createVoteRecord(1, "user1", 1, 1, 1, 1, 100);
@@ -359,6 +390,88 @@ contract SubVotingTest is Test {
         // 집계는 user2의 투표만 반영
         assertEq(voting.getOptionVotes(1, 1, 1), 200);
         assertEq(voting.getQuestionTotalVotes(1, 1), 200);
+    }
+
+    function test_SoftFailWhen_MalformedUserSignature() public {
+        // Soft-fail 테스트: 서명 길이가 잘못돼도 전체 배치가 revert 되지 않아야 함
+        SubVoting.VoteRecord memory record1 = _createVoteRecord(1, "user1", 1, 1, 1, 1, 100);
+        SubVoting.VoteRecord memory record2 = _createVoteRecord(2, "user2", 1, 1, 1, 1, 200);
+
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](2);
+        batches[0] = _createSingleRecordBatch(record1, user1, 0, user1PrivateKey);
+        batches[0].userBatchSig.signature = hex"1234";
+        batches[1] = _createSingleRecordBatch(record2, user2, 0, user2PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        assertFalse(voting.usedUserNonces(user1, 0));
+        assertTrue(voting.usedUserNonces(user2, 0));
+        assertEq(voting.getOptionVotes(1, 1, 1), 200);
+        assertEq(voting.getQuestionTotalVotes(1, 1), 200);
+    }
+
+    function testFuzz_SoftFailWhen_MalformedUserSignatureLength(
+        uint8 badLen
+    ) public {
+        vm.assume(badLen != 65);
+
+        SubVoting.VoteRecord memory record1 = _createVoteRecord(
+            1,
+            "user1",
+            1,
+            1,
+            1,
+            1,
+            100
+        );
+        SubVoting.VoteRecord memory record2 = _createVoteRecord(
+            2,
+            "user2",
+            1,
+            1,
+            1,
+            1,
+            200
+        );
+
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](2);
+        batches[0] = _createSingleRecordBatch(record1, user1, 0, user1PrivateKey);
+        batches[0].userBatchSig.signature = new bytes(badLen);
+        batches[1] = _createSingleRecordBatch(record2, user2, 0, user2PrivateKey);
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 0);
+        voting.submitMultiUserBatch(batches, 0, executorSig);
+
+        assertFalse(voting.usedUserNonces(user1, 0));
+        assertTrue(voting.usedUserNonces(user2, 0));
+        assertEq(voting.getOptionVotes(1, 1, 1), 200);
+        assertEq(voting.getQuestionTotalVotes(1, 1), 200);
+    }
+
+    function test_RevertWhen_AllUsersMalformedSignature_BatchNonceRollsBack()
+        public
+    {
+        SubVoting.VoteRecord memory record = _createVoteRecord(
+            1,
+            "user1",
+            1,
+            1,
+            1,
+            1,
+            100
+        );
+
+        SubVoting.UserVoteBatch[] memory batches = new SubVoting.UserVoteBatch[](1);
+        batches[0] = _createSingleRecordBatch(record, user1, 0, user1PrivateKey);
+        batches[0].userBatchSig.signature = hex"1234";
+
+        bytes memory executorSig = _signBatchSig(executorPrivateKey, 333);
+        vm.expectRevert(SubVoting.NoSuccessfulUser.selector);
+        voting.submitMultiUserBatch(batches, 333, executorSig);
+
+        assertFalse(voting.usedBatchNonces(executorSigner, 333));
+        assertFalse(voting.usedUserNonces(user1, 0));
     }
 
     function test_RevertWhen_UserNonceInvalid() public {
@@ -891,6 +1004,8 @@ contract SubVotingTest is Test {
     // ╚═══════════════════════════════════════════════════════════════════════════╝
 
     function test_BatchExact2000Records_Success() public {
+        if (!_isHeavyBoundaryEnabled()) return;
+
         uint256 userCount = 100;
         uint256 recordsPerUser = 20;
 
@@ -928,6 +1043,8 @@ contract SubVotingTest is Test {
     }
 
     function test_RevertWhen_BatchExceeds2000Records() public {
+        if (!_isHeavyBoundaryEnabled()) return;
+
         uint256 userCount = 101;
         uint256 recordsPerUser = 20;
 

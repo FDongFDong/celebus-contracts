@@ -19,9 +19,15 @@ import { execSync } from 'child_process'
 import { readFileSync } from 'fs'
 
 // 하드코딩된 설정 (테스트용)
-const PRIVATE_KEY = process.env.PRIVATE_KEY || '0xb43112fd82593f95dea3ba1a25eed28a6a75d6763677a42560b5d7815fea7977'
+const PRIVATE_KEY = process.env.PRIVATE_KEY
 const RECIPIENT = process.env.RECIPIENT || '0xDc45fE9fF7aF3522bB2B88a602670Ab4bE2C6f91'
 const RPC_URL = process.env.RPC_URL || 'https://opbnb-testnet-rpc.bnbchain.org'
+
+if (!PRIVATE_KEY) {
+  console.error('❌ PRIVATE_KEY 환경변수가 필요합니다.')
+  console.error('   예: export PRIVATE_KEY=0x...')
+  process.exit(1)
+}
 
 console.log('╔════════════════════════════════════════╗')
 console.log('║   🤖 자동 NFT 배포 및 민팅           ║')
@@ -48,7 +54,7 @@ async function deployNFT() {
     const broadcast = JSON.parse(readFileSync(broadcastFile, 'utf8'))
 
     const nftAddress = broadcast.transactions.find(
-      tx => tx.contractName === 'CelebusNFT'
+      tx => tx.contractName === 'VIBENFT'
     )?.contractAddress
 
     if (!nftAddress) {
@@ -87,7 +93,7 @@ const client = createWalletClient({
 }).extend(publicActions)
 
 const nftAbi = parseAbi([
-  'function batchMint(address to, uint256 startId, uint256 count) external'
+  'function batchMint(address to, uint256 count) external'
 ])
 
 async function parallelMint(nftAddress) {
@@ -102,15 +108,9 @@ async function parallelMint(nftAddress) {
   console.log(`📊 총 민팅: ${batchSize * repeatCount}개\n`)
 
   // 배치 생성
-  const batches = []
-  let currentId = 1
-  for (let i = 0; i < repeatCount; i++) {
-    batches.push({
-      startId: currentId,
-      count: batchSize
-    })
-    currentId += batchSize
-  }
+  const batches = Array.from({ length: repeatCount }, () => ({
+    count: batchSize
+  }))
 
   console.log('⏳ RPC 노드 동기화 확인...')
 
@@ -144,14 +144,14 @@ async function parallelMint(nftAddress) {
   console.log(`📤 ${repeatCount}개 트랜잭션 동시 전송 중...\n`)
 
   // 🚀 병렬 전송 (Promise.all) - 명시적 nonce 할당
-  const txPromises = batches.map(({ startId, count }, index) => {
-    console.log(`  [${index + 1}/${repeatCount}] 토큰 ID ${startId} ~ ${startId + count - 1} (${count}개)`)
+  const txPromises = batches.map(({ count }, index) => {
+    console.log(`  [${index + 1}/${repeatCount}] batchMint ${count}개`)
 
     return client.writeContract({
       address: nftAddress,
       abi: nftAbi,
       functionName: 'batchMint',
-      args: [RECIPIENT, BigInt(startId), BigInt(count)],
+      args: [RECIPIENT, BigInt(count)],
       nonce: baseNonce + index  // 명시적 nonce: 0, 1, 2, 3, 4
     })
   })

@@ -125,7 +125,7 @@ case $CONTRACT in
 esac
 
 echo "========================================="
-echo "Celebus 컨트랙트 배포"
+echo "VIBE Utility 컨트랙트 배포"
 echo "========================================="
 echo "Contract: $CONTRACT"
 echo "RPC URL: $RPC_URL"

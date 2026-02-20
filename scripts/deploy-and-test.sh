@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================
-# CelebusNFT 자동 배포 및 민팅 테스트 스크립트
+# VIBENFT 자동 배포 및 민팅 테스트 스크립트
 # ==============================================
 # 새 NFT를 배포하고 자동으로 민팅 테스트 실행
 #
@@ -81,7 +81,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --count N              개별 민팅 횟수 (기본: 10)"
             echo "  --batch-size K         배치당 민팅 개수 (기본: 100)"
             echo "  --repeat N             배치 반복 횟수 (기본: 5)"
-            echo "  --start-id N           시작 토큰 ID (기본: 1)"
+            echo "  --start-id N           레거시 옵션 (자동 토큰 ID 모드에서는 무시)"
             echo "  --deploy-only          배포만 실행"
             echo "  --help                 도움말 표시"
             exit 0
@@ -302,8 +302,8 @@ deploy_nft() {
         exit 1
     fi
 
-    # jq로 CelebusNFT 컨트랙트 주소 추출
-    NFT_ADDRESS=$(jq -r '.transactions[] | select(.contractName == "CelebusNFT") | .contractAddress' "$BROADCAST_FILE")
+    # jq로 VIBENFT 컨트랙트 주소 추출
+    NFT_ADDRESS=$(jq -r '.transactions[] | select(.contractName == "VIBENFT") | .contractAddress' "$BROADCAST_FILE")
 
     if [ -z "$NFT_ADDRESS" ] || [ "$NFT_ADDRESS" == "null" ]; then
         echo -e "${RED}❌ 배포 주소를 추출할 수 없습니다${NC}"
@@ -342,7 +342,7 @@ test_single_mint() {
     echo "╚════════════════════════════════════════╝"
     echo -e "${NC}"
     echo -e "${YELLOW}민팅 횟수: $MINT_COUNT${NC}"
-    echo -e "${YELLOW}시작 토큰 ID: $START_TOKEN_ID${NC}"
+    echo -e "${YELLOW}토큰 ID 정책: 자동 증가 (start-id 옵션은 레거시)${NC}"
     echo ""
 
     TOTAL_GAS_USED=0
@@ -446,7 +446,7 @@ test_batch_mint() {
     echo -e "${YELLOW}배치 크기: $BATCH_SIZE${NC}"
     echo -e "${YELLOW}반복 횟수: $REPEAT_COUNT${NC}"
     echo -e "${YELLOW}총 민팅: $(($BATCH_SIZE * $REPEAT_COUNT))개${NC}"
-    echo -e "${YELLOW}시작 토큰 ID: $START_TOKEN_ID${NC}"
+    echo -e "${YELLOW}토큰 ID 정책: 자동 증가 (start-id 옵션은 레거시)${NC}"
     echo ""
 
     TOTAL_GAS_USED=0
@@ -550,7 +550,7 @@ main() {
     clear
     echo -e "${CYAN}"
     echo "╔════════════════════════════════════════╗"
-    echo "║  CelebusNFT 자동 배포 및 테스트       ║"
+    echo "║  VIBENFT 자동 배포 및 테스트        ║"
     echo "╚════════════════════════════════════════╝"
     echo -e "${NC}"
     echo ""
