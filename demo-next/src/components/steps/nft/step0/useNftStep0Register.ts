@@ -32,7 +32,7 @@ import {
   joinMnemonicWords,
   resizeMnemonicWords,
 } from './mnemonic-words';
-import { createStepWalletClient } from '@/components/steps/shared/step0-clients';
+import { getNftWalletClient } from '../nftWallet';
 import type { MnemonicWordCount, StatusMessage } from './types';
 
 const NFT_PRIVATE_KEY_KEY = 'nft_wallet';
@@ -92,6 +92,7 @@ export function useNftStep0Register() {
   const [deploySymbol, setDeploySymbol] = useState('VIBE');
   const [deployBaseURI, setDeployBaseURI] = useState('');
   const [deployOwner, setDeployOwner] = useState('');
+  const [isDeployOwnerAutoSync, setIsDeployOwnerAutoSync] = useState(true);
   const [bytecode, setBytecode] = useState('');
   const [deployedAddress, setDeployedAddress] = useState<Address | null>(null);
   const [walletStatus, setWalletStatus] = useState<StatusMessage | null>(null);
@@ -231,10 +232,26 @@ export function useNftStep0Register() {
   ]);
 
   useEffect(() => {
-    if (!deployOwner && connectedWalletAddress) {
-      setDeployOwner(connectedWalletAddress);
+    if (isDeployOwnerAutoSync) {
+      setDeployOwner(nftWalletAddress ?? '');
     }
-  }, [connectedWalletAddress, deployOwner]);
+  }, [isDeployOwnerAutoSync, nftWalletAddress]);
+
+  const handleDeployOwnerChange = (value: string) => {
+    setDeployOwner(value);
+    setIsDeployOwnerAutoSync(false);
+  };
+
+  const handleSyncDeployOwnerToWallet = () => {
+    if (!nftWalletAddress) {
+      toast.error('먼저 배포할 NFT 지갑을 연결해주세요');
+      return;
+    }
+
+    setDeployOwner(nftWalletAddress);
+    setIsDeployOwnerAutoSync(true);
+    toast.success('Initial Owner를 현재 NFT 지갑으로 동기화했습니다');
+  };
 
   const handleConnectPrivateKey = () => {
     const privateKey = privateKeyInput.trim();
@@ -405,8 +422,8 @@ export function useNftStep0Register() {
   };
 
   const handleDeployContract = async () => {
-    if (!connectedWalletAddress) {
-      const message = '먼저 헤더에서 지갑을 연결해주세요';
+    if (!nftWalletAddress || !nftWalletType) {
+      const message = '먼저 Step 0에서 NFT 지갑을 연결해주세요';
       setDeployStatus({ type: 'error', message });
       toast.error(message);
       return;
@@ -448,16 +465,18 @@ export function useNftStep0Register() {
 
     setIsDeploying(true);
     setDeployTxHash(null);
-    setDeployStatus({ type: 'info', message: '네트워크 확인 중...' });
+    setDeployStatus({ type: 'info', message: '배포 지갑 확인 중...' });
 
     try {
-      const tempWalletClient = getInjectedWalletClient(selectedChainId);
-      await ensureCorrectChain(tempWalletClient, selectedChainId);
+      if (nftWalletType === 'metamask') {
+        const injectedWalletClient = getInjectedWalletClient(selectedChainId);
+        await ensureCorrectChain(injectedWalletClient, selectedChainId);
+      }
 
-      const walletClient = createStepWalletClient(
-        selectedChainId,
-        connectedWalletAddress
-      );
+      const walletClient = getNftWalletClient();
+      if (!walletClient) {
+        throw new Error('배포 지갑 클라이언트를 생성할 수 없습니다');
+      }
 
       const hash = await walletClient.deployContract({
         abi: vibeNftAbi,
@@ -557,7 +576,9 @@ export function useNftStep0Register() {
     deployBaseURI,
     setDeployBaseURI,
     deployOwner,
-    setDeployOwner,
+    isDeployOwnerAutoSync,
+    handleDeployOwnerChange,
+    handleSyncDeployOwnerToWallet,
     deployedAddress,
     walletStatus,
     showContractInfo,

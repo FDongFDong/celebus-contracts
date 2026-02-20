@@ -64,7 +64,9 @@ export function NFTStep0Register() {
     deployBaseURI,
     setDeployBaseURI,
     deployOwner,
-    setDeployOwner,
+    isDeployOwnerAutoSync,
+    handleDeployOwnerChange,
+    handleSyncDeployOwnerToWallet,
     chainId,
     deployedAddress,
     walletStatus,
@@ -323,7 +325,7 @@ export function NFTStep0Register() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-xs text-muted-foreground">
-            ERC20과 동일하게 생성자 인자를 직접 입력해 배포합니다.
+            ERC20과 동일하게 생성자 인자를 직접 입력하고, 현재 NFT 지갑으로 배포 트랜잭션에 서명합니다.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
@@ -360,14 +362,29 @@ export function NFTStep0Register() {
             <Input
               id={deployOwnerInputId}
               value={deployOwner}
-              onChange={(e) => setDeployOwner(e.target.value)}
+              onChange={(e) => handleDeployOwnerChange(e.target.value)}
               placeholder="0x..."
               className="font-mono text-sm"
             />
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Owner 자동 동기화</span>
+              <Badge variant={isDeployOwnerAutoSync ? 'secondary' : 'outline'}>
+                {isDeployOwnerAutoSync ? 'ON' : 'OFF'}
+              </Badge>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleSyncDeployOwnerToWallet}
+              disabled={!nftWalletAddress}
+            >
+              현재 NFT 지갑 주소로 동기화
+            </Button>
           </div>
           <Button
             onClick={handleDeployContract}
-            disabled={isDeploying || !connectedWalletAddress}
+            disabled={isDeploying || !nftWalletAddress}
             className="w-full"
           >
             {isDeploying ? '배포 중...' : 'VIBENFT 배포'}

@@ -77,6 +77,10 @@ contract VIBENFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
 
     /// @dev 배치 작업 시 빈 배열 또는 0 개수가 전달되었을 때 발생
     error EmptyBatch();
+    /// @dev 생성자 tokenName이 빈 문자열일 때 발생
+    error EmptyTokenName();
+    /// @dev 생성자 tokenSymbol이 빈 문자열일 때 발생
+    error EmptyTokenSymbol();
 
     // ============================================
     // 생성자
@@ -95,6 +99,8 @@ contract VIBENFT is ERC721, ERC721Pausable, Ownable, ERC721Burnable {
         string memory initialBaseURI,
         address initialOwner
     ) ERC721(tokenName, tokenSymbol) Ownable(initialOwner) {
+        if (bytes(tokenName).length == 0) revert EmptyTokenName();
+        if (bytes(tokenSymbol).length == 0) revert EmptyTokenSymbol();
         _baseTokenURI = initialBaseURI;
     }
 

@@ -144,6 +144,31 @@ contract VIBENFTTest is Test {
         assertEq(nft.ownerOf(6), user1);
     }
 
+    function test_Constructor_CustomMetadata() public {
+        VIBENFT customNft = new VIBENFT(
+            "Custom NFT",
+            "CNFT",
+            "ipfs://custom-metadata/",
+            owner
+        );
+
+        assertEq(customNft.name(), "Custom NFT");
+        assertEq(customNft.symbol(), "CNFT");
+
+        customNft.safeMint(user1);
+        assertEq(customNft.tokenURI(0), "ipfs://custom-metadata/0");
+    }
+
+    function test_Constructor_RevertWhen_EmptyName() public {
+        vm.expectRevert(VIBENFT.EmptyTokenName.selector);
+        new VIBENFT("", "CNFT", "", owner);
+    }
+
+    function test_Constructor_RevertWhen_EmptySymbol() public {
+        vm.expectRevert(VIBENFT.EmptyTokenSymbol.selector);
+        new VIBENFT("Custom NFT", "", "", owner);
+    }
+
     // ============================================
     // 메타데이터 Base URI 테스트 (Metadata)
     // ============================================
