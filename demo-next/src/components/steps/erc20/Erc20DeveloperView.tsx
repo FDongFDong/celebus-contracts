@@ -5,6 +5,7 @@ import { useErc20Store } from '@/store/useErc20Store';
 import { TokenSetupSection } from '@/components/steps/erc20/sections/TokenSetupSection';
 import { CoreErc20Section } from '@/components/steps/erc20/sections/CoreErc20Section';
 import { PermitExtensionSection } from '@/components/steps/erc20/sections/PermitExtensionSection';
+import { PermitVerifySection } from '@/components/steps/erc20/sections/PermitVerifySection';
 import { AdminSection } from '@/components/steps/erc20/sections/AdminSection';
 import { Erc20QuerySection } from '@/components/steps/erc20/sections/Erc20QuerySection';
 
@@ -25,6 +26,7 @@ export function Erc20DeveloperView() {
       <TokenSetupSection showAddressInput={false} showDeployButton={false} />
       <CoreErc20Section />
       <PermitExtensionSection />
+      <PermitVerifySection />
       <AdminSection />
       <Erc20QuerySection />
     </div>
