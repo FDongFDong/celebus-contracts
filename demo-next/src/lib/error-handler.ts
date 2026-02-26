@@ -60,6 +60,18 @@ function isInternalRpcErrorMessage(lowerMessage: string): boolean {
   );
 }
 
+const REVERT_SELECTOR_MESSAGES: Record<string, string> = {
+  // OpenZeppelin ERC20Permit custom errors
+  '0x4b800e46': 'permit 서명자가 owner와 일치하지 않습니다. 서명 지갑/owner/v-r-s를 확인해주세요',
+  '0x62791302': 'permit 서명 기한이 만료되었습니다. 새로운 deadline으로 다시 서명해주세요',
+};
+
+function extractRevertSelector(message: string): string | null {
+  const selectorMatch = message.match(/\b0x[0-9a-fA-F]{8}\b/);
+  if (!selectorMatch) return null;
+  return selectorMatch[0].toLowerCase();
+}
+
 /**
  * 블록체인 관련 에러 메시지를 사용자 친화적으로 변환
  *
@@ -77,6 +89,15 @@ export function getBlockchainErrorMessage(error: unknown): string {
   if (lowerMessage.includes('insufficient funds')) {
     return '잔액이 부족합니다';
   }
+
+  const selector = extractRevertSelector(message);
+  if (selector) {
+    return (
+      REVERT_SELECTOR_MESSAGES[selector] ??
+      `컨트랙트 실행이 실패했습니다 (오류 코드: ${selector})`
+    );
+  }
+
   if (lowerMessage.includes('nonce too low')) {
     return 'Nonce가 너무 낮습니다. 이전 트랜잭션이 완료되지 않았을 수 있습니다';
   }

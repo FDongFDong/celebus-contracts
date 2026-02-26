@@ -31,6 +31,8 @@ export const ERC20_PERMIT_ABI = parseAbi([
   'function nonces(address owner) view returns (uint256)',
   'function DOMAIN_SEPARATOR() view returns (bytes32)',
   'function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)',
+  'error ERC2612ExpiredSignature(uint256 deadline)',
+  'error ERC2612InvalidSigner(address signer, address owner)',
 
   // Ownable
   'function owner() view returns (address)',

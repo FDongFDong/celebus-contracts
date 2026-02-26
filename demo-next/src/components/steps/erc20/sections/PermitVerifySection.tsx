@@ -23,7 +23,7 @@ import {
   ERC20_PERMIT_TYPES,
   createErc20PermitDomain,
 } from '@/infrastructure/contracts/CelebTokenContract';
-import { logError } from '@/lib/error-handler';
+import { getBlockchainErrorMessage, logError } from '@/lib/error-handler';
 
 type VerifyStatus = 'idle' | 'verifying' | 'match' | 'mismatch' | 'error';
 type PermitTxStatus = 'idle' | 'submitting' | 'confirmed' | 'error';
@@ -193,7 +193,7 @@ export function PermitVerifySection() {
         recovered.toLowerCase() === owner.toLowerCase() ? 'match' : 'mismatch',
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = getBlockchainErrorMessage(err);
       setVerifyError(message);
       setVerifyStatus('error');
       logError('PermitVerifySection.handleVerifySignature', err);
@@ -247,7 +247,7 @@ export function PermitVerifySection() {
       setPermitTxHash(txHash);
       setPermitStatus('confirmed');
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = getBlockchainErrorMessage(err);
       setPermitError(message);
       setPermitStatus('error');
       logError('PermitVerifySection.handlePermitCall', err);

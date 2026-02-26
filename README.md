@@ -309,7 +309,7 @@ forge test --gas-report
 
 ## 테스트 시나리오
 
-### MainVoting.t.sol (53개)
+### MainVoting.t.sol (58개)
 
 | 카테고리 | 시나리오 |
 |----------|----------|
@@ -326,7 +326,7 @@ forge test --gas-report
 | **Ownable2Step** | 소유권 이전, pendingOwner 검증 |
 | **중복 방지** | 동일 recordDigest 중복 처리 방지 |
 
-### SubVoting.t.sol (51개)
+### SubVoting.t.sol (56개)
 
 | 카테고리 | 시나리오 |
 |----------|----------|
@@ -340,7 +340,7 @@ forge test --gas-report
 | **제한값** | 배치 2000개, 사용자별 20개, 21개 초과 Soft-fail |
 | **이벤트** | UserMissionResult 성공/실패 |
 
-### Boosting.t.sol (48개)
+### Boosting.t.sol (53개)
 
 | 카테고리 | 시나리오 |
 |----------|----------|
@@ -355,7 +355,7 @@ forge test --gas-report
 | **중복 방지** | 동일 recordHash 스킵, 0 amount 스킵 |
 | **Artist 상태** | 비활성화 후 Soft-fail, 재활성화 |
 
-### VIBENFT.t.sol (101개)
+### VIBENFT.t.sol (104개)
 
 | 카테고리 | 시나리오 |
 |----------|----------|
@@ -369,7 +369,7 @@ forge test --gas-report
 | **ERC721Receiver** | 수신자 컨트랙트 검증 |
 | **제한값** | 최대 배치 크기 초과 시 revert |
 
-### CelebTokenPermit.t.sol (13개)
+### CelebTokenPermit.t.sol (14개)
 
 | 카테고리 | 시나리오 |
 |----------|----------|
@@ -393,10 +393,13 @@ forge test --gas-report
 |----------|----------|
 | **디버깅** | 해시값 검증, Free Memory Pointer 확인 |
 
-### Invariant 테스트 (9개)
+### Invariant 테스트 (18개)
 
 | 파일 | 시나리오 |
 |------|----------|
+| **Boosting.invariant.t.sol** | 부스팅 집계값 일관성, batchNonce/userNonce 회계 검증 |
+| **MainVoting.invariant.t.sol** | 아티스트 통계 일관성, batchNonce/userNonce 회계 검증 |
+| **SubVoting.invariant.t.sol** | 질문별 집계 일관성, batchNonce/userNonce 회계 검증 |
 | **VIBENFT.invariant.t.sol** | 토큰 소유자 검증, 소각 토큰 존재 불가, 잠금 일관성, 잠금 수 제한, Pause 동작, 토큰 ID 유효성, 총 잔액 일치 |
 
 ### 배포 (opBNB Testnet)
@@ -464,6 +467,30 @@ npm test
 # 빌드
 npm run build
 ```
+
+### Permit 검증 디버깅 (demo-next)
+
+`demo-next`의 ERC20 개발자 화면에 **4. Permit 검증 (디버깅)** 섹션이 추가되었습니다.
+
+**목적:**
+- celebus-pwa에서 전달하는 permit 파라미터를 로컬에서 즉시 검증
+- `recoverTypedDataAddress` 기반 서명자 복원 결과와 owner 일치 여부 확인
+- on-chain `permit()` 직접 호출로 실제 트랜잭션 성공 여부 확인
+
+**입력값:**
+- `owner`, `spender`, `value`, `deadline`, `nonce`, `v`, `r`, `s`
+- `v`는 `0/1` 또는 `27/28` 허용
+- `r`, `s`는 `0x + 64자리` hex 형식 필요
+
+**검증 포인트:**
+- `nonces(owner)`와 `DOMAIN_SEPARATOR`를 on-chain에서 자동 조회
+- 동일 도메인으로 계산한 `DOMAIN_SEPARATOR (computed)`와 일치 여부 표시
+- `nonce` 입력을 비우면 on-chain nonce를 사용하며, 서명 시 nonce와 다르면 불일치가 발생할 수 있음
+
+**권장 점검 순서:**
+1. `서명 검증` 버튼으로 recovered address가 owner와 일치하는지 확인
+2. `permit() 실행` 버튼으로 시뮬레이션/전송 후 트랜잭션 상태 확인
+3. 오류 발생 시 입력값(`nonce`, `deadline`, `v/r/s`)과 도메인 분리자 일치 여부부터 점검
 
 ### 컨트랙트 검증 (Constructor Args 생성)
 
@@ -537,8 +564,8 @@ contracts/
 │   └── token/
 │       └── CelebToken.sol        # ERC20 토큰
 ├── test/
-│   ├── *.t.sol                  # Unit 테스트 (276개)
-│   ├── invariant/               # Invariant 테스트 (9개)
+│   ├── *.t.sol                  # Unit 테스트 (295개)
+│   ├── invariant/               # Invariant 테스트 (18개)
 │   └── mocks/                   # 테스트용 Mock 컨트랙트
 ├── script/                      # 배포 스크립트
 ├── scripts/                     # 스트레스 테스트 스크립트
@@ -586,15 +613,18 @@ TOTAL_VOTES=130 USER_COUNT=130 scripts/run-stress.sh
 
 | 테스트 파일 | 테스트 수 | 상태 |
 |------------|----------|------|
-| MainVoting.t.sol | 53 | ✅ |
-| SubVoting.t.sol | 51 | ✅ |
-| Boosting.t.sol | 48 | ✅ |
-| VIBENFT.t.sol | 101 | ✅ |
-| CelebTokenPermit.t.sol | 13 | ✅ |
+| MainVoting.t.sol | 58 | ✅ |
+| SubVoting.t.sol | 56 | ✅ |
+| Boosting.t.sol | 53 | ✅ |
+| VIBENFT.t.sol | 104 | ✅ |
+| CelebTokenPermit.t.sol | 14 | ✅ |
 | UserVoteResultEvent.t.sol | 8 | ✅ |
 | HashDebug.t.sol | 2 | ✅ |
+| Boosting.invariant.t.sol | 3 | ✅ |
+| MainVoting.invariant.t.sol | 3 | ✅ |
+| SubVoting.invariant.t.sol | 3 | ✅ |
 | VIBENFT.invariant.t.sol | 9 | ✅ |
-| **총계** | **285** | ✅ |
+| **총계** | **313** | ✅ |
 
 ### 실행
 
@@ -611,7 +641,7 @@ forge test --gas-report
 
 ## 보안
 
-- **테스트 커버리지**: 총 285개 테스트 (Unit 276개 + Invariant 9개) - 모두 통과
+- **테스트 커버리지**: 총 313개 테스트 (Unit 295개 + Invariant 18개) - 모두 통과
 - **취약점**: Critical 0개, High 0개
 - **감사 문서**: 내부 보안 감사 보고서 (필요 시 별도 공유)
 
