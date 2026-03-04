@@ -70,10 +70,17 @@
 - EIP-712 구조화 서명
 - Assembly 최적화 (가스 절약)
 
+## 커밋 규칙
+
+- 모든 Git 커밋 메시지는 **항상 한국어**로 작성합니다.
+- 커밋 작업 전에는 반드시 `Git Commit Helper` 스킬을 사용해 staged diff 기반 커밋 메시지를 생성합니다.
+- 영어 커밋 메시지 또는 한/영 혼합 메시지는 사용하지 않습니다.
+
 ## Skills
 
 | 스킬 | 설명 |
 |------|------|
+| `Git Commit Helper` | staged 변경사항 기반 커밋 메시지 생성 (커밋 전 필수 사용) |
 | `verify-solidity` | Solidity 컨트랙트 코드 컨벤션, 보안 패턴, EIP-712 일관성 검증 |
 | `verify-foundry-tests` | Foundry 테스트 커버리지, TypeHash 동기화, 명명 규칙 검증 |
 | `verify-implementation` | 모든 verify 스킬을 순차 실행하는 통합 검증 오케스트레이터 |
