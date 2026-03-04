@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { privateKeyToAccount } from 'viem/accounts';
 import {
@@ -8,11 +8,17 @@ import {
   hexToSignature,
   isAddress,
   keccak256,
+  recoverTypedDataAddress,
+  verifyTypedData,
   type Address,
   type Hex,
 } from 'viem';
 import { DigestService } from '@/domain/services/DigestService';
 import { EIP712Domain } from '@/domain/value-objects/EIP712Domain';
+import {
+  ENABLE_STEP10_PRIVATE_KEY_SIGNER,
+  maskSensitiveHex,
+} from '@/lib/dev-security';
 import { useAppStore } from '@/store/useAppStore';
 import type { ExecutorResult, TabType, UserBatchResult, VerifyResult } from './types';
 
@@ -35,7 +41,10 @@ interface ParsedVoteRecord {
 }
 
 export function useStep10Verifier() {
-  const [activeTab, setActiveTab] = useState<TabType>('userBatch');
+  const canUsePrivateKeySigner = ENABLE_STEP10_PRIVATE_KEY_SIGNER;
+  const [activeTab, setActiveTab] = useState<TabType>(
+    canUsePrivateKeySigner ? 'userBatch' : 'verify'
+  );
 
   const [domainName, setDomainName] = useState('MainVoting');
   const [domainVersion, setDomainVersion] = useState('1');
@@ -53,9 +62,16 @@ export function useStep10Verifier() {
   const [executorResult, setExecutorResult] = useState<ExecutorResult | null>(null);
 
   const [verifyInputSignature, setVerifyInputSignature] = useState('');
+  const [verifyTarget, setVerifyTarget] = useState<'userBatch' | 'executor'>(
+    'userBatch'
+  );
+  const [verifyExpectedAddress, setVerifyExpectedAddress] = useState('');
   const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
 
   const [logs, setLogs] = useState<string[]>([]);
+  const verifyRequestIdRef = useRef(0);
+  const isVerifyingRef = useRef(false);
 
   const contractAddress = useAppStore((s) => s.contractAddress);
   const domainContract = domainContractInput || contractAddress || '';
@@ -151,6 +167,13 @@ export function useStep10Verifier() {
 
   const generateUserBatchSignature = async () => {
     try {
+      if (!canUsePrivateKeySigner) {
+        toast.error(
+          '공개 배포에서는 Step10 Private Key 서명 기능이 비활성화되어 있습니다.'
+        );
+        return;
+      }
+
       if (!userPrivateKey) {
         toast.error('Private Key를 입력해주세요');
         return;
@@ -200,7 +223,7 @@ export function useStep10Verifier() {
         },
       });
 
-      addLog(`Signature: ${signature}`);
+      addLog(`Signature: ${maskSensitiveHex(signature)}`);
 
       setUserBatchResult({
         recordsHash,
@@ -219,6 +242,13 @@ export function useStep10Verifier() {
 
   const generateExecutorSignature = async () => {
     try {
+      if (!canUsePrivateKeySigner) {
+        toast.error(
+          '공개 배포에서는 Step10 Private Key 서명 기능이 비활성화되어 있습니다.'
+        );
+        return;
+      }
+
       if (!executorPrivateKey) {
         toast.error('Executor Private Key를 입력해주세요');
         return;
@@ -242,7 +272,7 @@ export function useStep10Verifier() {
         },
       });
 
-      addLog(`Signature: ${signature}`);
+      addLog(`Signature: ${maskSensitiveHex(signature)}`);
 
       const structHash = DigestService.calculateStructHash(BigInt(batchNonce));
       const batchDigest = DigestService.calculateDigest(
@@ -267,32 +297,156 @@ export function useStep10Verifier() {
     }
   };
 
-  const verifySignature = () => {
+  const verifySignature = async () => {
+    setVerifyResult(null);
+
+    if (isVerifyingRef.current) {
+      toast.info('서명 검증이 이미 진행 중입니다.');
+      return;
+    }
+
     try {
       if (!verifyInputSignature) {
         toast.error('Signature를 입력해주세요');
         return;
       }
 
+      if (!verifyExpectedAddress || !isAddress(verifyExpectedAddress)) {
+        toast.error('검증 대상 주소를 올바르게 입력해주세요');
+        return;
+      }
+
+      const requestId = verifyRequestIdRef.current + 1;
+      verifyRequestIdRef.current = requestId;
+      isVerifyingRef.current = true;
+      setIsVerifying(true);
+
       addLog('\n=== 서명 검증 ===');
+      addLog(`Target: ${verifyTarget}`);
 
       const sig = hexToSignature(verifyInputSignature as Hex);
       addLog(`r: ${sig.r}`);
       addLog(`s: ${sig.s}`);
       addLog(`v: ${sig.v}`);
 
+      const expectedAddress = verifyExpectedAddress as Address;
+      const typedDomain = getDomain().toTypedDataDomain();
+
+      let recoveredAddress: Address;
+      let isValid = false;
+
+      if (verifyTarget === 'userBatch') {
+        const userAddr =
+          userAddressInput && isAddress(userAddressInput)
+            ? (userAddressInput as Address)
+            : isAddress(userAddress)
+              ? (userAddress as Address)
+              : null;
+
+        if (!userAddr) {
+          throw new Error(
+            'UserBatch 검증에는 사용자 주소가 필요합니다. 사용자 주소(해시용)를 입력해주세요.'
+          );
+        }
+
+        const records = parseVoteRecords();
+        const recordHashes = records.map((record) =>
+          DigestService.hashVoteRecord(toParsedVoteRecord(record), userAddr)
+        );
+        const recordsHash = keccak256(concat(recordHashes));
+
+        addLog(`User Address (for hash): ${userAddr}`);
+        addLog(`UserNonce: ${userNonce}`);
+        addLog(`Records: ${records.length}개`);
+        addLog(`RecordsHash: ${recordsHash}`);
+
+        const typedData = {
+          domain: typedDomain,
+          types: {
+            UserBatch: [
+              { name: 'user', type: 'address' },
+              { name: 'userNonce', type: 'uint256' },
+              { name: 'recordsHash', type: 'bytes32' },
+            ],
+          },
+          primaryType: 'UserBatch' as const,
+          message: {
+            user: userAddr,
+            userNonce: BigInt(userNonce),
+            recordsHash,
+          },
+        };
+
+        recoveredAddress = await recoverTypedDataAddress({
+          ...typedData,
+          signature: verifyInputSignature as Hex,
+        });
+
+        isValid = await verifyTypedData({
+          ...typedData,
+          address: expectedAddress,
+          signature: verifyInputSignature as Hex,
+        });
+      } else {
+        addLog(`BatchNonce: ${batchNonce}`);
+
+        const typedData = {
+          domain: typedDomain,
+          types: {
+            Batch: [{ name: 'batchNonce', type: 'uint256' }],
+          },
+          primaryType: 'Batch' as const,
+          message: {
+            batchNonce: BigInt(batchNonce),
+          },
+        };
+
+        recoveredAddress = await recoverTypedDataAddress({
+          ...typedData,
+          signature: verifyInputSignature as Hex,
+        });
+
+        isValid = await verifyTypedData({
+          ...typedData,
+          address: expectedAddress,
+          signature: verifyInputSignature as Hex,
+        });
+      }
+
+      addLog(`Recovered: ${recoveredAddress}`);
+      addLog(`Expected: ${expectedAddress}`);
+      addLog(`Result: ${isValid ? 'VALID' : 'INVALID'}`);
+
+      if (verifyRequestIdRef.current !== requestId) {
+        return;
+      }
+
       setVerifyResult({
         r: sig.r,
         s: sig.s,
         v: sig.v,
-        info: 'viem에는 verifyTypedData가 없어 서명 컴포넌트만 표시합니다.',
+        isValid,
+        recoveredAddress,
+        expectedAddress,
+        target: verifyTarget,
+        info: isValid
+          ? '서명이 도메인/메시지/주소와 일치합니다.'
+          : '서명이 도메인/메시지/주소와 일치하지 않습니다.',
       });
 
-      toast.success('서명 컴포넌트 추출 완료');
+      if (isValid) {
+        toast.success('서명 검증 성공');
+      } else {
+        toast.error('서명 검증 실패');
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : '검증 실패';
+      setVerifyResult(null);
       addLog(`Error: ${message}`);
       toast.error(message);
+    } finally {
+      isVerifyingRef.current = false;
+      setIsVerifying(false);
     }
   };
 
@@ -332,7 +486,13 @@ export function useStep10Verifier() {
     executorResult,
     verifyInputSignature,
     setVerifyInputSignature,
+    verifyTarget,
+    setVerifyTarget,
+    verifyExpectedAddress,
+    setVerifyExpectedAddress,
     verifyResult,
+    isVerifying,
+    canUsePrivateKeySigner,
     logs,
     generateUserBatchSignature,
     generateExecutorSignature,

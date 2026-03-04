@@ -1,8 +1,15 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { privateKeyToAccount } from 'viem/accounts';
-import { hexToSignature, isAddress, type Address, type Hex } from 'viem';
+import {
+  hexToSignature,
+  isAddress,
+  recoverTypedDataAddress,
+  verifyTypedData,
+  type Address,
+  type Hex,
+} from 'viem';
 import { toast } from 'sonner';
 import { StepCard } from '@/components/shared/StepCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,6 +21,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StatusAlert } from '@/components/shared/StatusAlert';
 import { DigestService } from '@/domain/services/DigestService';
 import { EIP712Domain } from '@/domain/value-objects/EIP712Domain';
+import {
+  ENABLE_STEP10_PRIVATE_KEY_SIGNER,
+  maskSensitiveHex,
+} from '@/lib/dev-security';
 import { useAppStore } from '@/store/useAppStore';
 
 type TabType = 'userSig' | 'executor' | 'verify';
@@ -36,6 +47,10 @@ interface VerifyResult {
   r: `0x${string}`;
   s: `0x${string}`;
   v: bigint | undefined;
+  isValid: boolean;
+  recoveredAddress: `0x${string}`;
+  expectedAddress: `0x${string}`;
+  target: 'userSig' | 'executor';
   info: string;
 }
 
@@ -59,8 +74,11 @@ interface ParsedBoostRecord {
 
 export function BoostStep10Verifier() {
   const contractAddress = useAppStore((s) => s.contractAddress);
+  const canUsePrivateKeySigner = ENABLE_STEP10_PRIVATE_KEY_SIGNER;
 
-  const [activeTab, setActiveTab] = useState<TabType>('userSig');
+  const [activeTab, setActiveTab] = useState<TabType>(
+    canUsePrivateKeySigner ? 'userSig' : 'verify'
+  );
 
   const [domainName, setDomainName] = useState('Boosting');
   const [domainVersion, setDomainVersion] = useState('1');
@@ -78,9 +96,16 @@ export function BoostStep10Verifier() {
   const [executorResult, setExecutorResult] = useState<ExecutorResult | null>(null);
 
   const [verifyInputSignature, setVerifyInputSignature] = useState('');
+  const [verifyTarget, setVerifyTarget] = useState<'userSig' | 'executor'>(
+    'userSig'
+  );
+  const [verifyExpectedAddress, setVerifyExpectedAddress] = useState('');
   const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
 
   const [logs, setLogs] = useState<string[]>([]);
+  const verifyRequestIdRef = useRef(0);
+  const isVerifyingRef = useRef(false);
 
   const domainContract = domainContractInput || contractAddress || '';
 
@@ -166,6 +191,13 @@ export function BoostStep10Verifier() {
 
   const generateUserSignature = async () => {
     try {
+      if (!canUsePrivateKeySigner) {
+        toast.error(
+          '공개 배포에서는 Step10 Private Key 서명 기능이 비활성화되어 있습니다.'
+        );
+        return;
+      }
+
       if (!userPrivateKey) {
         toast.error('Private Key를 입력해주세요');
         return;
@@ -206,7 +238,7 @@ export function BoostStep10Verifier() {
         },
       });
 
-      addLog(`Signature: ${signature}`);
+      addLog(`Signature: ${maskSensitiveHex(signature)}`);
 
       setUserSigResult({
         recordHash,
@@ -225,6 +257,13 @@ export function BoostStep10Verifier() {
 
   const generateExecutorSignature = async () => {
     try {
+      if (!canUsePrivateKeySigner) {
+        toast.error(
+          '공개 배포에서는 Step10 Private Key 서명 기능이 비활성화되어 있습니다.'
+        );
+        return;
+      }
+
       if (!executorPrivateKey) {
         toast.error('Executor Private Key를 입력해주세요');
         return;
@@ -248,7 +287,7 @@ export function BoostStep10Verifier() {
         },
       });
 
-      addLog(`Signature: ${signature}`);
+      addLog(`Signature: ${maskSensitiveHex(signature)}`);
 
       const structHash = DigestService.calculateStructHash(BigInt(batchNonce));
       const batchDigest = DigestService.calculateDigest(
@@ -273,32 +312,152 @@ export function BoostStep10Verifier() {
     }
   };
 
-  const verifySignature = () => {
+  const verifySignature = async () => {
+    setVerifyResult(null);
+
+    if (isVerifyingRef.current) {
+      toast.info('서명 검증이 이미 진행 중입니다.');
+      return;
+    }
+
     try {
       if (!verifyInputSignature) {
         toast.error('Signature를 입력해주세요');
         return;
       }
 
+      if (!verifyExpectedAddress || !isAddress(verifyExpectedAddress)) {
+        toast.error('검증 대상 주소를 올바르게 입력해주세요');
+        return;
+      }
+
+      const requestId = verifyRequestIdRef.current + 1;
+      verifyRequestIdRef.current = requestId;
+      isVerifyingRef.current = true;
+      setIsVerifying(true);
+
       addLog('\n=== 서명 검증 ===');
+      addLog(`Target: ${verifyTarget}`);
 
       const sig = hexToSignature(verifyInputSignature as Hex);
       addLog(`r: ${sig.r}`);
       addLog(`s: ${sig.s}`);
       addLog(`v: ${sig.v}`);
 
+      const expectedAddress = verifyExpectedAddress as Address;
+      const typedDomain = getDomain().toTypedDataDomain();
+
+      let recoveredAddress: Address;
+      let isValid = false;
+
+      if (verifyTarget === 'userSig') {
+        const userAddr =
+          userAddressInput && isAddress(userAddressInput)
+            ? (userAddressInput as Address)
+            : isAddress(userAddress)
+              ? (userAddress as Address)
+              : null;
+
+        if (!userAddr) {
+          throw new Error(
+            'UserSig 검증에는 사용자 주소가 필요합니다. 사용자 주소(해시용)를 입력해주세요.'
+          );
+        }
+
+        const parsedRecord = toParsedRecord(parseRecord());
+        const recordHash = DigestService.hashBoostRecord(parsedRecord, userAddr);
+
+        addLog(`User Address (for hash): ${userAddr}`);
+        addLog(`UserNonce: ${userNonce}`);
+        addLog(`RecordHash: ${recordHash}`);
+
+        const typedData = {
+          domain: typedDomain,
+          types: {
+            UserSig: [
+              { name: 'user', type: 'address' },
+              { name: 'userNonce', type: 'uint256' },
+              { name: 'recordHash', type: 'bytes32' },
+            ],
+          },
+          primaryType: 'UserSig' as const,
+          message: {
+            user: userAddr,
+            userNonce: BigInt(userNonce),
+            recordHash,
+          },
+        };
+
+        recoveredAddress = await recoverTypedDataAddress({
+          ...typedData,
+          signature: verifyInputSignature as Hex,
+        });
+
+        isValid = await verifyTypedData({
+          ...typedData,
+          address: expectedAddress,
+          signature: verifyInputSignature as Hex,
+        });
+      } else {
+        addLog(`BatchNonce: ${batchNonce}`);
+
+        const typedData = {
+          domain: typedDomain,
+          types: {
+            Batch: [{ name: 'batchNonce', type: 'uint256' }],
+          },
+          primaryType: 'Batch' as const,
+          message: {
+            batchNonce: BigInt(batchNonce),
+          },
+        };
+
+        recoveredAddress = await recoverTypedDataAddress({
+          ...typedData,
+          signature: verifyInputSignature as Hex,
+        });
+
+        isValid = await verifyTypedData({
+          ...typedData,
+          address: expectedAddress,
+          signature: verifyInputSignature as Hex,
+        });
+      }
+
+      addLog(`Recovered: ${recoveredAddress}`);
+      addLog(`Expected: ${expectedAddress}`);
+      addLog(`Result: ${isValid ? 'VALID' : 'INVALID'}`);
+
+      if (verifyRequestIdRef.current !== requestId) {
+        return;
+      }
+
       setVerifyResult({
         r: sig.r,
         s: sig.s,
         v: sig.v,
-        info: 'viem에는 verifyTypedData가 없어 서명 컴포넌트만 표시합니다.',
+        isValid,
+        recoveredAddress,
+        expectedAddress,
+        target: verifyTarget,
+        info: isValid
+          ? '서명이 도메인/메시지/주소와 일치합니다.'
+          : '서명이 도메인/메시지/주소와 일치하지 않습니다.',
       });
 
-      toast.success('서명 컴포넌트 추출 완료');
+      if (isValid) {
+        toast.success('서명 검증 성공');
+      } else {
+        toast.error('서명 검증 실패');
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : '검증 실패';
+      setVerifyResult(null);
       addLog(`Error: ${message}`);
       toast.error(message);
+    } finally {
+      isVerifyingRef.current = false;
+      setIsVerifying(false);
     }
   };
 
@@ -314,6 +473,14 @@ export function BoostStep10Verifier() {
       title="서명 검증 유틸리티"
       description="Boosting 데이터로 EIP-712 서명을 생성/검증합니다"
     >
+      {!canUsePrivateKeySigner && (
+        <StatusAlert
+          type="warning"
+          className="mb-4"
+          message="공개 배포에서는 Step10 Private Key 서명 기능이 비활성화되어 있습니다. 서명 검증만 사용할 수 있습니다."
+        />
+      )}
+
       <Card className="mb-6 bg-muted">
         <CardHeader>
           <CardTitle className="text-sm">도메인 설정</CardTitle>
@@ -349,13 +516,18 @@ export function BoostStep10Verifier() {
       </Card>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabType)}>
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="userSig">사용자 서명</TabsTrigger>
-          <TabsTrigger value="executor">Executor 서명</TabsTrigger>
+        <TabsList className={`grid w-full ${canUsePrivateKeySigner ? 'grid-cols-3' : 'grid-cols-1'}`}>
+          {canUsePrivateKeySigner && (
+            <TabsTrigger value="userSig">사용자 서명</TabsTrigger>
+          )}
+          {canUsePrivateKeySigner && (
+            <TabsTrigger value="executor">Executor 서명</TabsTrigger>
+          )}
           <TabsTrigger value="verify">서명 검증</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="userSig" className="space-y-4">
+        {canUsePrivateKeySigner && (
+          <TabsContent value="userSig" className="space-y-4">
           <Card className="bg-blue-500/10 border-blue-500/30">
             <CardHeader>
               <CardTitle className="text-sm">사용자 서명 생성</CardTitle>
@@ -409,7 +581,9 @@ export function BoostStep10Verifier() {
                   <p><strong>레코드 해시:</strong></p>
                   <p className="font-mono text-xs break-all bg-muted p-2 rounded">{userSigResult.recordHash}</p>
                   <p><strong>서명:</strong></p>
-                  <p className="font-mono text-xs break-all bg-muted p-2 rounded">{userSigResult.signature}</p>
+                  <p className="font-mono text-xs break-all bg-muted p-2 rounded">
+                    {maskSensitiveHex(userSigResult.signature)}
+                  </p>
                   <p><strong>복구된 주소:</strong></p>
                   <p className="font-mono text-xs flex items-center gap-1">
                     {userSigResult.recovered}
@@ -419,9 +593,11 @@ export function BoostStep10Verifier() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+          </TabsContent>
+        )}
 
-        <TabsContent value="executor" className="space-y-4">
+        {canUsePrivateKeySigner && (
+          <TabsContent value="executor" className="space-y-4">
           <Card className="bg-red-500/10 border-red-500/30">
             <CardHeader>
               <CardTitle className="text-sm">Executor (배치) 서명 생성</CardTitle>
@@ -453,7 +629,9 @@ export function BoostStep10Verifier() {
                   <p><strong>배치 다이제스트:</strong></p>
                   <p className="font-mono text-xs break-all bg-muted p-2 rounded">{executorResult.batchDigest}</p>
                   <p><strong>서명:</strong></p>
-                  <p className="font-mono text-xs break-all bg-muted p-2 rounded">{executorResult.signature}</p>
+                  <p className="font-mono text-xs break-all bg-muted p-2 rounded">
+                    {maskSensitiveHex(executorResult.signature)}
+                  </p>
                   <p><strong>복구된 주소:</strong></p>
                   <p className="font-mono text-xs flex items-center gap-1">
                     {executorResult.recovered}
@@ -463,7 +641,8 @@ export function BoostStep10Verifier() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+          </TabsContent>
+        )}
 
         <TabsContent value="verify" className="space-y-4">
           <Card className="bg-green-500/10 border-green-500/30">
@@ -481,15 +660,61 @@ export function BoostStep10Verifier() {
                 />
               </div>
 
-              <Button onClick={verifySignature}>서명 검증</Button>
+              <div className="flex flex-col gap-1.5">
+                <Label>검증 대상 타입</Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={verifyTarget === 'userSig' ? 'default' : 'outline'}
+                    onClick={() => setVerifyTarget('userSig')}
+                  >
+                    UserSig
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={verifyTarget === 'executor' ? 'default' : 'outline'}
+                    onClick={() => setVerifyTarget('executor')}
+                  >
+                    Executor Batch
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label>예상 서명자 주소</Label>
+                <Input
+                  value={verifyExpectedAddress}
+                  onChange={(e) => setVerifyExpectedAddress(e.target.value)}
+                  placeholder="0x..."
+                  className="font-mono text-sm"
+                />
+              </div>
+
+              <Button onClick={verifySignature} disabled={isVerifying}>
+                {isVerifying ? '검증 중...' : '서명 검증'}
+              </Button>
 
               {verifyResult && (
                 <div className="bg-background rounded-lg p-4 space-y-2 text-sm">
+                  <p><strong>검증 결과:</strong></p>
+                  <p className="font-mono text-xs">target: {verifyResult.target}</p>
+                  <p className="font-mono text-xs">expected: {verifyResult.expectedAddress}</p>
+                  <p className="font-mono text-xs">recovered: {verifyResult.recoveredAddress}</p>
+                  <p className="font-mono text-xs flex items-center gap-1">
+                    result:
+                    <Badge variant={verifyResult.isValid ? 'default' : 'destructive'}>
+                      {verifyResult.isValid ? 'VALID' : 'INVALID'}
+                    </Badge>
+                  </p>
                   <p><strong>서명 컴포넌트:</strong></p>
                   <p className="font-mono text-xs">r: {verifyResult.r}</p>
                   <p className="font-mono text-xs">s: {verifyResult.s}</p>
                   <p className="font-mono text-xs">v: {verifyResult.v}</p>
-                  <StatusAlert type="info" message={verifyResult.info} className="text-xs mt-2" />
+                  <StatusAlert
+                    type={verifyResult.isValid ? 'success' : 'error'}
+                    message={verifyResult.info}
+                    className="text-xs mt-2"
+                  />
                 </div>
               )}
             </CardContent>
@@ -497,12 +722,14 @@ export function BoostStep10Verifier() {
         </TabsContent>
       </Tabs>
 
-      <details className="mt-4">
-        <summary className="cursor-pointer text-sm font-medium">디버그 로그</summary>
-        <pre className="mt-2 bg-muted text-foreground p-4 rounded text-xs overflow-auto max-h-48 font-mono">
-          {logs.join('\n') || '로그가 없습니다'}
-        </pre>
-      </details>
+      {canUsePrivateKeySigner && (
+        <details className="mt-4">
+          <summary className="cursor-pointer text-sm font-medium">디버그 로그</summary>
+          <pre className="mt-2 bg-muted text-foreground p-4 rounded text-xs overflow-auto max-h-48 font-mono">
+            {logs.join('\n') || '로그가 없습니다'}
+          </pre>
+        </details>
+      )}
     </StepCard>
   );
 }

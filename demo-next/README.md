@@ -34,3 +34,13 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Security Flag
+
+- `NEXT_PUBLIC_ENABLE_STEP10_PRIVATE_KEY_SIGNER`:
+  - default: `false` (or unset)
+  - when `false`, Step10 private-key signing UI is disabled and only signature verification is exposed
+  - set `true` only for controlled internal environments
+- public deployment checklist:
+  - Vercel/hosting env must set `NEXT_PUBLIC_ENABLE_STEP10_PRIVATE_KEY_SIGNER=false`
+  - keep `false` in Production and Preview unless explicitly testing in isolated internal environment

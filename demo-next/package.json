@@ -9,6 +9,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "check:public-security": "bash ./scripts/guard-public-step10-flag.sh",
     "lint": "eslint",
     "test": "vitest --config vitest.config.mjs",
     "test:run": "vitest run --config vitest.config.mjs",

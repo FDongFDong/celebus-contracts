@@ -1,0 +1,46 @@
+name: Demo Next CI
+
+on:
+  push:
+    paths:
+      - "demo-next/**"
+      - ".github/workflows/demo-next-ci.yml"
+  pull_request:
+    paths:
+      - "demo-next/**"
+      - ".github/workflows/demo-next-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  demo-next:
+    name: demo-next checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: demo-next/.nvmrc
+          cache: npm
+          cache-dependency-path: demo-next/package-lock.json
+
+      - name: Install dependencies
+        working-directory: demo-next
+        run: npm ci
+
+      - name: Public security guard
+        run: npm --prefix demo-next run check:public-security
+
+      - name: Lint
+        working-directory: demo-next
+        run: npm run lint
+
+      - name: Test
+        working-directory: demo-next
+        run: npm run test:run
+
+      - name: Build
+        working-directory: demo-next
+        run: npm run build
