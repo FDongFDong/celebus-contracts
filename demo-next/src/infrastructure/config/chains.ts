@@ -39,7 +39,7 @@ export const bscMainnet = defineChain({
 
 /**
  * opBNB Mainnet 체인 정의 (L2)
- * @see https://docs.bnbchain.org/opbnb-docs/docs/core-concepts/opbnb-chains
+ * @see https://docs.bnbchain.org/bnb-opbnb/get-started/network-info
  */
 export const opBNBMainnet = defineChain({
   id: 204,
@@ -68,7 +68,7 @@ export const opBNBMainnet = defineChain({
 
 /**
  * opBNB Testnet 체인 정의 (L2)
- * @see https://docs.bnbchain.org/opbnb-docs/docs/core-concepts/opbnb-chains
+ * @see https://docs.bnbchain.org/bnb-opbnb/get-started/network-info
  */
 export const opBNBTestnet = defineChain({
   id: 5611,

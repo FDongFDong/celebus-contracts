@@ -667,4 +667,4 @@ MIT
 
 - [Foundry Book](https://book.getfoundry.sh/)
 - [EIP-712 Specification](https://eips.ethereum.org/EIPS/eip-712)
-- [opBNB Documentation](https://docs.bnbchain.org/opbnb-docs/)
+- [opBNB Documentation](https://docs.bnbchain.org/bnb-opbnb/)
