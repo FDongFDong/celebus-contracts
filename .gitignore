@@ -13,8 +13,9 @@ out/
 /broadcast/**/Submit*.s.sol/
 /broadcast/**/Stress*.s.sol/
 
-# Docs
-docs/
+# Docs (Foundry 빌드 문서 제외, 스크린샷은 포함)
+docs/*
+!docs/images/
 
 # Dotenv file
 .env

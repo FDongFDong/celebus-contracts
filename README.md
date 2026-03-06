@@ -14,6 +14,23 @@ EIP-712 기반 배치 투표/부스팅 시스템. 다중 사용자의 Off-chain 
 
 ---
 
+## 데모 앱 (Playground)
+
+블록체인에 대한 이해도가 부족한 팀원들과의 소통을 위해 제작한 컨트랙트 인터랙션 플레이그라운드입니다.
+배치 서명, 투표, 부스팅 등 전체 플로우를 시각화하여 직접 체험할 수 있습니다.
+
+| Main Voting | Sub Voting | Boosting |
+|:-----------:|:----------:|:--------:|
+| ![Main Voting](docs/images/demo-main-voting.png) | ![Sub Voting](docs/images/demo-sub-voting.png) | ![Boosting](docs/images/demo-boosting.png) |
+
+| NFT | ERC20 (Permit) |
+|:---:|:--------------:|
+| ![NFT](docs/images/demo-nft.png) | ![ERC20](docs/images/demo-erc20.png) |
+
+> Next.js 16 + viem + shadcn/ui 기반. `cd demo-next && npm run dev`로 실행.
+
+---
+
 ## 컨트랙트 목적
 
 MainVoting은 대규모 투표 시스템에서 발생하는 가스 비용 문제를 해결하기 위해 설계되었다. 개별 사용자가 각자 트랜잭션을 발생시키는 대신, 백엔드 서버가 다수의 사용자 서명을 수집하여 하나의 트랜잭션으로 일괄 제출한다.
